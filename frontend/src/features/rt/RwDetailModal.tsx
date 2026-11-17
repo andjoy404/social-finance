@@ -141,9 +141,14 @@ export function RwDetailModal({
   const handleUpdateRw = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!rw || editLock.current) return
-    const number = Number(rwNumber)
-    if (!rwNumber || !Number.isInteger(number) || number <= 0) {
-      setEditError('Nomor RW harus angka bulat positif.')
+    const trimmed = rwNumber.trim()
+    if (!trimmed || !/^[0-9]{3}$/.test(trimmed)) {
+      setEditError('Nomor RW harus tepat 3 digit angka (contoh: 016).')
+      return
+    }
+    const number = Number(trimmed)
+    if (number <= 0) {
+      setEditError('Nomor RW harus lebih dari 0.')
       return
     }
     const session = getSessionPair()
@@ -158,8 +163,8 @@ export function RwDetailModal({
     setEditSuccess(null)
     try {
       const updatedRw = await apiUpdateRW(session.accessToken, rw.id, {
-        rw_number: number,
-        name: rwName.trim() || `RW ${String(number).padStart(3, '0')}`,
+        rw_number: trimmed,
+        name: rwName.trim() || `RW ${trimmed}`,
         head_name: rwHead.trim() || null,
         address: rwAddress.trim() || null,
       })
@@ -284,6 +289,7 @@ export function RwDetailModal({
         {activeTab === 'ubah' ? (
           <form onSubmit={handleUpdateRw}>
             <div id="rw-panel-ubah" role="tabpanel" aria-labelledby="rw-tab-ubah" tabIndex={0}>
+              <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
               <ModalBody>
                 {editError && <div className="sf-error" role="alert">{editError}</div>}
                 {editSuccess && (
@@ -349,6 +355,7 @@ export function RwDetailModal({
                   </div>
                 </div>
               </ModalBody>
+              </div>
             </div>
             <ModalFooter>
               <button type="button" className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
@@ -360,6 +367,7 @@ export function RwDetailModal({
         ) : (
           <>
         <div id="rw-panel-jabatan" role="tabpanel" aria-labelledby="rw-tab-jabatan" tabIndex={0}>
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         <ModalBody>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
@@ -443,28 +451,28 @@ export function RwDetailModal({
 
             <div style={{ marginBottom: 8 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>RT</label>
-              <input
-                type="text"
+              <button
+                type="button"
                 className="sf-form-input"
-                readOnly
-                value={selectedRt ? `RT ${selectedRt.rt} — ${selectedRt.name}` : 'Pilih RT...'}
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
                 onClick={() => setRtSelectorOpen(true)}
                 disabled={modalSaving}
-                style={{ cursor: 'pointer' }}
-              />
+              >
+                {selectedRt ? `RT ${selectedRt.rt} — ${selectedRt.name}` : 'Pilih RT...'}
+              </button>
             </div>
 
             <div style={{ marginBottom: 8 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Warga</label>
-              <input
-                type="text"
+              <button
+                type="button"
                 className="sf-form-input"
-                readOnly
-                value={selectedMember ? (selectedMember.full_name || selectedMember.user_id) : 'Pilih Warga...'}
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
                 onClick={() => { if (selectedRt) setMemberSelectorOpen(true) }}
                 disabled={modalSaving || !selectedRt}
-                style={{ width: '100%', cursor: 'pointer' }}
-              />
+              >
+                {selectedMember ? (selectedMember.full_name || selectedMember.user_id) : 'Pilih Warga...'}
+              </button>
             </div>
 
             {selectedRt && selectedMember && (
@@ -504,6 +512,7 @@ export function RwDetailModal({
             </div>
           )}
         </ModalBody>
+        </div>
         </div>
         <ModalFooter>
           <button className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>

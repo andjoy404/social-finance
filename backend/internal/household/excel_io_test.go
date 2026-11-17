@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xuri/excelize/v2"
@@ -68,8 +69,8 @@ func writeRow(f *excelize.File, dataRow int, vals []string) {
 func TestParseExcelRowsValid(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Ani", "3171010101010002", "08112", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Ani", "3171010101010002", "08112", "ani@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -156,7 +157,7 @@ func TestParseExcelMissingRequiredColumn(t *testing.T) {
 func TestParseExcelInvalidNik(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "12345", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "12345", "08111", "bodi@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -176,7 +177,7 @@ func TestParseExcelInvalidNik(t *testing.T) {
 func TestParseExcelInvalidEmail(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "not-an-email", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "not-an-email", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -197,14 +198,14 @@ func TestParseExcelPhoneNormalization(t *testing.T) {
 	cases := []struct {
 		input, want string
 	}{
-		{"081234567890", "+6281234567890"},
-		{"6281234567890", "+6281234567890"},
-		{"+6281234567890", "+6281234567890"},
+		{"081234567890", "081234567890"},
+		{"6281234567890", "081234567890"},
+		{"+6281234567890", "081234567890"},
 	}
 	for _, tc := range cases {
 		f := excelize.NewFile()
 		writeHeaderRow(f)
-		writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", tc.input, "bodi@test.com", "HEAD"})
+		writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", tc.input, "bodi@test.com", "", "", ""})
 
 		rows, errs, err := parseExcelRows(f)
 		if err != nil {
@@ -222,7 +223,7 @@ func TestParseExcelPhoneNormalization(t *testing.T) {
 func TestParseExcelOccupancyPEMILIK(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "PEMILIK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "PEMILIK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -239,7 +240,7 @@ func TestParseExcelOccupancyPEMILIK(t *testing.T) {
 func TestParseExcelOccupancySEWA(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "SEWA", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "SEWA", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -256,7 +257,7 @@ func TestParseExcelOccupancySEWA(t *testing.T) {
 func TestParseExcelOccupancyKONTRAK(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "KONTRAK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "KONTRAK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -273,8 +274,8 @@ func TestParseExcelOccupancyKONTRAK(t *testing.T) {
 func TestParseExcelDuplicateNik(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A2", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010001", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A2", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010001", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -296,8 +297,8 @@ func TestParseExcelDuplicateNik(t *testing.T) {
 func TestParseExcelConflictingHeadName(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -317,8 +318,8 @@ func TestParseExcelConflictingHeadName(t *testing.T) {
 func TestParseExcelConflictingOccupancyStatus(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Budi", "TENANT", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Budi", "TENANT", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -338,10 +339,10 @@ func TestParseExcelConflictingOccupancyStatus(t *testing.T) {
 func TestParseExcelEmptyRowsSkipped(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"", "", "", "", "", "", "", "", ""})
-	writeRow(f, 2, []string{"", "", "", "", "", "", "", "", ""})
-	writeRow(f, 3, []string{"A2", "Citra", "OWNER", "Jl. M.", "Citra", "3171010101010002", "", "citra@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"", "", "", "", "", "", "", "", "", "", ""})
+	writeRow(f, 2, []string{"", "", "", "", "", "", "", "", "", "", ""})
+	writeRow(f, 3, []string{"A2", "Citra", "OWNER", "Jl. M.", "Citra", "3171010101010002", "", "citra@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -390,7 +391,7 @@ func TestParseExcelAliasHeadersRejected(t *testing.T) {
 	f.SetCellValue("Sheet1", "G1", "telepon")
 	f.SetCellValue("Sheet1", "H1", "resident_email")
 	f.SetCellValue("Sheet1", "I1", "hubungan")
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -429,7 +430,7 @@ func TestParseExcelAliasHeadersRejected(t *testing.T) {
 func TestParseExcelMissingRequiredFields(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"", "", "INVALID", "", "", "", "08111", "", ""})
+	writeRow(f, 0, []string{"", "", "INVALID", "", "", "", "08111", "", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -443,7 +444,7 @@ func TestParseExcelMissingRequiredFields(t *testing.T) {
 func TestParseExcelNIKStripNonDigits(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3.171010101E+15", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3.171010101E+15", "08111", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -798,8 +799,8 @@ func TestHandleWargaImportPreviewXLSX(t *testing.T) {
 	// Build valid XLSX with 2 rows
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 1", "3171010101010201", "08111", "p1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 2", "3171010101010202", "08112", "p2@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 1", "3171010101010201", "08111", "p1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 2", "3171010101010202", "08112", "p2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -875,7 +876,7 @@ func TestHandleWargaImportPreviewXLXWargaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-W-1", "Warga Head", "OWNER", "Jl. M.", "Warga Resident", "3171010101010301", "", "w@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-W-1", "Warga Head", "OWNER", "Jl. M.", "Warga Resident", "3171010101010301", "", "w@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -905,8 +906,8 @@ func TestHandleWargaImportCommitXLSX(t *testing.T) {
 	// Build valid XLSX
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 1", "3171010101010401", "08201", "c1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 2", "3171010101010402", "08202", "c2@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 1", "3171010101010401", "08201", "c1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 2", "3171010101010402", "08202", "c2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1007,7 +1008,7 @@ func TestHandleWargaImportCommitXLSXWargaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-WC-1", "Warga Commit", "OWNER", "Jl. M.", "Warga C", "3171010101010501", "", "wc@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-WC-1", "Warga Commit", "OWNER", "Jl. M.", "Warga C", "3171010101010501", "", "wc@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1032,7 +1033,7 @@ func TestHandleWargaImportCommitXLSXBendaharaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-BC-1", "Bendahara Commit", "OWNER", "Jl. M.", "Bendahara C", "3171010101010601", "", "bc@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-BC-1", "Bendahara Commit", "OWNER", "Jl. M.", "Bendahara C", "3171010101010601", "", "bc@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1062,8 +1063,8 @@ func TestCommitXLSXRejectsPartialCommit(t *testing.T) {
 	// Build XLSX: 1 valid head, 1 invalid NIK
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PT-1", "Valid Head", "OWNER", "Jl. M.", "Valid Resident", "3171010101010701", "", "val@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-PT-2", "Invalid Head", "OWNER", "Jl. M.", "Invalid Resident", "12345", "", "inv@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-PT-1", "Valid Head", "OWNER", "Jl. M.", "Valid Resident", "3171010101010701", "", "val@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-PT-2", "Invalid Head", "OWNER", "Jl. M.", "Invalid Resident", "12345", "", "inv@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1116,8 +1117,8 @@ func TestCommitXLSXDuplicateNIK(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-DN-1", "Dup Head 1", "OWNER", "Jl. M.", "Dup Resident 1", "3171010101010801", "", "d1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-DN-2", "Dup Head 2", "OWNER", "Jl. M.", "Dup Resident 2", "3171010101010801", "", "d2@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-DN-1", "Dup Head 1", "OWNER", "Jl. M.", "Dup Resident 1", "3171010101010801", "", "d1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-DN-2", "Dup Head 2", "OWNER", "Jl. M.", "Dup Resident 2", "3171010101010801", "", "d2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1156,8 +1157,8 @@ func TestCommitXLSXConflictingHeadName(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CH-1", "Conflicting Head A", "OWNER", "Jl. M.", "Resident A", "3171010101010901", "", "a@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CH-1", "Conflicting Head B", "OWNER", "Jl. M.", "Resident B", "3171010101010902", "", "b@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CH-1", "Conflicting Head A", "OWNER", "Jl. M.", "Resident A", "3171010101010901", "", "a@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CH-1", "Conflicting Head B", "OWNER", "Jl. M.", "Resident B", "3171010101010902", "", "b@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1191,8 +1192,8 @@ func TestCommitXLSXConflictingOccupancyStatus(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CO-1", "Same Head", "OWNER", "Jl. M.", "Owner Resident", "3171010101011001", "", "o@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CO-1", "Same Head", "TENANT", "Jl. M.", "Tenant Resident", "3171010101011002", "", "t@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CO-1", "Same Head", "OWNER", "Jl. M.", "Owner Resident", "3171010101011001", "", "o@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CO-1", "Same Head", "TENANT", "Jl. M.", "Tenant Resident", "3171010101011002", "", "t@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1230,7 +1231,7 @@ func TestPreviewCommitValidationParity(t *testing.T) {
 	// Build invalid XLSX: bad NIK
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PAR-1", "Parity Head", "OWNER", "Jl. M.", "Parity Resident", "12345", "", "p@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-PAR-1", "Parity Head", "OWNER", "Jl. M.", "Parity Resident", "12345", "", "p@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	defer f.Close()
 
@@ -1483,7 +1484,7 @@ func TestSuperAdminWargaImportXLSX(t *testing.T) {
 	// Valid XLSX with 1 row
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-SAI-1", "SA Import Head", "OWNER", "Jl. SA 1", "SA Import Res", "3171010101010999", "08111", "sa@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-SAI-1", "SA Import Head", "OWNER", "Jl. SA 1", "SA Import Res", "3171010101010999", "08111", "sa@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1556,8 +1557,23 @@ func TestBuildTemplateXLSXSingleSheet(t *testing.T) {
 	defer f.Close()
 
 	sheets := f.GetSheetList()
-	if len(sheets) != 1 || sheets[0] != "Template" {
-		t.Fatalf("expected exactly 1 sheet named 'Template', got: %+v", sheets)
+	// Main visible sheet must be 'Template', with optional hidden helper sheet '_jabatan_options'
+	if len(sheets) < 1 || sheets[0] != "Template" {
+		t.Fatalf("expected primary sheet named 'Template', got: %+v", sheets)
+	}
+	visible, err := f.GetSheetVisible("Template")
+	if err != nil || !visible {
+		t.Fatalf("expected Template sheet to be visible, got visible=%v err=%v", visible, err)
+	}
+	if len(sheets) > 1 {
+		for _, s := range sheets[1:] {
+			if s == "_jabatan_options" {
+				vis, err := f.GetSheetVisible(s)
+				if err != nil || vis {
+					t.Fatalf("expected %s to be hidden, got visible=%v", s, vis)
+				}
+			}
+		}
 	}
 
 	// Verify headers are present in row 1
@@ -1588,7 +1604,7 @@ func TestParseExcelNonEmptySheetDetection(t *testing.T) {
 		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)
 		f.SetCellValue("DataSheet", cell, col)
 	}
-	vals := []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"}
+	vals := []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""}
 	for i, v := range vals {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		f.SetCellValue("DataSheet", cell, v)
@@ -1603,5 +1619,389 @@ func TestParseExcelNonEmptySheetDetection(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row parsed from DataSheet, got %d", len(rows))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Jabatan dropdown validation tests
+// ---------------------------------------------------------------------------
+
+// expectedJabatanOptions lists the canonical jabatan display labels that must
+// appear in the dropdown.
+var expectedJabatanOptions = []string{
+	"Ketua",
+	"Wakil Ketua",
+	"Sekretaris",
+	"Bendahara",
+	"Keamanan",
+	"Sosial",
+	"Operasional",
+	"Kebersihan",
+	"Anggota",
+}
+
+// countDataValidations returns the number of data validations on the given sheet.
+func countDataValidations(f *excelize.File, sheetName string) int {
+	dvs, _ := f.GetDataValidations(sheetName)
+	return len(dvs)
+}
+
+// findValidationBySqref returns the data validation matching the given Sqref, or nil.
+func findValidationBySqref(f *excelize.File, sheetName, sqref string) *excelize.DataValidation {
+	dvs, _ := f.GetDataValidations(sheetName)
+	for _, dv := range dvs {
+		if dv.Sqref == sqref {
+			return dv
+		}
+	}
+	return nil
+}
+
+// TestBuildTemplateXLSXHasJabatanDropdown verifies that the import template
+// includes a List-type data validation dropdown on column J (jabatan) covering
+// rows 2 through 1000, backed by a hidden _jabatan_options sheet.
+func TestBuildTemplateXLSXHasJabatanDropdown(t *testing.T) {
+	f, err := buildTemplateXLSX()
+	if err != nil {
+		t.Fatalf("buildTemplateXLSX: %v", err)
+	}
+	defer f.Close()
+
+	// 1. Template sheet must exist and be visible.
+	sheets := f.GetSheetList()
+	foundTemplate := false
+	for _, s := range sheets {
+		if s == "Template" {
+			foundTemplate = true
+			break
+		}
+	}
+	if !foundTemplate {
+		t.Fatalf("expected 'Template' sheet, got: %+v", sheets)
+	}
+
+	// 2. Hidden _jabatan_options sheet must exist.
+	foundOpts := false
+	for _, s := range sheets {
+		if s == "_jabatan_options" {
+			foundOpts = true
+			vis, err := f.GetSheetVisible(s)
+			if err != nil {
+				t.Fatalf("check %s visibility: %v", s, err)
+			}
+			if vis {
+				t.Fatalf("expected '_jabatan_options' sheet to be hidden")
+			}
+			break
+		}
+	}
+	if !foundOpts {
+		t.Fatalf("expected '_jabatan_options' hidden sheet, got sheets: %+v", sheets)
+	}
+
+	// 3. All jabatan options must be written to the hidden sheet.
+	for i, label := range expectedJabatanOptions {
+		cell, _ := excelize.CoordinatesToCellName(1, i+1)
+		val, err := f.GetCellValue("_jabatan_options", cell)
+		if err != nil {
+			t.Fatalf("read %s: %v", cell, err)
+		}
+		if val != label {
+			t.Errorf("_jabatan_options[%d] = %q, want %q", i, val, label)
+		}
+	}
+
+	// 4. Data validation must exist on Template column J, rows 2..1000.
+	dvs, err := f.GetDataValidations("Template")
+	if err != nil {
+		t.Fatalf("get data validations: %v", err)
+	}
+	if len(dvs) == 0 {
+		t.Fatal("expected at least 1 data validation on Template sheet, got 0")
+	}
+	found := false
+	for _, dv := range dvs {
+		if dv.Sqref == "J2:J1000" && dv.Type == "list" && !dv.ShowDropDown {
+			found = true
+			if dv.Formula1 == "" {
+				t.Error("data validation Formula1 must not be empty")
+			}
+			// Verify formula references the hidden options sheet directly.
+			optsRangeEnd, _ := excelize.CoordinatesToCellName(1, len(expectedJabatanOptions))
+			expectedFormula := fmt.Sprintf("'%s'!$A$1:%s", "_jabatan_options", optsRangeEnd)
+			if dv.Formula1 != expectedFormula {
+				t.Errorf("expected Formula1 to reference '_jabatan_options' range, got %q", dv.Formula1)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected List-type data validation on J2:J1000 on Template sheet; validations: %+v", dvs)
+	}
+}
+
+// TestExportXLSXHasJabatanDropdown verifies that an exported XLSX includes a
+// List-type data validation dropdown on column J (jabatan) covering all data
+// rows plus at least one empty row for new entries, backed by a hidden
+// _jabatan_options sheet.
+func TestExportXLSXHasJabatanDropdown(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupExcelRouter(pool)
+
+	rtID := setupTestRT(t, pool, "XLDrop", 1, "XLD")
+	pToken := makeTenantToken(t, "test-user-drop-1", "test-mid-drop-1", rtID, auth.RolePengurus)
+
+	// Insert physical house + household + occupancy + resident
+	houseNum := "X-DROP-1"
+	houseID := ensurePhysicalHouse(pool, context.Background(), rtID, houseNum, "drop")
+	hhID := ensureHousehold(pool, context.Background(), rtID, "Drop Head")
+	hoID := ensureOccupancy(pool, context.Background(), hhID, houseID, "OWNER")
+	resID := ensureResident(pool, context.Background(), rtID, "Drop Resident")
+	ensureResidency(pool, context.Background(), resID, hoID)
+
+	// Also insert a jabatan membership so export has a non-empty jabatan value.
+	var userID string
+	var err error
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (email, full_name, password_hash, system_role) VALUES ($1, $2, $3, NULL) RETURNING id`,
+		fmt.Sprintf("drop-export-%d@test.com", time.Now().UnixNano()), "Drop Resident", "hash",
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active) VALUES ($1, $2, 'warga', $3, true)`,
+		userID, rtID, "keamanan",
+	)
+	if err != nil {
+		t.Fatalf("insert membership: %v", err)
+	}
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`UPDATE residents SET user_id = $1 WHERE id = $2`,
+		userID, resID,
+	)
+	if err != nil {
+		t.Fatalf("link user to resident: %v", err)
+	}
+
+	req := makeAuthRequest(pool, http.MethodGet, "/api/v1/warga/export/xlsx", pToken, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	f, err := excelize.OpenReader(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("response body is not valid XLSX: %v", err)
+	}
+	defer f.Close()
+
+	// 1. Warga sheet must exist.
+	sheets := f.GetSheetList()
+	foundWarga := false
+	for _, s := range sheets {
+		if s == "Warga" {
+			foundWarga = true
+			break
+		}
+	}
+	if !foundWarga {
+		t.Fatalf("expected 'Warga' sheet, got: %+v", sheets)
+	}
+
+	// 2. Hidden _jabatan_options sheet must exist.
+	foundOpts := false
+	for _, s := range sheets {
+		if s == "_jabatan_options" {
+			foundOpts = true
+			vis, err := f.GetSheetVisible(s)
+			if err != nil || vis {
+				t.Fatalf("expected _jabatan_options to be hidden; visible=%v err=%v", vis, err)
+			}
+			break
+		}
+	}
+	if !foundOpts {
+		t.Fatalf("expected _jabatan_options hidden sheet, got sheets: %+v", sheets)
+	}
+
+	// 3. All jabatan options must be present in hidden sheet.
+	for i, label := range expectedJabatanOptions {
+		cell, _ := excelize.CoordinatesToCellName(1, i+1)
+		val, err := f.GetCellValue("_jabatan_options", cell)
+		if err != nil {
+			t.Fatalf("read %s: %v", cell, err)
+		}
+		if val != label {
+			t.Errorf("_jabatan_options[%d] = %q, want %q", i, val, label)
+		}
+	}
+
+	// 4. Data validation on Warga column J covering at least the data row(s).
+	// Export covers rows 2..(last data row). With 1 resident, range should be J2:J2.
+	dvs, err := f.GetDataValidations("Warga")
+	if err != nil {
+		t.Fatalf("get data validations: %v", err)
+	}
+	if len(dvs) == 0 {
+		t.Fatal("expected at least 1 data validation on Warga sheet, got 0")
+	}
+	found := false
+		for _, dv := range dvs {
+			if dv.Type == "list" && !dv.ShowDropDown && dv.Formula1 != "" {
+				// Verify Sqref covers column J.
+				if !strings.HasPrefix(dv.Sqref, "J") {
+					t.Errorf("expected Sqref to start with 'J', got %q", dv.Sqref)
+				}
+				// Verify formula references the hidden sheet directly.
+				optsRangeEnd, _ := excelize.CoordinatesToCellName(1, len(expectedJabatanOptions))
+				expectedFormula := fmt.Sprintf("'%s'!$A$1:%s", "_jabatan_options", optsRangeEnd)
+				if dv.Formula1 != expectedFormula {
+					t.Errorf("expected Formula1 to reference '_jabatan_options' range, got %q", dv.Formula1)
+				}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected List-type data validation on Warga column J; validations: %+v", dvs)
+	}
+}
+
+// TestDropdownOptionsMatchValidRTJabatans verifies that the dropdown label list
+// corresponds 1:1 with the canonical jabatan values accepted by the backend
+// validator (validRTJabatans), ensuring no jabatan is missing or extra.
+func TestDropdownOptionsMatchValidRTJabatans(t *testing.T) {
+	// Build a set of canonical jabatan values from the backend validator.
+	canonical := make(map[string]bool)
+	for jabatan := range validRTJabatans {
+		canonical[jabatan] = true
+	}
+
+	// Map each dropdown display label to its canonical form (lowercase).
+	dropdownCanonical := make(map[string]bool)
+	for _, label := range expectedJabatanOptions {
+		canonicalForm := normalizeJabatan(strings.ToLower(label))
+		dropdownCanonical[canonicalForm] = true
+	}
+
+	// Every canonical jabatan must have a dropdown entry.
+	for jabatan := range canonical {
+		if !dropdownCanonical[jabatan] {
+			t.Errorf("canonical jabatan %q missing from dropdown options", jabatan)
+		}
+	}
+
+	// Every dropdown option must map to a canonical jabatan.
+	for label := range dropdownCanonical {
+		if !canonical[label] {
+			t.Errorf("dropdown canonical %q (from label) not in validRTJabatans", label)
+		}
+	}
+
+	if len(expectedJabatanOptions) != len(validRTJabatans) {
+		t.Errorf("dropdown option count %d != validRTJabatans count %d",
+			len(expectedJabatanOptions), len(validRTJabatans))
+	}
+}
+
+// TestDropdownValidationFormulaReferencesHiddenSheet verifies that the data
+// validation Formula1 references the hidden _jabatan_options sheet range
+// (not a literal inline list), ensuring compatibility with Excel and
+// LibreOffice and avoiding formula length limits.
+func TestDropdownValidationFormulaReferencesHiddenSheet(t *testing.T) {
+	f, err := buildTemplateXLSX()
+	if err != nil {
+		t.Fatalf("buildTemplateXLSX: %v", err)
+	}
+	defer f.Close()
+
+	dv := findValidationBySqref(f, "Template", "J2:J1000")
+	if dv == nil {
+		t.Fatal("expected data validation on J2:J1000")
+	}
+	if dv.Formula1 == "" {
+		t.Fatal("expected non-empty Formula1")
+	}
+	// Verify the formula references the hidden sheet directly.
+	optsRangeEnd, _ := excelize.CoordinatesToCellName(1, len(expectedJabatanOptions))
+	expectedFormula := fmt.Sprintf("'%s'!$A$1:%s", "_jabatan_options", optsRangeEnd)
+	if dv.Formula1 != expectedFormula {
+		t.Errorf("expected Formula1 to reference '_jabatan_options' range, got %q", dv.Formula1)
+	}
+}
+
+// TestDropdownRangeIncludesEmptyRows verifies that the template dropdown
+// covers empty rows beyond the header, allowing users to add new entries
+// without re-creating the file.
+func TestDropdownRangeIncludesEmptyRows(t *testing.T) {
+	f, err := buildTemplateXLSX()
+	if err != nil {
+		t.Fatalf("buildTemplateXLSX: %v", err)
+	}
+	defer f.Close()
+
+	dv := findValidationBySqref(f, "Template", "J2:J1000")
+	if dv == nil {
+		t.Fatal("expected data validation on J2:J1000 covering empty rows for new entries")
+	}
+}
+
+// TestDropdownRangeCoversAllExportRows verifies that export dropdown covers
+// all data rows and the range starts at row 2.
+func TestDropdownRangeCoversAllExportRows(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupExcelRouter(pool)
+
+	rtID := setupTestRT(t, pool, "XLDropRange", 1, "XLDD")
+	pToken := makeTenantToken(t, "test-user-drop-r-1", "test-mid-drop-r-1", rtID, auth.RolePengurus)
+
+	// Insert 3 residents to verify the range covers all of them.
+	houseIDs := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		houseIDs[i] = ensurePhysicalHouse(pool, context.Background(), rtID,
+			fmt.Sprintf("X-DR-%d", i+1), "range")
+		hhID := ensureHousehold(pool, context.Background(), rtID, fmt.Sprintf("Head %d", i+1))
+		hoID := ensureOccupancy(pool, context.Background(), hhID, houseIDs[i], "OWNER")
+		resID := ensureResident(pool, context.Background(), rtID, fmt.Sprintf("Resident %d", i+1))
+		ensureResidency(pool, context.Background(), resID, hoID)
+	}
+
+	req := makeAuthRequest(pool, http.MethodGet, "/api/v1/warga/export/xlsx", pToken, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	f, err := excelize.OpenReader(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("response body is not valid XLSX: %v", err)
+	}
+	defer f.Close()
+
+	// Count data rows (header + 3 residents = 4 rows total).
+	rows, err := f.GetRows("Warga")
+	if err != nil {
+		t.Fatalf("get rows: %v", err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("expected 4 rows (1 header + 3 data), got %d", len(rows))
+	}
+
+	// Data validation should cover J2:J4.
+	dv := findValidationBySqref(f, "Warga", "J2:J4")
+	if dv == nil {
+		allDvs, _ := f.GetDataValidations("Warga")
+		t.Fatalf("expected data validation on J2:J4 covering all 3 data rows; validations: %+v", allDvs)
+	}
+	if dv.Type != "list" {
+		t.Errorf("expected validation type 'list', got %q", dv.Type)
+	}
+	if dv.ShowDropDown {
+		t.Error("expected ShowDropDown to be false (dropdown arrow visible)")
 	}
 }

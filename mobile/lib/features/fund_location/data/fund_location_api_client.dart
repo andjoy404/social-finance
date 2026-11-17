@@ -35,6 +35,21 @@ class FundLocationApiClient {
     return [];
   }
 
+  /// GET /api/v1/fund-locations/rekening/public
+  /// Public to every authenticated RT member: returns balance-free records of
+  /// active Rekening only — bank, name, account number, holder.
+  Future<List<PublicRekening>> listPublicRekening() async {
+    final response = await dio.get('/api/v1/fund-locations/rekening/public');
+    final data = response.data;
+    if (data is Map && data['data'] is List) {
+      final list = data['data'] as List;
+      return list
+          .map((e) => PublicRekening.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return const [];
+  }
+
   /// GET /api/v1/fund-locations/{id}
   Future<FundLocation> getLocation(String id) async {
     final response = await dio.get('/api/v1/fund-locations/$id');

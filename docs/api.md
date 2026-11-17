@@ -280,7 +280,9 @@ Response (200 OK):
   "jabatan": null,
   "effective_permissions": [
     "finance.read"
-  ]
+  ],
+  "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+  "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg"
 }
 ```
 
@@ -899,7 +901,9 @@ Response (200 OK): the resident object:
   "updated_at": "2026-09-16T10:00:00Z",
   "rt_number": "03",
   "rw": 16,
-  "rt_name": "Wisma Rukun Tunggal"
+  "rt_name": "Wisma Rukun Tunggal",
+  "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+  "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg"
 }
 ```
 
@@ -959,6 +963,35 @@ Role: **Pengurus** only
 - Soft delete: sets `is_active = false`.
 - Target resident must belong to requesting RT and currently be active.
 - No response body (204 No Content).
+
+### 6.11 Special Resident (Petugas Khusus)
+
+- `POST /api/v1/residents/special` — Creates a special resident without a household chain (`jabatan` must be one of `'keamanan'`, `'operasional'`, or `'kebersihan'`).
+  - Permitted: Pengurus or Bendahara role, Ketua/Wakil Ketua/Sekretaris/Bendahara position, or SUPER_ADMIN with a valid allowed-RT context.
+  - Tenant scope always comes from the authenticated RT context; a tenant caller cannot select another `rt_id`.
+  - Email must be unused. Existing accounts are not reused or moved between RTs; duplicate email returns `409 Conflict`.
+  - The new membership uses role `warga` and the selected `jabatan`; an initial random password is set and is not returned. Use the authorized password-reset flow to establish credentials.
+- `PATCH /api/v1/residents/special/{id}` — Updates a special resident and/or their `jabatan` (`'keamanan'`, `'operasional'`, or `'kebersihan'`). Uses the same access roles and tenant scope; cross-RT IDs return `404`.
+
+### 6.12 Resident Profile Photo Management
+
+- `POST /api/v1/residents/{id}/photo` — Upload resident profile photo.
+  - Authentication: **Required (Bearer token)** with `resident.profile_photo.manage` permission (Ketua RT).
+  - Content-Type: `multipart/form-data` with form field `file` (max 5 MB; JPEG, PNG, or WebP).
+  - Processing: Stores original image and automatically generates an optimized 200×200 center-cropped JPEG thumbnail (quality 82).
+  - Response (200 OK):
+    ```json
+    {
+      "resident_id": "550e8400-e29b-41d4-a716-446655440001",
+      "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+      "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg",
+      "updated_at": "2026-11-13T10:00:00Z"
+    }
+    ```
+- `DELETE /api/v1/residents/{id}/photo` — Remove resident profile photo.
+  - Authentication: **Required (Bearer token)** with `resident.profile_photo.manage` permission (Ketua RT).
+  - Clears both `avatar_path` and `avatar_thumb_path` in DB and deletes both objects from storage.
+  - Response: 204 No Content.
 
 ---
 
@@ -1122,6 +1155,34 @@ Voluntary expiry rule:
     }
     ```
 
+### 10.4 Warga Import Commit (XLSX)
+- `POST /api/v1/warga/import/commit/xlsx` (Pengurus)
+  - Excel (.xlsx) variant of the bulk import. Parses `house_number, head_name, occupancy_status, address?, resident_name, nik?, phone?, email?, move_in_date?, jabatan?, password?`.
+  - Same atomic transaction semantics as 10.3.
+  - When an import moves a resident's `move_in_date` / `residency_periods.start_date` backwards (or otherwise causes previously non-obligatory `bills` to become obligatory), the backend reconciles bill obligations inside the same transaction and reports the change **per affected occupancy**.
+  - The response includes:
+    ```json
+    {
+      "status": "committed",
+      "imported_households": 1,
+      "imported_residents": 1,
+      "obligation_warnings": [
+        {
+          "household_occupancy_id": "…uuid…",
+          "house_number": "AW-01",
+          "resident_names": ["Budi A"],
+          "activated_periods": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"],
+          "activated_bill_count": 7,
+          "total_activated_amount": "700000.00"
+        }
+      ]
+    }
+    ```
+  - `obligation_warnings` is present **only** when the synchronization actually flipped bills to `is_obligatory = true` with outstanding balance (amount minus approved APPROVED payment allocations and direct APPROVED payments). Fully paid bills that become obligatory are not reported.
+  - Rows with no obligation change produce no warning; importing identical data again is idempotent and produces no warnings.
+  - If any part of the import transaction aborts (validation, sync failure), no warning is emitted and no obligation/bill state is visible outside the transaction.
+  - `total_activated_amount` is the sum of outstanding (amount minus approved paid) for the newly obligatory bills, formatted as `NUMERIC(15,2)` string.
+
 ---
 
 ## 11. Notification Management Endpoints
@@ -1159,13 +1220,25 @@ Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
 - `GET /api/v1/notifications/logs?page=1&page_size=20&event_type=&status=`
   - Accessible to all authenticated RT members (Warga, Pengurus, Bendahara, Super Admin).
   - Scope:
-    - **Warga**: Returns personal notifications targeted to the caller (`user_id = auth.UserID`) plus public RT announcements (`event_type IN ('manual_push', 'waste_truck_arrival')` or `user_id IS NULL`) in the caller's RT. Test pushes and other residents' private notifications are excluded.
-    - **Officers (Ketua RT, Super Admin, Pengurus, Bendahara)**: Returns all delivery records for the tenant RT.
+    - Returns only records addressed to the caller (`user_id = auth.UserID`) in the caller's RT. Broadcast records are visible through their per-recipient delivery records, not through the sender's RT-wide dispatch record. Test pushes are visible only to their authenticated owner.
+    - The user ID and RT scope come from the authenticated session; client-supplied recipient, sender, actor, or RT identifiers do not widen access.
   - Query parameters:
     - `page` (default 1), `page_size` (default 20, max 100)
     - `event_type` (optional filter)
     - `status` (optional: `unread`, `read`, or `all`)
-  - Response includes `is_read: boolean` and `read_at: string | null` per item for the authenticated caller.
+  - Response includes `is_read: boolean` and `read_at: string | null` per item for the authenticated caller. `status` is the delivery result on that recipient's record; explicit provider success remains `SENT`, provider failure remains `FAILED`, and missing delivery evidence is `UNKNOWN`.
+
+### 11.8.1 List Pengurus Notification Activity
+- `GET /api/v1/notifications/management-history?category=system|mine&page=1&page_size=20`
+  - Requires the existing `notification.manage` authorization and the caller's authorized RT scope.
+  - `category=system` includes only scheduler executions proven by the `schedule:` delivery dedup key, grouped once per schedule execution.
+  - `category=mine` preserves actions and broadcasts sent by the authenticated user and includes every actual notification recipient record addressed to them, including manual and waste-truck broadcasts. Recipient records are selected by authenticated `user_id` and tenant RT, not inferred from a sender's role or a broadcast's RT-wide parent record.
+  - The caller identity is read from the authenticated token. There is no `sender_user_id` or actor query parameter.
+  - Events without reliable system/actor provenance, including historical records that cannot be classified, are excluded rather than guessed into either category.
+  - Response entries include `history_category`, `activity_relation` (`system`, `sent_by_me`, `received_by_me`, or `performed_by_me`), `status`, and `delivery_counts_available`. Payment action status is not a delivery status. A grouped scheduled activity is `PARTIAL` only with evidence of both a successful and a failed provider attempt, `SENT` when there is a successful attempt and no proven failure, `FAILED` when all recorded provider outcomes failed, and `UNKNOWN` when no provider outcome is known. Recipients with no token remain `UNKNOWN` individually and do not convert successful attempts into failures. Incomplete/legacy delivery evidence is not inferred as success or failure.
+  - Waste-truck notifications are recorded once per eligible current household resident in `notification_logs`, in addition to the sender's dispatch record. Management history uses authenticated actor/recipient IDs and the token-derived RT; it does not expose another Pengurus's personal history.
+  - `page_size` defaults to 20 and is capped at 100.
+  - Users without `notification.manage` can use the regular `/notifications/logs` endpoint for their own received records only; management-history categories, templates, and schedules remain inaccessible.
 
 ### 11.9 Notification Read Receipts & Unread Count
 - `GET /api/v1/notifications/unread-count`
@@ -1192,10 +1265,95 @@ Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
   - Multipart form file `image` and form field `event_type`.
   - Permitted: **SUPER_ADMIN** and **Ketua RT**.
   - Stores image in RustFS under `notifications/waste-truck/` or `notifications/manual/`. Returns public relative stream URL.
+- `POST /api/v1/notifications/waste-truck/upload-image`
+  - Multipart form file `file` (or `image`) and form field `event_type`.
+  - Permitted: existing RT officers; Petugas Keamanan only for `event_type=waste_truck_arrival` and only with `notification.send_waste_truck`.
+  - Other event types, including `manual_push` for Petugas Keamanan, are forbidden.
 
-### 11.13 Stream Notification Image
+### 11.13 Waste Truck Arrival
+- `GET /api/v1/notifications/waste-truck/template`
+  - Returns the active `waste_truck_arrival` template for the caller's RT.
+  - Permitted: existing RT officers and Petugas Keamanan in the authenticated RT. Read access does not grant dispatch permission.
+- `POST /api/v1/notifications/waste-truck`
+  - Triggers a public arrival notification for current household residents in the caller's RT.
+  - Permitted: existing RT officers or Petugas Keamanan with `notification.send_waste_truck`.
+  - Dispatch is permitted to existing RT officers or Petugas Keamanan with `notification.send_waste_truck`; only this event may be dispatched by Petugas Keamanan.
+  - Push recipients are current household residents with an active user, membership in the same RT, and residency/occupancy period currently in effect. Active device tokens are used when present; residents without a token remain visible in history with `UNKNOWN` delivery outcome. A Petugas Keamanan account is included only if it independently qualifies as a current household resident; no household or occupancy is synthesized.
+  - Returns `202 Accepted`; this confirms dispatch was queued, not delivery. Delivery status is recorded asynchronously and is available from the sender-only history endpoint.
+- `GET /api/v1/notifications/waste-truck/history?page=1&per_page=20`
+  - Returns paginated waste-truck dispatch records sent by the authenticated Petugas Keamanan in the authenticated RT.
+  - Requires `jabatan=keamanan` and the authenticated RT, but not dispatch permission. The backend filters by token-derived `rt_id` and `sender_user_id`; caller-supplied sender or tenant identifiers are not accepted.
+  - Dispatch records include `event_type`, `title`, `body`, `image_url`, `status` (`PENDING`, `SENT`, `PARTIAL`, `FAILED`, or `UNKNOWN` when the result cannot be established), safe `failure_reason` when applicable, and dispatch `created_at`.
+
+### 11.14 Stream Notification Image
 - `GET /api/v1/notifications/images/*`
   - Public read endpoint streaming notification images stored in RustFS.
+
+### 11.15 Notification Schedules API
+- `GET /api/v1/notifications/schedules`
+  - Lists all notification schedules for the caller's RT.
+  - Requires `notification.manage` permission.
+  - Response items include `id`, `name`, `event_type`, `template_id`, `send_days`, `send_hour`, `send_minute`, `timezone`, `is_active`, `last_executed_at`, `last_executed_status` (`success`, `partial`, `failed`, `no_device`, `no_recipients`), `last_executed_error` (safe error message), and `last_executed_summary` (`total_recipients`, `sent_count`, `failed_count`, `no_device_count`, `failure_reason`).
+- `POST /api/v1/notifications/schedules`
+  - Creates a new notification schedule for the caller's RT.
+  - Body: `{"name": "...", "event_type": "...", "template_id": "...", "send_days": [1, 15], "send_hour": 8, "send_minute": 0, "timezone": "Asia/Jakarta"}`
+- `PUT /api/v1/notifications/schedules/{id}`
+  - Updates an existing schedule.
+- `DELETE /api/v1/notifications/schedules/{id}`
+  - Deletes a schedule.
+- `PATCH /api/v1/notifications/schedules/{id}/toggle`
+  - Toggles `is_active` state of the schedule.
+- `GET /api/v1/notifications/schedules/history`
+  - Lists aggregated execution history for notification schedules in the caller's RT.
+  - Query parameters: `page`, `page_size`.
+  - Supports configuration versioning: multiple executions on the same date with distinct delivery configurations appear as separate history records with their respective `config_hash`, execution time, and delivery metrics.
+- `GET /api/v1/notifications/schedules/{schedule_id}/recipients`
+  - Returns individual recipient delivery results for a specific schedule execution.
+  - Query parameters: `exec_date` (required, YYYY-MM-DD), `config_hash` (optional, filters to a specific configuration version).
+
+### 11.16 Activity (Kegiatan) Notifications
+Activity lifecycle events are first-class, customizable notification events. Like other notification events, they honor RT scope and the `notification.manage` permission for management surfaces (creation/toggling/deleting templates and schedules).
+
+Event types:
+| Event | Trigger | Audience |
+|---|---|---|
+| `activity_created` | Pengurus RT creates or publishes an activity | Seluruh warga RT |
+| `activity_updated` | Pengurus RT updates an activity | Seluruh warga RT |
+| `activity_reminder` | One-shot schedule tied to a specific activity fires at `execution_at` | Seluruh warga RT |
+| `activity_cancelled` | Pengurus RT cancels an activity | Seluruh warga RT |
+| `activity_completed` | Activity ends (`ends_at` telah lewat) | Seluruh warga RT |
+
+Permitted variables (all activity events):
+- `{{nama_kegiatan}}` — the activity title.
+- `{{deskripsi_kegiatan}}` — the activity description (em dash if missing).
+- `{{tanggal_kegiatan}}` — starts_at date in Asia/Jakarta (`2 January 2006`).
+- `{{jam_kegiatan}}` — starts_at time in Asia/Jakarta (`15:04`).
+- `{{lokasi_kegiatan}}` — activity location.
+- `{{penyelenggara}}` — activity organizer or issuing party.
+- `{{nama_warga}}` — recipient's full name (per-recipient rendering).
+
+**One-shot activity reminders.** `activity_reminder` schedules are created with `activity_id` + absolute `execution_at`, have no `send_days` semantics, and deactivate themselves after firing or after the activity terminates. When the activity is cancelled or completes (`ends_at` elapsed) the pending schedule is deactivated and `'skipped'` is recorded in `notification_schedule_executions`. History rows in `notification_logs` are never deleted — a cancellation is recorded as a new `activity_cancelled` log row.
+
+Schedule endpoint bodies now accept:
+```json
+{
+  "name": "Pengingat H-3 Kegiatan",
+  "event_type": "activity_reminder",
+  "template_id": "<template id>",
+  "send_days": [],
+  "send_hour": 8,
+  "send_minute": 0,
+  "timezone": "Asia/Jakarta",
+  "activity_id": "<activity id>",
+  "execution_at": "2026-11-20T09:00:00+07:00"
+}
+```
+Constraints:
+- `activity_reminder` requires a valid, published, uncancelled activity in the same RT.
+- `execution_at` must be in the future at creation time.
+- The schedule is disabled as soon as the activity is cancelled, or as soon as its `ends_at` elapses. Editing the activity later (or re-creating it) does **not** re-arm cancelled schedules — residual reminders must be created anew.
+- Activity events are per-recipient fan-out; the body is rendered per user so `{{nama_warga}}` resolves to that user's name.
+
 
 ---
 
@@ -1298,3 +1456,116 @@ Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is el
     - `code_used`: kode reset sudah digunakan
   - Note: Pada endpoint `/api/v1/auth/login`, jika pengguna memasukkan 4-digit kode reset aktif pada input kata sandi biasa, sistem mengembalikan error `reset_code_entered` (HTTP 400) yang mengarahkan pengguna ke dialog "Lupa Kata Sandi?".
 
+## 14. Community Dashboard API (Beranda, Kegiatan, Pengumuman, Banner, Struktur Organisasi)
+
+RT-scoped Community module. Base rules: authentication required (JWT Bearer), plus a valid RT
+context in an allowed RT (`002`, `003`) for every endpoint except the public-signed image route.
+Authorization is permission-driven (single source of truth: `position_permissions` via the
+`PermissionResolver`; Super Admin bypasses). There are no hardcoded jabatan shortcuts.
+
+### 14.1 Read Endpoints (all authenticated RT members)
+- `GET /api/v1/home/dashboard` — greeting, banners (in-window only), upcoming activities (published), organization structure, security on-duty (name, shift, avatar + phone number always included as the warga duty hotline).
+- `GET /api/v1/activities?page=&page_size=&status=&publication_status=` — paginated. Warga only ever see published activities; status filter uses the dynamic execution status (`upcoming`, `ongoing`, `completed`, `cancelled`). Draft visibility requires `activities.create|update`.
+- `GET /api/v1/activities/{id}` — detail. Draft/non-published returns 404 for non-managers.
+- `GET /api/v1/announcements?page=&page_size=&status=` — paginated. Warga only see announcements inside the tayang window (`scheduled_start <= now < scheduled_end`); managers can filter by status.
+- `GET /api/v1/announcements/{id}` — detail, same visibility rules (404 for out-of-window/draft for Warga).
+- `GET /api/v1/banner-templates` / `GET /api/v1/banner-templates/{id}` — active templates (system or owned by the RT).
+- `GET /api/v1/banners` — active banners in display window, merged with the generic iuran reminder (in stable order: pinned → priority → display_order). No per-resident financial data ever included.
+- `GET /api/v1/organization-structure` — active members per position. Phone/email included only with `organization.contact.read`.
+
+### 14.2 Write Endpoints (permission per operation)
+- `POST /api/v1/community/upload` — multipart `file` + `category` (`activity|announcement|banner|general`). Category-scoped: `activities.create` or `announcements.create` required. Images are stored under `community/{rt_id}/{category}/` with content sniffing; never public-read.
+- `POST /api/v1/activities` (`activities.create`), `PUT /api/v1/activities/{id}` (`activities.update`), `POST /api/v1/activities/{id}/publish` (`activities.publish`), `POST /api/v1/activities/{id}/cancel` (`activities.cancel`), `DELETE /api/v1/activities/{id}` (`activities.create`).
+- `POST /api/v1/announcements` (`announcements.create`), `PUT /api/v1/announcements/{id}` (`announcements.update`), `POST /api/v1/announcements/{id}/publish` (`announcements.publish`), `POST /api/v1/announcements/{id}/archive` (`announcements.archive`), `DELETE /api/v1/announcements/{id}` (`announcements.create`).
+
+Lifecycle rules:
+- Drafts may be edited and hard-deleted.
+- Published content MUST NOT be hard-deleted (`DELETE` returns 400). Published activities are cancelled; published/scheduled announcements are archived; archived is never auto-reactivated (explicit publish only).
+- Publishing/republishing rewrites the announcement snapshot and the banner snapshot atomically in one transaction.
+- Editing published content never mutates the live banner (banners are immutable snapshots taken at publish time).
+
+Schedule rules (announcements): `scheduled_start` / `scheduled_end` must be RFC3339 with explicit timezone; invalid input returns 400; `scheduled_end` must be after `scheduled_start`. Display state is computed at query time — no scheduler/cron involved. Publishing with a future start stores state `scheduled` (never `active`); warga see content only inside the window.
+
+### 14.3 Community Images
+- `GET /api/v1/community/images/{key}` — two authorization modes:
+  1. **Bearer** (`Authorization: Bearer <jwt>`): JWT validated, identity confirmed, caller's RT must be allowed+active; key must live under `community/{caller_rt_id}/`; key must be referenced by content the caller may see (draft content only for managers, published/active in-window content otherwise); unreferenced keys return 404.
+  2. **Signed URL** (`?exp=<unix>&sig=<hmac>`): HMAC-SHA256 signature over `{key}.{exp}.{flags}` with the server signing secret; short-lived (15 minutes). Issued only after the same authorization as the Bearer mode. On read, the content reference is revalidated against the current state with the issuer's privilege class (`{flags}`), so an archived/cancelled/expired piece of content stops serving images immediately, even within the TTL. The signature is a bearer credential and cannot be individually revoked; the TTL plus read-time revalidation is the revocation mechanism.
+- `POST /api/v1/community/images/sign` — authenticated endpoint; body `{"key": "community/<rt>/<category>/<file>"}`. Returns `{ "url": "/api/v1/community/images/...?exp=...&sig=...", "expires_at": <unix> }`. Applies the same content authorization as the Bearer mode. Used by `<img>` tags and Flutter.
+- Keys are strictly validated (`community/<rt_id>/<category>/<file>.<jpg|png|webp>`); traversal, backslashes, NULs, and double encoding are rejected.
+- There is no public listing of the community prefix and no public-read bucket.
+
+### 14.4 Deep Links
+Internal deep-link allowlist: `/keuangan`, `/iuran`, `/kas`, `/kegiatan`, `/pengumuman`, `/warga`, `/notifikasi`, `/profil` (prefix match with `/` boundary). External URLs are rejected with 400.
+
+### 14.5 Pagination Contract
+List endpoints accept `page` (default 1) and `page_size` (default 20, max 100) and return
+`{ "data": [...], "pagination": { "page": n, "per_page": n, "total": n, "total_pages": n } }`.
+
+---
+
+## 15. Security Attendance API (`/api/v1/security` & `/api/v1/security-device`)
+
+Time authority: all check-in/out timestamps, shift boundaries, lateness calculations, absent transitions, and QR expiration checks use server time in `Asia/Jakarta`. Tenant scoping (`rt_id`) is derived strictly from the authenticated user JWT or authenticated Pos device credential; client-supplied `rt_id` overrides are rejected/ignored.
+
+### 15.1 Permissions (`permission_types` & `position_permissions`)
+- `security.attendance` — Officer self check-in/out & personal swap/correction submissions (`keamanan`).
+- `security.schedule.read` — Read shift configs, schedules, attendance, dashboard summary (`ketua`, `keamanan`).
+- `security.schedule.write` — Create/update shifts, schedules, approve/reject swaps, manage officer list (`ketua`).
+- `security.device.manage` — Register, rotate activation token, revoke Pos devices (`ketua`).
+- `security.correction` — Approve/reject attendance corrections (`ketua`; maker-checker prevents self-approval).
+- `security.guest_book` — Monitor guest book logs (`ketua`).
+- `system_role = super_admin` bypasses RT RBAC (and specifies `?rt_id=` when managing a target RT).
+
+### 15.2 Management & Officer Endpoints (`/api/v1/security/*`, JWT Bearer)
+- **Dashboard & Officers**:
+  - `GET /api/v1/security/dashboard` (`security.schedule.read`) — summary counts, active shifts, today's officers, pending swaps/corrections, active Pos devices, active guests count.
+  - `GET /api/v1/security/officers` (`security.schedule.read`) — active officers with `jabatan = 'keamanan'` in caller's RT (plus monthly summary stats).
+- **Shift Configs**:
+  - `GET /api/v1/security/shifts` (`security.schedule.read`)
+  - `POST /api/v1/security/shifts` (`security.schedule.write`)
+  - `PUT /api/v1/security/shifts/{id}` (`security.schedule.write`) — bumps `version`; historical schedules/attendance keep original snapshots.
+- **Schedules**:
+  - `GET /api/v1/security/schedules` (`security.schedule.read`) — supports `date_from`, `date_to`, `user_id`, `shift_config_id`, `status`, pagination.
+  - `POST /api/v1/security/schedules` (`security.schedule.write`) — accepts inclusive `start_date` and `end_date` (legacy `shift_date` remains supported); atomically expands into one daily schedule and attendance row per date, validating active officer/shift and shift-time overlap for every day.
+  - `GET /api/v1/security/schedules/{id}` (`security.schedule.read`) — returns all daily schedule/attendance records for the assignment period.
+  - `PUT /api/v1/security/schedules/{id}` (`security.schedule.write`) — edits the existing assignment; validates conflicts excluding its own daily rows, preserves past dates and rejects changes affecting dates with attendance/correction history. Writes an audit log only when changed.
+  - `DELETE /api/v1/security/schedules/{id}` (`security.schedule.write`) — soft-cancels the selected daily schedule if no recorded attendance.
+- **Shift Swaps (2-Step Workflow)**:
+  - `GET /api/v1/security/swaps` (`security.schedule.read` / `security.attendance`)
+  - `POST /api/v1/security/swaps` (`security.attendance`) — officer proposes swap between own `scheduled` shift and target officer's `scheduled` shift (same RT, not checked-in, no conflict after swap).
+  - `POST /api/v1/security/swaps/{id}/target-respond` (`security.attendance`) — target officer accepts (`pending_ketua`) or rejects (`rejected_target`).
+  - `POST /api/v1/security/swaps/{id}/decide` (`security.schedule.write`) — Ketua RT / Super Admin approves or rejects. On approve, swaps `(user_id, membership_id)` on both schedules & updates `belum_hadir` attendance rows atomically.
+- **Attendance Check-in / Check-out & Monitoring**:
+  - `GET /api/v1/security/attendance/me` (`security.attendance`) — officer's current/upcoming shift, today's attendance state, and history.
+  - `POST /api/v1/security/attendance/scan` (`security.attendance`, rate-limited) — officer scans Pos dynamic QR `{ "qr_token": "...", "action": "check_in" | "check_out" | "auto" }`. Validates QR atomically (`SELECT ... FOR UPDATE`), device active/unrevoked, RT match, schedule match, check-in window, server-side `Asia/Jakarta` status calculation, anti-replay, and idempotency.
+  - `GET /api/v1/security/attendance` (`security.schedule.read`) — monitoring list with filters (`date_from`, `date_to`, `user_id`, `shift_config_id`, `status`, pagination).
+  - `GET /api/v1/security/attendance/export` (`security.schedule.read`) — CSV/JSON/Excel-friendly export summary scoped to RT.
+- **Attendance Corrections (Maker-Checker & Audit Log)**:
+  - `GET /api/v1/security/corrections` (`security.schedule.read` / `security.attendance`)
+  - `POST /api/v1/security/corrections` (`security.attendance` or `security.correction`) — requires non-empty `reason`; officers may only request for their own record.
+  - `POST /api/v1/security/corrections/{id}/decide` (`security.correction`) — approves or rejects. Rejects self-approval (`decided_by != requested_by` and `decided_by != officer_user_id`), preserves original values, updates attendance atomically when approved, writes immutable entry to `audit_logs`.
+- **Pos Device Provisioning & Revocation**:
+  - `GET /api/v1/security/devices` (`security.device.manage`)
+  - `POST /api/v1/security/devices` (`security.device.manage`) — creates device and returns one-time `pairing_token` (shown once; stored hashed).
+  - `POST /api/v1/security/devices/{id}/rotate-pairing` (`security.device.manage`) — issues fresh one-time `pairing_token`.
+  - `POST /api/v1/security/devices/{id}/revoke` (`security.device.manage`) — immediately revokes device token and invalidates active QR tokens.
+- **Guest Book Monitoring (Ketua RT)**:
+  - `GET /api/v1/security/guest-books` (`security.guest_book`) — read/filter RT guest book entries (`date_from`, `date_to`, `status=active|checked_out`, `search`).
+
+### 15.3 Security Pos Device Endpoints (`/api/v1/security-device/*`, Device Credential)
+- **Activation (Unauthenticated, Rate-Limited)**:
+  - `POST /api/v1/security/devices/activate` — exchanges one-time `pairing_token` for persistent `device_token` bound to `(device_id, rt_id)`.
+- **Authenticated Pos Device Endpoints** (`Authorization: Device <device_token>` or `X-Device-Token: <device_token>`):
+  - `GET /api/v1/security-device/me` — Pos device profile and bound RT metadata.
+  - `POST /api/v1/security-device/qr` (rate-limited) — generates fresh short-lived (45s) single-use dynamic QR token for the Pos device.
+  - `GET /api/v1/security-device/attendance/today` — today's Pos shift & attendance summary (names/statuses only, no PII).
+  - `GET /api/v1/security-device/guest-books` — list RT guest book entries.
+  - `POST /api/v1/security-device/guest-books` — register guest check-in (Pos Device only).
+  - `POST /api/v1/security-device/guest-books/{id}/checkout` — record guest check-out (Pos Device only).
+  - `GET /api/v1/security-device/warga/households` — read-only RT household directory (for Pos `Warga` menu). Returns `household_occupancy_id`, `house_number`, `block`, `head_of_family_name`, `occupancy_type`, `resident_count`, and `head_avatar_path` (opaque key resolved only through `security-device/images/*`).
+  - `GET /api/v1/security-device/warga/households/{id}` — read-only RT household detail (no NIK/passwords/PII leaks). Resident rows carry `full_name`, `relationship`, `is_head_of_family`, `residency_status`, and `avatar_path` (opaque key resolved only through `security-device/images/*`).
+  - `GET /api/v1/security-device/images/{key}` — read-only resident avatar bytes for the device's bound RT (opaque `community/{rt}/profile/*` keys only; the key must reference an active resident avatar in that RT; content serves with `no-store`). User credentials and cross-RT keys are rejected (403/404); image bytes are identical to what resident menus render.
+  - `GET /api/v1/security-device/monitoring/sampah` — read-only uncollected waste monitoring list for device's RT.
+  - `GET /api/v1/security/guest-books` — read-only Ketua RT Buku Tamu list; supports `search`, `status`, `page`, and `page_size`. RT scope comes from authenticated membership.
+  - `GET /api/v1/security-device/guest-books` — paired-device Buku Tamu list; supports server-side `search`, `status`, `page`, and `page_size`, scoped to the bound device RT.
+  - `GET /api/v1/rw/{rwId}/monitoring/read-only` — Ketua RT read-only monitoring list. Tenant RT is resolved from auth context; the path parameter is not an authorization scope. Notes mutation endpoints remain gated by `rw.monitoring.notes.write`.

@@ -275,6 +275,7 @@ func getRWSecurityDBState(t *testing.T, pool *database.Pool, rwID string, locIDs
 //   - Super Admin sends HTTP POST mutation to RW B's transfer and transaction endpoints.
 //   - Both requests MUST return 403 Forbidden.
 //   - RW B's database state (transactions, transfers, mutations, balances) remains untouched.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_SuperAdminOutOfScopeMutationBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -357,6 +358,7 @@ func TestSecurity_SuperAdminOutOfScopeMutationBlocked(t *testing.T) {
 //   - Bendahara sends HTTP POST reversal to RW B's router endpoint -> 403 Forbidden.
 //   - Bendahara sends HTTP POST reversal to RW A's endpoint using RW B's transfer ID -> 404 Not Found.
 //   - RW B's original transfer, mutations, and location balances remain strictly unchanged.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_CrossRWReversalBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -436,6 +438,7 @@ func TestSecurity_CrossRWReversalBlocked(t *testing.T) {
 //   - Sends HTTP POST reversal -> 403 Forbidden.
 //   - Zero side effects: no transfers created, no reversal records inserted.
 //   - Positive control: Wakil Ketua sends HTTP POST kas transaction (finance.create) -> 201 Created.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_WakilKetuaDirectHTTPMutationBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -528,19 +531,20 @@ func TestSecurity_WakilKetuaDirectHTTPMutationBlocked(t *testing.T) {
 	recTx := httptest.NewRecorder()
 	router.ServeHTTP(recTx, reqTx)
 
-	if recTx.Code != http.StatusCreated {
-		t.Fatalf("expected 201 Created for Wakil Ketua creating kas transaction, got %d. Body: %s", recTx.Code, recTx.Body.String())
+	// Per Final RBAC Matrix: Wakil Ketua (Pengurus RW) is strictly read-only and blocked from creating kas transactions
+	if recTx.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Wakil Ketua creating kas transaction per Final RBAC matrix, got %d. Body: %s", recTx.Code, recTx.Body.String())
 	}
 
-	// Verify positive control created exactly 1 transaction and 1 balance change, but NO transfer
+	// Verify Wakil Ketua cannot mutate: txCount and changeCount must remain unchanged
 	stateAfter := getRWSecurityDBState(t, pool, rwAID, locA1, locA2)
-	if stateAfter.txCount != stateBefore.txCount+1 {
-		t.Fatalf("expected txCount to increase by 1, got %d (was %d)", stateAfter.txCount, stateBefore.txCount)
+	if stateAfter.txCount != stateBefore.txCount {
+		t.Fatalf("expected txCount to remain unchanged, got %d (was %d)", stateAfter.txCount, stateBefore.txCount)
 	}
 	if stateAfter.transferCount != stateBefore.transferCount {
 		t.Fatalf("transferCount unexpectedly changed: got %d (was %d)", stateAfter.transferCount, stateBefore.transferCount)
 	}
-	if stateAfter.changeCount != stateBefore.changeCount+1 {
-		t.Fatalf("expected changeCount to increase by 1, got %d (was %d)", stateAfter.changeCount, stateBefore.changeCount)
+	if stateAfter.changeCount != stateBefore.changeCount {
+		t.Fatalf("expected changeCount to remain unchanged, got %d (was %d)", stateAfter.changeCount, stateBefore.changeCount)
 	}
 }

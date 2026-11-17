@@ -152,6 +152,22 @@ class NotificationRepository {
     }
   }
 
+  Future<NotificationLogsResponse> fetchManagementHistory({
+    required String category,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    try {
+      return await apiClient.getManagementHistory(
+        category: category,
+        page: page,
+        perPage: perPage,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<void> markAsRead(String id) async {
     try {
       await apiClient.markAsRead(id);
@@ -184,6 +200,116 @@ class NotificationRepository {
     }
   }
 
+  // ===== Schedule management =====
+
+  Future<List<NotificationSchedule>> fetchSchedules({
+    String? eventType,
+    bool? isActive,
+  }) async {
+    try {
+      return await apiClient.getSchedules(
+        eventType: eventType,
+        isActive: isActive,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> fetchSchedule(String id) async {
+    try {
+      return await apiClient.getSchedule(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> createSchedule(
+    CreateNotificationScheduleInput input,
+  ) async {
+    try {
+      return await apiClient.createSchedule(input);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> updateSchedule(
+    String id,
+    UpdateNotificationScheduleInput input,
+  ) async {
+    try {
+      return await apiClient.updateSchedule(id, input);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    try {
+      await apiClient.deleteSchedule(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> toggleScheduleActive(String id) async {
+    try {
+      return await apiClient.toggleScheduleActive(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// GET /api/v1/notifications/waste-truck/template
+  Future<WasteTruckTemplate> fetchWasteTruckTemplate() async {
+    try {
+      return await apiClient.getWasteTruckTemplate();
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<WasteTruckDispatchHistoryResponse> fetchWasteTruckHistory({
+    int page = 1,
+    int perPage = 20,
+  }) async {
+    try {
+      return await apiClient.getWasteTruckHistory(page: page, perPage: perPage);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// POST /api/v1/notifications/waste-truck
+  Future<void> sendWasteTruck({
+    required String message,
+    String? imageUrl,
+  }) async {
+    try {
+      await apiClient.sendWasteTruck(message: message, imageUrl: imageUrl);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// POST /api/v1/notifications/waste-truck/upload-image
+  Future<String> uploadWasteTruckImage({
+    required List<int> bytes,
+    required String filename,
+    required String eventType,
+  }) async {
+    try {
+      return await apiClient.uploadWasteTruckImage(
+        bytes: bytes,
+        filename: filename,
+        eventType: eventType,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Object _handleError(dynamic error) {
     if (error is ServerException) return error;
     if (error is AppWithMessageError) return error;
@@ -198,7 +324,8 @@ class NotificationRepository {
       }
       return ServerException(
         statusCode: status ?? 500,
-        message: 'Gagal memproses permintaan notifikasi (${status ?? "koneksi"}).',
+        message:
+            'Gagal memproses permintaan notifikasi (${status ?? "koneksi"}).',
       );
     }
     return ServerException(message: 'Terjadi kesalahan tidak terduga.');
@@ -217,12 +344,18 @@ final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
 
 final notificationSystemTypesProvider =
     FutureProvider.autoDispose<List<SystemNotificationType>>((ref) async {
-  final repo = ref.watch(notificationRepositoryProvider);
-  return repo.fetchSystemTypes();
-});
+      final repo = ref.watch(notificationRepositoryProvider);
+      return repo.fetchSystemTypes();
+    });
 
 final notificationTemplatesProvider =
     FutureProvider.autoDispose<List<NotificationTemplate>>((ref) async {
-  final repo = ref.watch(notificationRepositoryProvider);
-  return repo.fetchTemplates();
-});
+      final repo = ref.watch(notificationRepositoryProvider);
+      return repo.fetchTemplates();
+    });
+
+final notificationSchedulesProvider =
+    FutureProvider.autoDispose<List<NotificationSchedule>>((ref) async {
+      final repo = ref.watch(notificationRepositoryProvider);
+      return repo.fetchSchedules();
+    });

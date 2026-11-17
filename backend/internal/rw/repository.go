@@ -177,6 +177,113 @@ func (r *Repository) GetKASReport(ctx context.Context, tx *sql.Tx, rwID, period 
 	return &report, nil
 }
 
+// GetKASReportCarry computes the RW kas summary with carry-forward opening
+// balance for windowed queries: opening = opening reported on rw_opening_balances
+// plus net posted movements strictly before the window start. For all-time
+// (startTime == nil) opening equals the inception opening balance and movements
+// cover all posted transactions.
+//
+// endTime is exclusive; pass nil endTime for an open-ended window. Transfers
+// are never recorded in rw_transactions so they cannot be double-counted here.
+func (r *Repository) GetKASReportCarry(ctx context.Context, tx *sql.Tx, rwID string, startTime, endTime *time.Time) (*KASReport, error) {
+	var report KASReport
+	var txCount int64
+
+	// 1. Inception opening balance from RW's own ledger
+	var inception string
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount), 0)::numeric(15,2)::text
+		 FROM rw_opening_balances
+		 WHERE rw_id = $1`, rwID,
+	).Scan(&inception)
+	if err != nil {
+		return nil, fmt.Errorf("kas opening balance: %w", err)
+	}
+	carryCents, _, err := ParseMoney(inception)
+	if err != nil {
+		return nil, fmt.Errorf("parse opening balance: %w", err)
+	}
+
+	// 2. Carry-forward: opening = inception + net posted movements before window start
+	args := []interface{}{rwID}
+	carryCond := ""
+	if startTime != nil {
+		// prior net strictly before the window start
+		var priorInc, priorExp string
+		err = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted' AND t.occurred_at < $2`,
+			rwID, startTime.Format("2006-01-02T15:04:05-07:00"),
+		).Scan(&priorInc, &priorExp)
+		if err != nil {
+			return nil, fmt.Errorf("kas prior net movement: %w", err)
+		}
+		pInc, _, err := ParseMoney(priorInc)
+		if err != nil {
+			return nil, fmt.Errorf("parse prior income: %w", err)
+		}
+		pExp, _, err := ParseMoney(priorExp)
+		if err != nil {
+			return nil, fmt.Errorf("parse prior expense: %w", err)
+		}
+		carryCents += pInc - pExp
+
+		args = append(args, startTime.Format("2006-01-02T15:04:05-07:00"))
+		carryCond = fmt.Sprintf(" AND t.occurred_at >= $%d", len(args))
+		if endTime != nil {
+			args = append(args, endTime.Format("2006-01-02T15:04:05-07:00"))
+			carryCond += fmt.Sprintf(" AND t.occurred_at < $%d", len(args))
+		}
+	}
+
+	// 3. Window movements (posted only)
+	var totalIncome, totalExpense string
+	if carryCond == "" {
+		err = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COUNT(CASE WHEN status = 'posted' THEN 1 END)
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted'`,
+			rwID,
+		).Scan(&totalIncome, &totalExpense, &txCount)
+	} else {
+		err = tx.QueryRowContext(ctx,
+			fmt.Sprintf(`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COUNT(CASE WHEN status = 'posted' THEN 1 END)
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted'%s`, carryCond),
+			args...,
+		).Scan(&totalIncome, &totalExpense, &txCount)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("kas window movements: %w", err)
+	}
+
+	iCents, _, err := ParseMoney(totalIncome)
+	if err != nil {
+		return nil, fmt.Errorf("parse income: %w", err)
+	}
+	eCents, _, err := ParseMoney(totalExpense)
+	if err != nil {
+		return nil, fmt.Errorf("parse expense: %w", err)
+	}
+
+	report.OpeningBalance = FormatMoney(carryCents)
+	report.TotalIncome = FormatMoney(iCents)
+	report.TotalExpense = FormatMoney(eCents)
+	report.NetBalance = FormatMoney(iCents - eCents)
+	report.TotalBalance = FormatMoney(carryCents + iCents - eCents)
+	report.TransactionCount = txCount
+	return &report, nil
+}
+
 // =========================================================================
 // RW Fund Locations CRUD & Queries
 // =========================================================================
@@ -541,32 +648,55 @@ func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rw
 
 	kasCents, _, _ := ParseMoney(kasReport.TotalBalance)
 	allocCents, _, _ := ParseMoney(totalAllocatedStr)
-	discCents := kasCents - allocCents
+
+	// K = total Kas RW (opening balance + income - expense)
+	// L = total allocated to all locations (sum of all amount_delta)
+	// U = K - L when K >= L, else 0
+	// D = 0 when K >= L (everything reconciled, some just unallocated), else K - L (negative discrepancy)
+	var unallocatedCents, discCents int64
+	if kasCents >= allocCents {
+		unallocatedCents = kasCents - allocCents
+		discCents = 0
+	} else {
+		unallocatedCents = 0
+		discCents = kasCents - allocCents // negative
+	}
 
 	status := "matched"
-	statusLabel := "Saldo Sesuai"
+	statusLabel := "Cocok Sempurna"
 	var anomalies []string
 
-	if discCents != 0 {
+	if unallocatedCents > 0 {
+		status = "belum_teralokasi"
+		statusLabel = "Belum Teralokasi"
+	} else if discCents < 0 {
 		status = "discrepant"
-		statusLabel = "Selisih Terdeteksi"
+		statusLabel = "Discrepancy"
 		anomalies = append(anomalies, fmt.Sprintf("Selisih antara saldo kas RW dan total alokasi lokasi dana: %s", FormatMoney(discCents)))
 	}
 
-	unallocatedCents := discCents
-	if unallocatedCents < 0 {
-		unallocatedCents = 0
+	var allocatedPercentage float64
+	if kasCents > 0 {
+		allocatedPercentage = float64(allocCents) / float64(kasCents) * 100
 	}
 
 	return &ReconciliationReport{
-		KasBalance:            kasReport.TotalBalance,
-		TotalAllocatedBalance: totalAllocatedStr,
-		UnallocatedBalance:    FormatMoney(unallocatedCents),
-		Discrepancy:           FormatMoney(discCents),
-		Status:                status,
-		StatusLabel:           statusLabel,
-		LocationsSummary:      summaries,
-		AnomaliesDetected:     anomalies,
+		KasBalance:             kasReport.TotalBalance,
+		TotalAllocatedBalance:  totalAllocatedStr,
+		UnallocatedBalance:     FormatMoney(unallocatedCents),
+		Discrepancy:            FormatMoney(discCents),
+		Status:                 status,
+		StatusLabel:            statusLabel,
+		AllocatedPercentage:    allocatedPercentage,
+		OpeningBalance:         kasReport.OpeningBalance,
+		TotalIncome:            kasReport.TotalIncome,
+		TotalExpense:           kasReport.TotalExpense,
+		CalculatedBalance:      kasReport.TotalBalance,
+		TotalLocationBalances:  totalAllocatedStr,
+		IsReconciled:           discCents == 0,
+		CategoryBreakdown:      summaries,
+		LocationsSummary:       summaries,
+		AnomaliesDetected:      anomalies,
 	}, nil
 }
 
@@ -957,14 +1087,14 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	if in.SourceRTID != nil && *in.SourceRTID != "" {
 		var rtExists bool
 		err = tx.QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND is_active = true)`,
-			*in.SourceRTID,
+			`SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2 AND is_active = true)`,
+			*in.SourceRTID, rwID,
 		).Scan(&rtExists)
 		if err != nil {
 			return nil, fmt.Errorf("validate source rt: %w", err)
 		}
 		if !rtExists {
-			return nil, fmt.Errorf("%w: source RT not found or inactive", ErrValidation)
+			return nil, fmt.Errorf("%w: source RT not found, inactive, or not part of this RW", ErrValidation)
 		}
 	}
 
@@ -1061,7 +1191,7 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	return &entry, nil
 }
 
-func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string, search string) ([]*TransactionEntry, int, error) {
+func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string, search string, opts ...TransactionFilter) ([]*TransactionEntry, int, error) {
 	baseQuery := `
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
@@ -1106,6 +1236,16 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		args = append(args, endDate)
 		pos++
 	}
+	if len(opts) > 0 && opts[0].Type != "" {
+		baseQuery += fmt.Sprintf(" AND t.type = $%d", pos)
+		args = append(args, opts[0].Type)
+		pos++
+	}
+	if len(opts) > 0 && opts[0].CategoryID != "" {
+		baseQuery += fmt.Sprintf(" AND t.category_id = $%d", pos)
+		args = append(args, opts[0].CategoryID)
+		pos++
+	}
 	if search = strings.TrimSpace(search); search != "" {
 		searchPattern := "%" + search + "%"
 		baseQuery += fmt.Sprintf(" AND (t.description ILIKE $%d OR COALESCE(t.reference_no, '') ILIKE $%d OR COALESCE(fl.name, '') ILIKE $%d OR COALESCE(rt.name, '') ILIKE $%d)", pos, pos, pos, pos)
@@ -1139,6 +1279,16 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 	if endDate != "" {
 		countQuery += fmt.Sprintf(" AND DATE(t.occurred_at) <= $%d", cpos)
 		countArgs = append(countArgs, endDate)
+		cpos++
+	}
+	if len(opts) > 0 && opts[0].Type != "" {
+		countQuery += fmt.Sprintf(" AND t.type = $%d", cpos)
+		countArgs = append(countArgs, opts[0].Type)
+		cpos++
+	}
+	if len(opts) > 0 && opts[0].CategoryID != "" {
+		countQuery += fmt.Sprintf(" AND t.category_id = $%d", cpos)
+		countArgs = append(countArgs, opts[0].CategoryID)
 		cpos++
 	}
 	if search != "" {
@@ -1380,4 +1530,80 @@ func (r *Repository) SetOpeningBalance(ctx context.Context, tx *sql.Tx, rwID, am
 		return fmt.Errorf("insert rw_opening_balance: %w", err)
 	}
 	return nil
+}
+
+// AllocateOpeningBalance allocates opening balance from unallocated cash (U)
+// to a specific RW fund location.
+// U = K - L where K = total Kas RW balance and L = total allocated to locations.
+// Records as change_type = 'opening_balance' in rw_location_balance_changes.
+func (r *Repository) AllocateOpeningBalance(ctx context.Context, tx *sql.Tx, rwID, locationID string, amtCents int64, notes *string, userID string) (*LocationSummary, error) {
+	// Lock the target location to serialize concurrent allocations.
+	var lockDummy int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM rw_fund_locations WHERE rw_id = $1 AND id = $2 FOR UPDATE`, rwID, locationID).Scan(&lockDummy)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock fund location: %w", err)
+	}
+
+	// Verify location belongs to rwID and is active.
+	loc, err := r.GetLocationByID(ctx, tx, rwID, locationID)
+	if err != nil {
+		return nil, fmt.Errorf("fund location: %w", err)
+	}
+	if !loc.IsActive {
+		return nil, fmt.Errorf("%w: location %s is inactive", ErrInactiveLocation, loc.Name)
+	}
+
+	// Calculate K = total Kas RW balance (opening balance + income - expense)
+	kasReport, err := r.GetKASReport(ctx, tx, rwID, "")
+	if err != nil {
+		return nil, fmt.Errorf("kas report: %w", err)
+	}
+	kCents, _, err := ParseMoney(kasReport.TotalBalance)
+	if err != nil {
+		return nil, fmt.Errorf("parse kas balance: %w", err)
+	}
+
+	// Calculate L = total allocated to locations (sum of all lbc amount_delta)
+	var totalAllocatedStr string
+	err = tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lbc.amount_delta), 0)::numeric(15,2)::text
+		 FROM rw_location_balance_changes lbc
+		 JOIN rw_fund_locations fl ON lbc.location_id = fl.id
+		 WHERE fl.rw_id = $1`, rwID,
+	).Scan(&totalAllocatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("query total allocated balance: %w", err)
+	}
+	lCents, _, err := ParseMoney(totalAllocatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse allocated balance: %w", err)
+	}
+
+	// U = K - L (unallocated cash)
+	unallocatedCents := kCents - lCents
+	if amtCents > unallocatedCents {
+		return nil, fmt.Errorf("%w: requested %s exceeds unallocated cash %s", ErrInsufficientFunds, FormatMoney(amtCents), FormatMoney(unallocatedCents))
+	}
+
+	notesStr := "Alokasi saldo awal kas historis"
+	if notes != nil && strings.TrimSpace(*notes) != "" {
+		notesStr = strings.TrimSpace(*notes)
+	}
+
+	amountStr := FormatMoney(amtCents)
+
+	// Insert opening_balance mutation into rw_location_balance_changes.
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO rw_location_balance_changes (rw_id, location_id, change_type, amount_delta, notes, created_by)
+		 VALUES ($1, $2, 'opening_balance', $3::numeric(15,2), $4, $5)`,
+		rwID, locationID, amountStr, notesStr, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert opening balance allocation: %w", err)
+	}
+
+	return r.GetLocationByID(ctx, tx, rwID, locationID)
 }

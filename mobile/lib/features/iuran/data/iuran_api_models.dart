@@ -658,3 +658,40 @@ class DueMonthSummary {
     'can_deactivate': canDeactivate,
   };
 }
+
+@immutable
+class OverdueWarningSummary {
+  final bool hasOverdue3Months;
+  final int totalOutstanding;
+  final int overdueBillCount;
+
+  const OverdueWarningSummary({
+    this.hasOverdue3Months = false,
+    this.totalOutstanding = 0,
+    this.overdueBillCount = 0,
+  });
+
+  static const empty = OverdueWarningSummary();
+
+  factory OverdueWarningSummary.fromJson(Map<String, dynamic> json) {
+    final rawTotal = json['total_outstanding'];
+    int parsedTotal = 0;
+    if (rawTotal is num) {
+      parsedTotal = rawTotal.toInt();
+    } else if (rawTotal is String) {
+      final whole = rawTotal.trim().split('.').first;
+      parsedTotal = int.tryParse(whole) ?? 0;
+    }
+
+    final rawCount = json['overdue_bill_count'];
+    final parsedCount = rawCount is num
+        ? rawCount.toInt()
+        : (int.tryParse(rawCount?.toString() ?? '') ?? 0);
+
+    return OverdueWarningSummary(
+      hasOverdue3Months: json['has_overdue_3_months'] as bool? ?? false,
+      totalOutstanding: parsedTotal,
+      overdueBillCount: parsedCount,
+    );
+  }
+}

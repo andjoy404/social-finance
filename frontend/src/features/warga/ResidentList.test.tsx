@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ResidentList } from './ResidentList'
-import { Dashboard } from '@/features/dashboard/Dashboard'
+import { KeuanganScreen } from '@/features/keuangan/KeuanganScreen'
 import { KasList } from '@/features/kas/KasList'
 import { IuranList } from '@/features/iuran/IuranList'
 import { RtList } from '@/features/rt/RtList'
@@ -18,7 +18,7 @@ const mockUser = {
   email: 'test@example.com',
   systemRole: null,
   role: 'pengurus',
-  jabatan: null,
+  jabatan: 'ketua',
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -137,6 +137,47 @@ describe('W4.2C — ResidentList rendering', () => {
       const dashes = screen.getAllByText('—')
       expect(dashes.length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('hides NIK column header and data cells for keamanan officer', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'warga',
+        jabatan: 'keamanan',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('columnheader', { name: 'NIK' })).not.toBeInTheDocument()
+    expect(screen.queryByText('3201011234560001')).not.toBeInTheDocument()
+  })
+
+  it('renders NIK column header and cell for pengurus role', async () => {
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    renderResidentList()
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('columnheader', { name: 'NIK' })).toBeInTheDocument()
+    expect(screen.getByText('3201011234560001')).toBeInTheDocument()
   })
 
   it('shows empty state when no residents', async () => {
@@ -748,14 +789,14 @@ describe('W4.2C — Authorization write action visibility', () => {
     })
     mockFetch(() => mockSuccessResponse({ data: [] }))
     const { container } = render(
-      <MemoryRouter initialEntries={['/dashboard']}>
-        <Dashboard />
+      <MemoryRouter initialEntries={['/keuangan']}>
+        <KeuanganScreen />
       </MemoryRouter>,
     )
     const filterBox = container.querySelector('.sf-list-toolbar') as HTMLElement | null
     expect(filterBox).not.toBeNull()
     expect(container.querySelector('.sf-list-toolbar-left')).not.toBeNull()
-    expect(container.querySelector('.sf-list-toolbar-right')).not.toBeNull()
+    expect(container.querySelectorAll('select').length).toBeGreaterThanOrEqual(2)
     expect(container.textContent).toContain('Semua Periode')
   })
 

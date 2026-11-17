@@ -590,3 +590,89 @@ func TestMoveInDate_9D_MoveInDateChange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "paid", octStatus, "Already paid bill must remain paid and untouched after move-in date change")
 }
+
+func TestMoveInDate_OverdueWarningTriggersAfterMovingDateBackwards(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rtID := setupTestRT(t, pool, "RT Overdue Move-In", 1, "RTOVD")
+	defer cleanupTestRT(t, pool, rtID)
+
+	phoneB := fmt.Sprintf("0811%08d", time.Now().UnixNano()%100000000)
+	userB, midB := setupTestUserWithMembership(t, pool, "benovd@test.com", "Bendahara OVD", phoneB, rtID, "bendahara")
+	tokenBendahara := makeToken(t, auth.TokenClaims{UserID: userB, MID: midB, RTID: rtID, Role: string(auth.RoleBendahara)})
+
+	ctx := context.Background()
+
+	// Create Multi-Month Due 2026 with due_date on 10th of each month
+	bodyDue := `{"name":"IPL 2026 OVD","amount":"100000","due_type":"multi_month","year":2026,"due_date":"2026-01-10"}`
+	reqDue := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(bodyDue))
+	reqDue.Header.Set("Authorization", "Bearer "+tokenBendahara)
+	reqDue.Header.Set("Content-Type", "application/json")
+	recDue := httptest.NewRecorder()
+	router.ServeHTTP(recDue, reqDue)
+	require.Equal(t, http.StatusCreated, recDue.Code)
+	var due Due
+	require.NoError(t, json.Unmarshal(recDue.Body.Bytes(), &due))
+
+	// Initial occupancy: move-in date 2026-11-01 (only Nov, Dec are obligatory)
+	var hhID, houseID, occID string
+	err := pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO households (rt_id, head_name) VALUES ($1, 'KK Overdue Check') RETURNING id`, rtID).Scan(&hhID)
+	require.NoError(t, err)
+
+	err = pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO physical_houses (rt_id, house_number) VALUES ($1, 'H-OVD') RETURNING id`, rtID).Scan(&houseID)
+	require.NoError(t, err)
+
+	err = pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO household_occupancies (household_id, physical_house_id, occupancy_status, start_date)
+		 VALUES ($1, $2, 'OWNER', '2026-11-01') RETURNING id`, hhID, houseID).Scan(&occID)
+	require.NoError(t, err)
+
+	phoneW := fmt.Sprintf("0877%08d", time.Now().UnixNano()%100000000)
+	var resID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO residents (rt_id, full_name, phone, is_active) VALUES ($1, 'Warga OVD', $2, true) RETURNING id`, rtID, phoneW).Scan(&resID)
+	require.NoError(t, err)
+	_, err = pool.Raw().ExecContext(ctx,
+		`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date) VALUES ($1, $2, '2026-11-01')`, resID, occID)
+	require.NoError(t, err)
+
+	userW, _ := setupTestUserWithMembership(t, pool, "wargaovd@test.com", "Warga OVD", phoneW, rtID, "warga")
+
+	tx, err := pool.BeginTx(ctx)
+	require.NoError(t, err)
+	_, err = SyncHouseholdOccupancyBills(ctx, tx, rtID, occID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	evalDate := time.Date(2026, 11, 15, 10, 0, 0, 0, JakartaLocation())
+
+	// Initially, with move_in 2026-11-01, there is NO bill overdue by 3+ months
+	summaryBefore, err := GetOverdueWarningSummaryForUser(ctx, pool.Raw(), rtID, userW, evalDate)
+	require.NoError(t, err)
+	require.False(t, summaryBefore.HasOverdue3Months, "Should not have overdue warning initially")
+	require.Equal(t, 0, summaryBefore.OverdueBillCount)
+
+	// Move-in date is changed backwards to 2026-01-01
+	txUpdate, err := pool.BeginTx(ctx)
+	require.NoError(t, err)
+	_, err = txUpdate.ExecContext(ctx,
+		`UPDATE household_occupancies SET start_date = '2026-01-01' WHERE id = $1`, occID)
+	require.NoError(t, err)
+	_, err = txUpdate.ExecContext(ctx,
+		`UPDATE residency_periods SET start_date = '2026-01-01' WHERE resident_id = $1`, resID)
+	require.NoError(t, err)
+	_, err = SyncHouseholdOccupancyBills(ctx, txUpdate, rtID, occID)
+	require.NoError(t, err)
+	require.NoError(t, txUpdate.Commit())
+
+	// Re-evaluate overdue warning summary for user
+	summaryAfter, err := GetOverdueWarningSummaryForUser(ctx, pool.Raw(), rtID, userW, evalDate)
+	require.NoError(t, err)
+	require.True(t, summaryAfter.HasOverdue3Months, "Must have overdue 3 months warning after moving start date backwards")
+	require.GreaterOrEqual(t, summaryAfter.OverdueBillCount, 3, "At least 3 bills must be overdue by 3+ months")
+	require.Greater(t, summaryAfter.TotalOutstanding, int64(0))
+}

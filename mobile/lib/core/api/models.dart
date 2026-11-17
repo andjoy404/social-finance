@@ -3,12 +3,14 @@ class RWMembership {
   final int? rwNumber;
   final String? rwName;
   final String? jabatan;
+  final String? source; // 'explicit' | 'rt_inferred'
 
   const RWMembership({
     required this.rwId,
     this.rwNumber,
     this.rwName,
     this.jabatan,
+    this.source,
   });
 
   factory RWMembership.fromJson(Map<String, dynamic> json) {
@@ -19,6 +21,7 @@ class RWMembership {
           : null,
       rwName: json['rw_name'] as String?,
       jabatan: json['jabatan'] as String?,
+      source: json['source'] as String?,
     );
   }
 
@@ -28,6 +31,7 @@ class RWMembership {
       if (rwNumber != null) 'rw_number': rwNumber,
       if (rwName != null) 'rw_name': rwName,
       if (jabatan != null) 'jabatan': jabatan,
+      if (source != null) 'source': source,
     };
   }
 
@@ -42,6 +46,11 @@ class RWMembership {
     }
     return 'RW';
   }
+
+  /// Returns true if this membership has full write access.
+  /// Returns true for explicit source.
+  /// Returns false for rt_inferred or missing source.
+  bool get hasWriteAccess => source == 'explicit';
 }
 
 class AuthUser {
@@ -61,6 +70,8 @@ class AuthUser {
   final String? systemRole;
   final String? jabatan;
   final String? houseNumber;
+  final String? avatarPath;
+  final String? avatarThumbPath;
   final List<String> effectivePermissions;
   final bool effectivePermissionsAvailable;
 
@@ -81,6 +92,8 @@ class AuthUser {
     this.systemRole,
     this.jabatan,
     this.houseNumber,
+    this.avatarPath,
+    this.avatarThumbPath,
     this.effectivePermissions = const [],
     this.effectivePermissionsAvailable = false,
   });
@@ -150,6 +163,8 @@ class AuthUser {
       systemRole: json['system_role'] as String?,
       jabatan: json['jabatan'] as String?,
       houseNumber: (json['house_number'] ?? json['houseNumber']) as String?,
+      avatarPath: json['avatar_path'] as String?,
+      avatarThumbPath: json['avatar_thumb_path'] as String?,
       effectivePermissions: effectivePermissions,
       effectivePermissionsAvailable: effectivePermissionsAvailable,
     );
@@ -172,6 +187,8 @@ class AuthUser {
     if (systemRole != null) 'system_role': systemRole,
     if (jabatan != null) 'jabatan': jabatan,
     if (houseNumber != null) 'house_number': houseNumber,
+    if (avatarPath != null) 'avatar_path': avatarPath,
+    if (avatarThumbPath != null) 'avatar_thumb_path': avatarThumbPath,
     'effective_permissions': effectivePermissions,
   };
 }

@@ -141,6 +141,32 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	}
 }
 
+// GET /api/v1/fund-locations/rekening/public
+// Balance-free Rek/rekening list: callable by any authenticated tenant member
+// (warga/pengurus/bendahara/SA) of the RT resolved from the auth context.
+// Returns only the fields required to transfer funds to the RT's accounts.
+func (h *Handler) ListPublicRekening(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+	rtID := h.resolveRTID(r, ac)
+	if rtID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rt_id is required")
+		return
+	}
+	list, err := h.svc.ListPublicRekening(r.Context(), rtID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if list == nil {
+		list = []PublicRekeningView{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": list})
+}
+
 // GET /api/v1/fund-locations
 func (h *Handler) ListLocations(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)

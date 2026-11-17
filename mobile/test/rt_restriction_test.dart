@@ -47,13 +47,13 @@ void main() {
     });
 
     test(
-      'isAllowedRT correctly identifies allowed RTs (002, 003) and rejects non-allowed RTs',
+      'isAllowedRT gates on RT membership, not on a hardcoded RT list',
       () {
-        // Allowed RT by code 002
+        // Any active RT membership is allowed; RT codes are no longer whitelisted.
+        expect(isAllowedRT({'rt': '001', 'rt_id': 'unknown-id'}), isTrue);
         expect(isAllowedRT({'rt': '002', 'rt_id': 'any-id'}), isTrue);
-        // Allowed RT by code 003
         expect(isAllowedRT({'rt': '003', 'rt_id': 'any-id'}), isTrue);
-        // Allowed RT by canonical ID RT 002
+        // Canonical ID only
         expect(
           isAllowedRT({
             'rt': null,
@@ -61,7 +61,6 @@ void main() {
           }),
           isTrue,
         );
-        // Allowed RT by canonical ID RT 003
         expect(
           isAllowedRT({
             'rt': null,
@@ -70,32 +69,35 @@ void main() {
           isTrue,
         );
 
-        // Non-allowed RTs (004, 005, 006)
+        // RTs outside the historical whitelist are members too (backend-enforces scope).
         expect(
           isAllowedRT({
             'rt': '004',
             'rt_id': 'efb70405-09f5-48a0-ad14-34802cf09e3b',
           }),
-          isFalse,
+          isTrue,
         );
         expect(
           isAllowedRT({
             'rt': '005',
             'rt_id': '5106197a-c4e4-4bbc-8ef7-921d7208717d',
           }),
-          isFalse,
+          isTrue,
         );
         expect(
           isAllowedRT({
             'rt': '006',
             'rt_id': 'a3390720-dd56-4b28-92b1-43f384f584cd',
           }),
-          isFalse,
+          isTrue,
         );
-        expect(isAllowedRT({'rt': '001', 'rt_id': 'unknown-id'}), isFalse);
 
         // Super admin passes
         expect(isAllowedRT({'system_role': 'super_admin'}), isTrue);
+
+        // Authenticated user with NO RT membership is rejected
+        expect(isAllowedRT({'role': 'warga'}), isFalse);
+        expect(isAllowedRT({'rt': null, 'rt_id': null}), isFalse);
 
         // Null user
         expect(isAllowedRT(null), isFalse);
@@ -104,6 +106,151 @@ void main() {
   });
 
   group('RT Restriction - Navigation Shell UI', () {
+    testWidgets(
+      'security officer opens Warga first and can navigate Warga, Notifikasi, Profile',
+      (tester) async {
+        final securityUser = {
+          'id': 'user-security',
+          'email': 'security@local.com',
+          'name': 'Petugas Keamanan',
+          'role': AppRole.warga,
+          'jabatan': 'keamanan',
+          'rt': '002',
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        };
+        final router = GoRouter(
+          initialLocation: '/home/warga',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Beranda RT'),
+                ),
+                GoRoute(
+                  path: '/home/warga',
+                  builder: (context, state) => const Text('Daftar Warga'),
+                ),
+                GoRoute(
+                  path: '/home/notifikasi',
+                  builder: (context, state) => const Text('Menu Notifikasi'),
+                ),
+                GoRoute(
+                  path: '/home/profile',
+                  builder: (context, state) => const Text('Profil Petugas'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _FakeAuthRepository(AsyncData(securityUser)),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Daftar Warga'), findsOneWidget);
+        expect(find.text('Beranda'), findsNothing);
+        expect(find.text('Warga'), findsOneWidget);
+        expect(find.text('Notifikasi'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
+          ),
+        );
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
+          ),
+        );
+
+        await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+        await tester.pumpAndSettle();
+        expect(find.text('Menu Notifikasi'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-profil')));
+        await tester.pumpAndSettle();
+        expect(find.text('Profil Petugas'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'cleaning officer navigation contains Monitoring and Profile only',
+      (tester) async {
+        final cleaningUser = {
+          'id': 'user-cleaning',
+          'email': 'cleaning@local.com',
+          'name': 'Petugas Kebersihan',
+          'role': AppRole.warga,
+          'jabatan': 'kebersihan',
+          'rt': '002',
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        };
+        final router = GoRouter(
+          initialLocation: '/home/monitoring',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Beranda RT'),
+                ),
+                GoRoute(
+                  path: '/home/monitoring',
+                  builder: (context, state) => const Text('Monitoring Screen'),
+                ),
+                GoRoute(
+                  path: '/home/profile',
+                  builder: (context, state) => const Text('Profile Screen'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _FakeAuthRepository(AsyncData(cleaningUser)),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Monitoring Screen'), findsOneWidget);
+        expect(find.text('Sampah'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+        expect(find.text('Beranda'), findsNothing);
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
+          ),
+        );
+
+        await tester.tap(find.byKey(const Key('nav-item-profil')));
+        await tester.pumpAndSettle();
+        expect(find.text('Profile Screen'), findsOneWidget);
+      },
+    );
+
     testWidgets(
       'displays all 5 tabs (Beranda, Kas, Iuran, Warga, Profil) for RT 002/003 user',
       (tester) async {
@@ -169,10 +316,10 @@ void main() {
     );
 
     testWidgets(
-      'hides RT-scoped tabs (Kas, Iuran, Warga) and only shows Beranda and Profil for RT 004 user',
+      'shows all tabs for an ordinary member of an arbitrary RT (RT 004)',
       (tester) async {
-        final nonAllowedUser = {
-          'id': 'user-non-allowed',
+        final memberUser = {
+          'id': 'user-004',
           'email': 'bendahara-004@local.com',
           'name': 'Bendahara RT 004',
           'role': AppRole.bendahara,
@@ -216,7 +363,69 @@ void main() {
           ProviderScope(
             overrides: [
               authRepositoryProvider.overrideWith(
-                (ref) => _FakeAuthRepository(AsyncData(nonAllowedUser)),
+                (ref) => _FakeAuthRepository(AsyncData(memberUser)),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Beranda'), findsOneWidget);
+        expect(find.text('Kas'), findsOneWidget);
+        expect(find.text('Iuran'), findsOneWidget);
+        expect(find.text('Warga'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'hides RT-scoped tabs for an authenticated user with NO RT membership',
+      (tester) async {
+        final noRTUser = {
+          'id': 'user-no-rt',
+          'email': 'bendahara-no-rt@local.com',
+          'name': 'Bendahara tanpa RT',
+          'role': AppRole.bendahara,
+        };
+
+        final router = GoRouter(
+          initialLocation: '/home',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Home Screen'),
+                ),
+                GoRoute(
+                  path: '/home/kas',
+                  builder: (context, state) => const Text('Kas Screen'),
+                ),
+                GoRoute(
+                  path: '/home/iuran',
+                  builder: (context, state) => const Text('Iuran Screen'),
+                ),
+                GoRoute(
+                  path: '/home/warga',
+                  builder: (context, state) => const Text('Warga Screen'),
+                ),
+                GoRoute(
+                  path: '/home/profile',
+                  builder: (context, state) => const Text('Profile Screen'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _FakeAuthRepository(AsyncData(noRTUser)),
               ),
             ],
             child: MaterialApp.router(routerConfig: router),

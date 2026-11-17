@@ -1,42 +1,32 @@
-import 'dart:io';
-
-import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
-import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
+
 import 'package:social_finance/core/widgets/section_header.dart';
-import '../../data/mock_dashboard_data.dart';
-import 'package:go_router/go_router.dart';
+import 'package:social_finance/core/widgets/resident_avatar.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
-import 'package:social_finance/features/kas/data/kas_models.dart';
-import 'package:social_finance/features/kas/data/kas_repository.dart';
-import 'package:social_finance/features/kas/presentation/screens/kas_screen.dart';
-import '../widgets/financial_summary_chart.dart';
+import 'package:social_finance/features/dashboard/data/community_repository.dart';
+import 'package:social_finance/core/widgets/community_image.dart';
+import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/features/warga/data/api_warga_models.dart';
+import 'package:social_finance/features/warga/data/warga_providers.dart';
+import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
 
-/// Standard gap between equivalent adjacent dashboard panels.
-const _panelGap = AppSpacing.md; // 12
+const _sectionGap = AppSpacing.lg;
+const _titleGap = AppSpacing.sm;
 
-/// Extra vertical gap before a new section title.
-const _sectionGap = AppSpacing.lg; // 20
-
-/// Gap between a section title and its first child card.
-const _titleGap = AppSpacing.sm; // 8
-
-/// Dashboard screen with a single canonical horizontal grid.
-///
-/// All full-width panels share the same left/right edges defined by
-/// [AppSpacing.screenPadding].  Children never apply their own
-/// horizontal offset — only the scroll view controls that.
+/// Beranda: hanya daftar Lokasi Dana kategori Rekening yang aktif.
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Future<void> Function()? onRefreshOverride;
@@ -48,338 +38,56 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  DashboardSummary? _apiSummary;
-  DateTime _activeDate = DateTime.now();
-  int _selectedYear = DateTime.now().year;
-  bool _isYearFilterActive = false;
-  bool _isRefreshing = false;
-  bool _filterExpanded = false;
-
-  static const _monthNames = [
-    'Januari',
-    'Februari',
-    'Maret',
-    'April',
-    'Mei',
-    'Juni',
-    'Juli',
-    'Agustus',
-    'September',
-    'Oktober',
-    'November',
-    'Desember',
-  ];
-
-  bool get _isCurrentMonth {
-    final now = DateTime.now();
-    return _activeDate.year == now.year && _activeDate.month == now.month;
-  }
-
-  String _formatMonthYearShort(DateTime dt) {
-    const months = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    return '${months[dt.month]} ${dt.year}';
-  }
-
-  Future<void> _pickMonth() async {
-    final months = [
-      'Semua Bulan',
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-    int selYear = _activeDate.year;
-    int selMonth = _activeDate.month;
-
-    return await showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.base),
-        ),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (_, setModalState) {
-          final isDark = Theme.of(ctx).brightness == Brightness.dark;
-
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.base,
-              AppSpacing.base,
-              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Pilih Bulan',
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    childAspectRatio: 2.2,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                  ),
-                  itemCount: months.length,
-                  itemBuilder: (_, i) {
-                    final isAll = i == 0;
-                    final isSelected = isAll
-                        ? _isYearFilterActive
-                        : (i == selMonth && !_isYearFilterActive);
-                    return InkWell(
-                      onTap: () {
-                        setState(() {
-                          if (isAll) {
-                            _isYearFilterActive = true;
-                          } else {
-                            _activeDate = DateTime(selYear, i, 1);
-                            _isYearFilterActive = false;
-                          }
-                        });
-                        _fetchDashboard();
-                        if (ctx.mounted) Navigator.of(ctx).pop();
-                      },
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.accent.withValues(alpha: 0.2)
-                              : (isDark
-                                    ? AppColors.darkSurfaceHover
-                                    : AppColors.lightSurfaceHover),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.accent
-                                : (isDark
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder),
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          months[i],
-                          style: TextStyle(
-                            color: isSelected
-                                ? AppColors.accent
-                                : (isDark
-                                      ? AppColors.darkText
-                                      : AppColors.lightText),
-                            fontWeight: isSelected ? FontWeight.w600 : null,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _pickYear() async {
-    final currentYear = DateTime.now().year;
-    int selYear = _selectedYear;
-
-    return await showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.base),
-        ),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (_, setModalState) {
-          final isDark = Theme.of(ctx).brightness == Brightness.dark;
-          final years = List.generate(15, (i) => currentYear - 7 + i);
-
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.base,
-              AppSpacing.base,
-              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Pilih Tahun',
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    childAspectRatio: 2.0,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                  ),
-                  itemCount: years.length,
-                  itemBuilder: (_, i) {
-                    final year = years[i];
-                    final isSelected = year == selYear;
-                    return InkWell(
-                      onTap: () {
-                        setState(() {
-                          _selectedYear = year;
-                          _isYearFilterActive = true;
-                        });
-                        _fetchDashboard();
-                        if (ctx.mounted) Navigator.of(ctx).pop();
-                      },
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? (isDark
-                                    ? AppColors.darkAccentSoft
-                                    : AppColors.lightAccentSoft)
-                              : (isDark
-                                    ? AppColors.darkSurfaceHover
-                                    : AppColors.lightSurfaceHover),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.accent
-                                : (isDark
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder),
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          year.toString(),
-                          style: TextStyle(
-                            color: isSelected
-                                ? AppColors.accent
-                                : (isDark
-                                      ? AppColors.darkText
-                                      : AppColors.lightText),
-                            fontWeight: isSelected ? FontWeight.w600 : null,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
+  final PageController _bannerController = PageController();
+  int _activeBannerIndex = 0;
+  Timer? _autoScrollTimer;
+  int _orgChartPointers = 0;
 
   @override
   void initState() {
     super.initState();
-    _fetchDashboard();
+    _startAutoScroll();
   }
 
-  Future<void> _fetchDashboard() async {
-    // Skip real HTTP fetch during widget/unit tests to avoid pending timers
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+  void _startAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted || !_bannerController.hasClients) return;
+      // With a single banner there is no scroll extent; nothing to autoplay.
+      if (_bannerController.position.maxScrollExtent <= 0) return;
+      final page = _bannerController.page?.round() ?? 0;
+      _bannerController.animateToPage(
+        page + 1,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
 
-    try {
-      final api = ref.read(kasApiClientProvider);
-      // Year filter: send "YYYY" only (backend will use Jan-Dec of that year)
-      // Month filter: send "YYYY-MM"
-      final periodParam = _isYearFilterActive
-          ? '$_selectedYear'
-          : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
-
-      final json = await api.getDashboardSummary(periodParam);
-      if (mounted) {
-        setState(() {
-          _apiSummary = DashboardSummary.fromJson(json);
-        });
-      }
-    } catch (_) {
-      // Fallback to default in tests or offline mode
-    }
+  @override
+  void dispose() {
+    _autoScrollTimer?.cancel();
+    _bannerController.dispose();
+    super.dispose();
   }
 
   Future<void> _handleRefresh() async {
-    if (_isRefreshing) return;
-    _isRefreshing = true;
-    try {
-      final user = ref.read(authRepositoryProvider)?.valueOrNull;
-      final profileStatus = user?['profile_status'] as String?;
-      if (user != null &&
-          (profileStatus == 'stale' ||
-              profileStatus == 'error' ||
-              profileStatus == 'permissions_unavailable')) {
-        await ref.read(authRepositoryProvider.notifier).reloadProfile();
-      }
-      ref.invalidate(dashboardSummaryProvider);
-      ref.invalidate(recentKasTransactionsProvider);
-      ref.invalidate(recentTransactionsProvider);
-      if (widget.onRefreshOverride != null) {
-        await widget.onRefreshOverride!();
-      } else {
-        await _fetchDashboard();
-      }
-    } finally {
-      _isRefreshing = false;
+    ref.invalidate(homeDashboardFutureProvider);
+    if (widget.onRefreshOverride != null) {
+      await widget.onRefreshOverride!();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final authState = ref.watch(authRepositoryProvider);
-    final defaultSummary = ref.watch(dashboardSummaryProvider);
-    final DashboardSummary summary = _apiSummary ?? defaultSummary;
-    final defaultKasTransactions = ref.watch(recentKasTransactionsProvider);
-    final List<KasTransaction> kasTransactions = _apiSummary != null
-        ? _apiSummary!.recentKasTransactions
-        : defaultKasTransactions;
+    final isDark = theme.brightness == Brightness.dark;
 
+    final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final roleUser = user?['role'] as AppRole? ?? AppRole.warga;
+    final rawJabatan = (user?['jabatan'] ?? '').toString().trim();
     final rt = user?['rt'] ?? '';
     final rawRw = user?['rw']?.toString() ?? '';
     final rw = looksLikeUuid(rawRw)
@@ -390,7 +98,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       if (rw.isNotEmpty) 'RW $rw',
     ].join(' / ');
 
-    final isDark = theme.brightness == Brightness.dark;
+    final dashboardAsync = ref.watch(homeDashboardFutureProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -402,7 +110,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         key: const Key('dashboard-refresh-indicator'),
         onRefresh: _handleRefresh,
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
+          physics: _orgChartPointers > 0
+              ? const NeverScrollableScrollPhysics()
+              : const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             AppSpacing.base,
             AppSpacing.base,
@@ -412,7 +122,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Header ──
+              // ── 1. Greeting & User identity ──
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -429,7 +139,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             ),
                             const Spacer(),
                             AppBadge(
-                              label: appRoleDisplayName(roleUser),
+                              label: appJabatanDisplayName(rawJabatan),
                               isNeonStyle: isDark,
                             ),
                           ],
@@ -446,114 +156,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ],
               ),
 
-              // ── Periode + Tahun Filter (expandable seperti KAS) ──
-              _buildFilterBar(theme, isDark),
+              const SizedBox(height: AppSpacing.md),
 
-              // ── Saldo Kas ──
-              const SizedBox(height: _panelGap),
-              _buildSummaryCard(
-                context: context,
-                title: 'Saldo Kas',
-                value: RupiahFormatter.format(summary.saldoKas),
-                color: AppColors.accent,
-                icon: Icons.account_balance_wallet_rounded,
+              // ── 2. Active Banners (Carousel) ──
+              dashboardAsync.when(
+                data: (data) =>
+                    _buildBannersCarousel(data.banners, theme, isDark),
+                loading: () => _buildBannersSkeleton(isDark),
+                error: (e, s) => _buildDefaultBanner(theme, isDark),
               ),
 
-              // ── Pemasukan / Pengeluaran ──
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildSummaryCard(
-                      context: context,
-                      title: _isCurrentMonth
-                          ? 'Pemasukan Bulan Ini'
-                          : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
-                      value: RupiahFormatter.format(summary.pemasukanBulanIni),
-                      color: AppColors.income,
-                      icon: Icons.arrow_downward,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildSummaryCard(
-                      context: context,
-                      title: _isCurrentMonth
-                          ? 'Pengeluaran Bulan Ini'
-                          : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
-                      value: RupiahFormatter.format(
-                        summary.pengeluaranBulanIni,
-                      ),
-                      color: AppColors.expense,
-                      icon: Icons.arrow_upward,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: _sectionGap),
+
+              // ── 2.5. Rekening Dana (Lokasi Dana Rekening) — hanya Pengurus/Bendahara ──
+              _buildRekeningSection(theme, isDark),
+              dashboardAsync.when(
+                data: (data) =>
+                    _buildSecurityCard(data.security, theme, isDark),
+                loading: () => _buildSecurityCard(null, theme, isDark),
+                error: (e, s) => _buildSecurityCard(null, theme, isDark),
               ),
 
-              // ── Ringkasan Keuangan ──
-              const SizedBox(height: _panelGap),
-              FinancialSummaryChart(summary: summary, theme: theme),
-
-              // ── Metode Pembayaran (Donut Chart: Transfer vs Tunai) ──
               const SizedBox(height: _sectionGap),
-              _buildPaymentMethodDonutSection(
-                summary.paymentMethodBreakdown,
-                theme,
-              ),
 
-              // ── Iuran Bulan Ini ──
-              const SizedBox(height: _sectionGap),
-              _buildDuesSection(summary.duesProgress, theme),
-
-              // ── Transaksi Terbaru ──
-              const SizedBox(height: _sectionGap),
-              const SectionHeader(title: 'Transaksi Terbaru'),
-              const SizedBox(height: _titleGap),
-              if (kasTransactions.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(child: Text('Belum ada transaksi.')),
-                )
-              else
-                ...kasTransactions.map(
-                  (tx) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: KasTransactionCard(
-                      transaction: tx,
-                      isDark: isDark,
-                      onTap: () => context.push('/home/kas/${tx.id}'),
-                      onCopy: () async {
-                        try {
-                          await Clipboard.setData(
-                            ClipboardData(text: tx.referensi ?? ''),
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text(
-                                  'Referensi berhasil disalin.',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                                duration: const Duration(milliseconds: 1500),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Gagal menyalin: $e'),
-                                behavior: SnackBarBehavior.floating,
-                                backgroundColor: AppColors.danger,
-                              ),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ),
+              // ── 4. Dynamic Organizational Hierarchy Diagram ──
+              dashboardAsync.when(
+                data: (data) => _buildOrganizationHierarchy(
+                  data.organization,
+                  theme,
+                  isDark,
                 ),
+                loading: () =>
+                    const Center(child: CircularProgressIndicator.adaptive()),
+                error: (e, s) => const SizedBox.shrink(),
+              ),
+
+              const SizedBox(height: _sectionGap),
+
+              // ── 5. Upcoming Activities (3-5 items) ──
+              dashboardAsync.when(
+                data: (data) => _buildUpcomingActivities(
+                  data.upcomingActivities,
+                  theme,
+                  isDark,
+                ),
+                loading: () => const SizedBox.shrink(),
+                error: (e, s) => const SizedBox.shrink(),
+              ),
+
               const SizedBox(height: AppSpacing.base),
             ],
           ),
@@ -562,330 +212,286 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  // ── Month/Year Filter Button Bar (like Kas) ──
-  Widget _buildFilterBar(ThemeData theme, bool isDark) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _filterExpanded = !_filterExpanded;
-        });
-      },
-      borderRadius: BorderRadius.circular(AppRadius.base),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-              borderRadius: BorderRadius.circular(AppRadius.base),
-              border: Border.all(
-                color: isDark
-                    ? AppColors.accent.withValues(alpha: 0.35)
-                    : AppColors.accent.withValues(alpha: 0.25),
-                width: 1,
-              ),
-              boxShadow: isDark
-                  ? [
-                      BoxShadow(
-                        color: AppColors.accent.withValues(alpha: 0.12),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.tune,
-                  size: 18,
-                  color: isDark ? AppColors.darkText : AppColors.lightText,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Filter',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Spacer(),
-                AnimatedRotation(
-                  turns: _filterExpanded ? 0 : 0.5,
-                  duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    Icons.keyboard_arrow_down,
-                    size: 20,
-                    color: AppColors.accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            alignment: Alignment.topCenter,
-            child: _filterExpanded
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 12),
-                      // Row 1: Periode + Tahun
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.base,
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: _pickMonth,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.base,
-                                ),
-                                child: Container(
-                                  height: 38,
-                                  alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface,
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.base,
-                                    ),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? AppColors.accent.withValues(
-                                              alpha: 0.35,
-                                            )
-                                          : AppColors.accent.withValues(
-                                              alpha: 0.25,
-                                            ),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    _isYearFilterActive
-                                        ? 'Semua Bulan'
-                                        : _monthNames[_activeDate.month - 1],
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: InkWell(
-                                onTap: _pickYear,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.base,
-                                ),
-                                child: Container(
-                                  height: 38,
-                                  alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface,
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.base,
-                                    ),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? AppColors.accent.withValues(
-                                              alpha: 0.35,
-                                            )
-                                          : AppColors.accent.withValues(
-                                              alpha: 0.25,
-                                            ),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    _selectedYear.toString(),
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPaymentMethodDonutSection(
-    PaymentMethodBreakdown breakdown,
-    ThemeData theme,
-  ) {
-    final isDark = theme.brightness == Brightness.dark;
-    final hasData = breakdown.totalAmount > 0 || breakdown.totalCount > 0;
-    final transferVal = breakdown.transferAmount > 0
-        ? breakdown.transferAmount.toDouble()
-        : (breakdown.transferCount > 0
-              ? breakdown.transferCount.toDouble()
-              : 0.0);
-    final cashVal = breakdown.cashAmount > 0
-        ? breakdown.cashAmount.toDouble()
-        : (breakdown.cashCount > 0 ? breakdown.cashCount.toDouble() : 0.0);
-
+  // ── 2.5 Rekening Dana (public, all roles) ──
+  Widget _buildRekeningSection(ThemeData theme, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader(title: 'Metode Pembayaran'),
+        const SectionHeader(title: 'Rekening RT'),
         const SizedBox(height: _titleGap),
         AppCard(
-          key: const Key('dashboard-payment-method-donut-card'),
+          padding: EdgeInsets.zero,
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: !hasData
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.donut_large_outlined,
-                            size: 32,
-                            color: AppColors.textMutedColor(context),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Belum ada transaksi Tunai atau Transfer pada periode ini.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.textMutedColor(context),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : Row(
-                    children: [
-                      SizedBox(
-                        width: 112,
-                        height: 112,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            PieChart(
-                              PieChartData(
-                                sectionsSpace: 2,
-                                centerSpaceRadius: 34,
-                                sections: [
-                                  if (transferVal > 0)
-                                    PieChartSectionData(
-                                      color: AppColors.accent,
-                                      value: transferVal,
-                                      radius: 16,
-                                      showTitle: false,
-                                    ),
-                                  if (cashVal > 0)
-                                    PieChartSectionData(
-                                      color: AppColors.info,
-                                      value: cashVal,
-                                      radius: 16,
-                                      showTitle: false,
-                                    ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Total',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    fontSize: 10,
-                                    color: AppColors.textMutedColor(context),
-                                  ),
-                                ),
-                                Text(
-                                  '${breakdown.totalCount} Tx',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildPaymentMethodBreakdownItem(
-                              theme: theme,
-                              isDark: isDark,
-                              label: 'Transfer',
-                              color: AppColors.accent,
-                              amount: breakdown.transferAmount,
-                              percentage: breakdown.transferPercentage,
-                              count: breakdown.transferCount,
-                            ),
-                            const SizedBox(height: 10),
-                            _buildPaymentMethodBreakdownItem(
-                              theme: theme,
-                              isDark: isDark,
-                              label: 'Tunai',
-                              color: AppColors.info,
-                              amount: breakdown.cashAmount,
-                              percentage: breakdown.cashPercentage,
-                              count: breakdown.cashCount,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.max,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [const PublicRekeningList()],
+            ),
           ),
         ),
+        const SizedBox(height: _sectionGap),
       ],
     );
   }
 
-  Widget _buildPaymentMethodBreakdownItem({
-    required ThemeData theme,
-    required bool isDark,
-    required String label,
-    required Color color,
-    required int amount,
-    required int percentage,
-    required int count,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.10 : 0.06),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(
-          color: color.withValues(alpha: isDark ? 0.30 : 0.22),
+  // ── Banners Carousel ──
+  Widget _buildBannersCarousel(
+    List<CommunityBanner> banners,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    if (banners.isEmpty) {
+      return _buildDefaultBanner(theme, isDark);
+    }
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 160,
+          child: PageView.builder(
+            controller: _bannerController,
+            // Infinite virtual loop when more than one banner; a clamped
+            // single page otherwise (no out-of-range animateToPage).
+            itemCount: banners.length > 1 ? null : 1,
+            onPageChanged: (idx) {
+              setState(() {
+                _activeBannerIndex = idx % banners.length;
+              });
+            },
+            itemBuilder: (context, index) {
+              final banner = banners[index % banners.length];
+              final isIuran = banner.sourceType == 'iuran_reminder';
+              final bannerLabel = switch (banner.sourceType) {
+                'activity' => 'Kegiatan',
+                'announcement' => 'Pengumuman',
+                'iuran_reminder' => 'Pengingat Iuran',
+                _ => 'Pengumuman RT',
+              };
+
+              return InkWell(
+                onTap: () {
+                  final title = banner.title.trim();
+                  if (title == 'Pengingat Iuran Warga' || isIuran) {
+                    context.push('/home/iuran');
+                    return;
+                  }
+                  if (banner.sourceType == 'announcement' &&
+                      banner.sourceId != null &&
+                      banner.sourceId!.isNotEmpty) {
+                    context.push('/home/pengumuman/${banner.sourceId}');
+                    return;
+                  }
+                  if (banner.sourceType == 'activity' &&
+                      banner.sourceId != null &&
+                      banner.sourceId!.isNotEmpty) {
+                    context.push('/home/kegiatan/${banner.sourceId}');
+                    return;
+                  }
+                  final action = banner.actionUrl;
+                  if (action != null && action.isNotEmpty) {
+                    final target = action.startsWith('/home')
+                        ? action
+                        : '/home$action';
+                    context.push(target);
+                  }
+                },
+                borderRadius: BorderRadius.circular(AppRadius.base),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isIuran
+                          ? [
+                              isDark
+                                  ? const Color(0xFF6A1B9A)
+                                  : const Color(0xFF8E24AA),
+                              isDark
+                                  ? const Color(0xFF4A148C)
+                                  : const Color(0xFF6A1B9A),
+                            ]
+                          : [
+                              isDark
+                                  ? const Color(0xFF1E3A8A)
+                                  : const Color(0xFF2563EB),
+                              isDark
+                                  ? const Color(0xFF1E1B4B)
+                                  : const Color(0xFF1D4ED8),
+                            ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Stack(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.2,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.sm,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        bannerLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    if (banner.priority > 0) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.shade700,
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.xs,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Penting',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                Text(
+                                  banner.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  banner.description,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                    fontSize: 12,
+                                  ),
+                                  maxLines: 4,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (banner.imageUrl != null &&
+                              banner.imageUrl!.isNotEmpty) ...[
+                            const SizedBox(width: 12),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              child: Container(
+                                width: 92,
+                                height: 92,
+                                color: isDark
+                                    ? AppColors.darkSurface
+                                    : AppColors.lightSurfaceSubtle,
+                                alignment: Alignment.center,
+                                child: CommunityImage(
+                                  imageRef: banner.imageUrl!,
+                                  width: 92,
+                                  height: 92,
+                                  fit: BoxFit.contain,
+                                  alt: banner.sourceType == 'activity'
+                                      ? 'Banner kegiatan'
+                                      : 'Banner pengumuman',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (banner.actionUrl != null || isIuran)
+                        const Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Icon(
+                            Icons.arrow_forward_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ),
+        if (banners.length > 1) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              banners.length,
+              (i) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: i == _activeBannerIndex ? 16 : 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: i == _activeBannerIndex
+                      ? AppColors.accent
+                      : (isDark ? Colors.grey.shade700 : Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDefaultBanner(ThemeData theme, bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            isDark ? const Color(0xFF1E293B) : const Color(0xFF3B82F6),
+            isDark ? const Color(0xFF0F172A) : const Color(0xFF1D4ED8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.base),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -893,123 +499,384 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           Row(
             children: [
               Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-              ),
-              Text(
-                '$percentage%',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.bold,
+                child: const Text(
+                  'Komunitas Warga',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 2),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(
-                  RupiahFormatter.format(amount),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '$count tx',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontSize: 10.5,
-                  color: AppColors.textMutedColor(context),
-                ),
-              ),
-            ],
+          const SizedBox(height: 12),
+          const Text(
+            'Selamat Datang di Portal Warga',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Informasi kegiatan, pengumuman, dan kepengurusan RT hadir secara transparan.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 12,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDuesSection(DuesProgress dues, ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
+  Widget _buildBannersSkeleton(bool isDark) {
+    return Container(
+      height: 150,
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+      ),
+      child: const Center(child: CircularProgressIndicator.adaptive()),
+    );
+  }
+
+  // ── 3. Petugas Keamanan Sedang Bertugas ──
+  Widget _buildSecurityCard(
+    SecurityOnDutyInfo? security,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    final officers = security?.officers ?? const <SecurityOfficer>[];
+    final isAvailable = (security?.isAvailable ?? false) && officers.isNotEmpty;
+    final wargaAsync = ref.watch(wargaListProvider);
+    final wargaMap = switch (wargaAsync) {
+      AsyncData(:final value) => {for (final r in value) (r.userId ?? ''): r},
+      _ => <String, MappedResident>{},
+    };
+
+    Map<String, String> resolveOfficerData(SecurityOfficer o) {
+      final resident = wargaMap[o.id];
+      final avatarPath = o.avatarPath ?? resident?.avatarPath;
+      final avatarThumbPath = o.avatarThumbPath ?? resident?.avatarThumbPath;
+      final phone = o.phone ?? resident?.phoneNumber ?? '';
+      final name = o.name;
+      return {
+        'avatarPath': avatarPath ?? '',
+        'avatarThumbPath': avatarThumbPath ?? '',
+        'phone': phone,
+        'name': name,
+      };
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(
-          title: _isCurrentMonth
-              ? 'Iuran Bulan Ini'
-              : 'Iuran (${_formatMonthYearShort(_activeDate)})',
+        const SectionHeader(title: 'Petugas Keamanan Sedang Bertugas'),
+        const SizedBox(height: AppSpacing.xs),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: !isAvailable
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.grey.shade800
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                        ),
+                        child: Icon(
+                          Icons.shield_outlined,
+                          color: Colors.grey,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Tidak ada petugas keamanan yang sedang bertugas.',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < officers.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Builder(
+                            builder: (context) {
+                              final o = officers[i];
+                              final data = resolveOfficerData(o);
+                              final name = data['name'];
+                              final avatarPath = data['avatarPath'] ?? '';
+                              final avatarThumbPath =
+                                  data['avatarThumbPath'] ?? '';
+                              final phone = data['phone'] ?? '';
+                              final hasPhone = phone.trim().isNotEmpty;
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  ResidentAvatar(
+                                    name: name ?? '',
+                                    avatarPath: avatarPath.isNotEmpty
+                                        ? avatarPath
+                                        : null,
+                                    avatarThumbPath: avatarThumbPath.isNotEmpty
+                                        ? avatarThumbPath
+                                        : null,
+                                    size: 38,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name ?? '',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.accent,
+                                              ),
+                                        ),
+                                        if (hasPhone) ...[
+                                          const SizedBox(height: 2),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.phone,
+                                                size: 11,
+                                                color: AppColors.success,
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                phone.trim(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  letterSpacing: 0.6,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 11,
+                                                  color: AppColors.warning,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  if (hasPhone)
+                                    GestureDetector(
+                                      onTap: () {
+                                        Clipboard.setData(
+                                          ClipboardData(text: phone.trim()),
+                                        );
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Nomor telepon $name disalin',
+                                            ),
+                                            behavior: SnackBarBehavior.floating,
+                                            duration: const Duration(
+                                              seconds: 2,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: Icon(
+                                        Icons.copy_rounded,
+                                        size: 16,
+                                        color: AppColors.accent,
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+          ),
         ),
+      ],
+    );
+  }
+
+  // ── 4. Dynamic Organizational Hierarchy Diagram ──
+  Widget _buildOrganizationHierarchy(
+    OrganizationStructure organization,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    final wargaAsync = ref.watch(wargaListProvider);
+    final wargaResidents = switch (wargaAsync) {
+      AsyncData(:final value) => value,
+      _ => const <MappedResident>[],
+    };
+
+    bool extraActiveFilter(OrgMember member) {
+      if (!member.isActiveMember) return false;
+      if (wargaResidents.isEmpty) return true;
+
+      final uid = member.userId.trim();
+      if (uid.isNotEmpty) {
+        final byUser = wargaResidents.where(
+          (r) => (r.userId ?? '').trim() == uid,
+        );
+        if (byUser.isNotEmpty) {
+          return byUser.any((r) => r.isActive);
+        }
+      }
+
+      final normName = member.name.trim().toLowerCase().replaceAll(
+        RegExp(r'\s+'),
+        ' ',
+      );
+      final normPos = normalizeOrgPosition(member.jabatan);
+      final byNameAndPos = wargaResidents.where((r) {
+        final rName = r.name.trim().toLowerCase().replaceAll(
+          RegExp(r'\s+'),
+          ' ',
+        );
+        if (rName != normName) return false;
+        final rPos = normalizeOrgPosition(r.jabatan ?? '');
+        return normPos.isEmpty || rPos.isEmpty || rPos == normPos;
+      });
+      if (byNameAndPos.isNotEmpty) {
+        return byNameAndPos.any((r) => r.isActive);
+      }
+
+      return true;
+    }
+
+    final activeTiers = organization.buildActiveDiagramTiers(
+      extraActiveFilter: extraActiveFilter,
+    );
+
+    if (activeTiers.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader(title: 'Struktur Organisasi RT'),
+          const SizedBox(height: _titleGap),
+          AppCard(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.base),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.group_outlined,
+                    size: 32,
+                    color: AppColors.textMutedColor(context),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Belum ada struktur organisasi',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          'Data perangkat RT belum tersedia dari server.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textMutedColor(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final viewportHeight =
+        (activeTiers.length * 40.0 + (activeTiers.length - 1) * 48.0 + 72.0)
+            .clamp(220.0, 380.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Struktur Organisasi RT'),
         const SizedBox(height: _titleGap),
         AppCard(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkAccentSoft
-                            : AppColors.lightAccentSoft,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                      ),
-                      child: Icon(Icons.receipt_long, color: AppColors.accent),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        '${dues.paid} dari ${dues.target} KK sudah membayar',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ),
-                    Text(
-                      '${dues.percentage}%',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: AppColors.accent,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                LayoutBuilder(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.base),
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) {
+                setState(() => _orgChartPointers++);
+              },
+              onPointerUp: (_) {
+                setState(
+                  () =>
+                      _orgChartPointers = (_orgChartPointers - 1).clamp(0, 99),
+                );
+              },
+              onPointerCancel: (_) {
+                setState(() => _orgChartPointers = 0);
+              },
+              child: SizedBox(
+                height: viewportHeight,
+                width: double.infinity,
+                child: LayoutBuilder(
                   builder: (context, constraints) {
-                    return SizedBox(
-                      height: 8,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.xs),
-                        child: LinearProgressIndicator(
-                          value: dues.ratio,
-                          minHeight: 8,
-                          backgroundColor: AppColors.accent.withValues(
-                            alpha: isDark ? 0.2 : 0.15,
-                          ),
-                          valueColor: AlwaysStoppedAnimation(AppColors.accent),
+                    final viewportWidth = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth
+                        : MediaQuery.sizeOf(context).width;
+                    return _OrgChartViewport(
+                      viewportWidth: viewportWidth,
+                      tiersSignature: activeTiers
+                          .map((t) => t.map((n) => n.position).join(','))
+                          .join('|'),
+                      child: _OrgChartWithConnectors(
+                        tiers: activeTiers,
+                        isDark: isDark,
+                        buildChip: (node) => _buildOrgMemberChip(
+                          node: node,
+                          theme: theme,
+                          isDark: isDark,
+                          wargaResidents: wargaResidents,
                         ),
                       ),
                     );
                   },
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1017,78 +884,970 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildSummaryCard({
+  Color _getJabatanColor(String jabatan) {
+    final normalized = jabatan.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
+    switch (normalized) {
+      case 'ketua':
+      case 'ketua_rt':
+        return AppColors.accent;
+      case 'wakil_ketua':
+      case 'wakil_ketua_rt':
+        return AppColors.info;
+      case 'sekretaris':
+      case 'sekretaris_rt':
+        return AppColors.success;
+      case 'bendahara':
+      case 'bendahara_rt':
+        return AppColors.warning;
+      case 'keamanan':
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt':
+        return AppColors.danger;
+      case 'operasional':
+      case 'operasional_rt':
+        return AppColors.teal;
+      case 'kebersihan':
+      case 'kebersihan_rt':
+        return AppColors.chartreuse;
+      case 'sosial':
+      case 'sosial_rt':
+      case 'seksi_sosial':
+      case 'seksi_sosial_rt':
+        return AppColors.lightPink;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  void _showOrgMemberDetail({
     required BuildContext context,
-    required String title,
-    required String value,
+    required List<OrgMember> members,
+    required String jabatan,
     required Color color,
-    required IconData icon,
-    String? subtitle,
+    required bool isDark,
+    required List<MappedResident> wargaResidents,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
+    final activeMembers = members.where((m) => m.isActiveMember).toList();
+    if (activeMembers.isEmpty) return;
+
+    final jNorm = jabatan.trim().toLowerCase();
+    final isKetua =
+        jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
+    final isSecurity = jNorm == 'keamanan' || jNorm == 'seksi_keamanan';
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        // Resolve warga data for phone & house number
+        final memberWargaMap = {
+          for (final w in wargaResidents) (w.userId ?? ''): w,
+        };
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.lightTextMuted,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: color,
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                if (subtitle != null && subtitle.isNotEmpty)
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textMutedColor(context),
-                    ),
+                const SizedBox(height: 16),
+                for (var i = 0; i < activeMembers.length; i++) ...[
+                  if (i > 0) ...[
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                  ],
+                  Builder(
+                    builder: (context) {
+                      final member = activeMembers[i];
+                      final name = member.name.trim();
+                      final warga = memberWargaMap[member.userId];
+                      final memberPhone =
+                          (member.phone ?? warga?.phoneNumber ?? '').trim();
+                      final isKetuaPhone = isKetua && memberPhone.isNotEmpty;
+                      final isSecurityPhone =
+                          isSecurity && memberPhone.isNotEmpty;
+                      final houseNumber = warga?.houseNumber.trim() ?? '';
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              ResidentAvatar(
+                                name: name,
+                                avatarPath: warga?.avatarPath,
+                                avatarThumbPath: warga?.avatarThumbPath,
+                                size: 48,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (i == 0) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.sm,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          jabatan.toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: color,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                    ],
+                                    Text(
+                                      name,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    if (houseNumber.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.home_outlined,
+                                            size: 16,
+                                            color: Colors.amber,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            houseNumber,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    // Ketua RT → tampilkan nomor telepon
+                                    if (isKetuaPhone) ...[
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons.phone,
+                                            size: 11,
+                                            color: AppColors.success,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            memberPhone,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: 'monospace',
+                                              letterSpacing: 0.6,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                              color: AppColors.warning,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    // Petugas Keamanan → tampilkan nomor telepon dengan style monospace
+                                    if (isSecurityPhone) ...[
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons.phone,
+                                            size: 11,
+                                            color: AppColors.success,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Expanded(
+                                            child: Text(
+                                              memberPhone,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontFamily: 'monospace',
+                                                letterSpacing: 0.6,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 11,
+                                                color: AppColors.warning,
+                                              ),
+                                            ),
+                                          ),
+                                          GestureDetector(
+                                            onTap: () {
+                                              Clipboard.setData(
+                                                ClipboardData(
+                                                  text: memberPhone,
+                                                ),
+                                              );
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Nomor telepon $name disalin',
+                                                  ),
+                                                  behavior:
+                                                      SnackBarBehavior.floating,
+                                                  duration: const Duration(
+                                                    seconds: 2,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            child: Icon(
+                                              Icons.copy_rounded,
+                                              size: 16,
+                                              color: AppColors.accent,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
                   ),
+                ],
               ],
             ),
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  Widget _buildOrgMemberChip({
+    required OrgNode node,
+    required ThemeData theme,
+    required bool isDark,
+    required List<MappedResident> wargaResidents,
+  }) {
+    final jabatan = node.positionLabel;
+    final color = _getJabatanColor(jabatan);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: ValueKey('org-badge-${node.position}'),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        onTap: () => _showOrgMemberDetail(
+          context: context,
+          members: node.members,
+          jabatan: jabatan,
+          color: color,
+          isDark: isDark,
+          wargaResidents: wargaResidents,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: isDark ? 0.18 : 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(
+              color: color.withValues(alpha: isDark ? 0.45 : 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                jabatan.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── 5. Upcoming Activities ──
+  Widget _buildUpcomingActivities(
+    List<CommunityActivity> activities,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const SectionHeader(title: 'Kegiatan Mendatang'),
+            TextButton(
+              onPressed: () => context.push('/home/kegiatan'),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              child: const Text('Lihat Semua'),
+            ),
+          ],
+        ),
+        const SizedBox(height: _titleGap),
+        if (activities.isEmpty)
+          AppCard(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.event_available_outlined,
+                      size: 32,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Belum ada kegiatan yang dijadwalkan.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMutedColor(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          ...activities
+              .take(4)
+              .map(
+                (act) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: AppCard(
+                    child: InkWell(
+                      onTap: () => context.push('/home/kegiatan/${act.id}'),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.sm,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    act.startDate.day.toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                  Text(
+                                    _monthShort(act.startDate.month),
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    act.title,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.location_on_outlined,
+                                        size: 13,
+                                        color: AppColors.textMutedColor(
+                                          context,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Expanded(
+                                        child: Text(
+                                          act.location,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontSize: 11,
+                                                color: AppColors.textMutedColor(
+                                                  context,
+                                                ),
+                                              ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right,
+                              size: 18,
+                              color: Colors.grey,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+      ],
+    );
+  }
+
+  String _monthShort(int m) {
+    const months = [
+      '',
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MEI',
+      'JUN',
+      'JUL',
+      'AGU',
+      'SEP',
+      'OKT',
+      'NOV',
+      'DES',
+    ];
+    return m >= 1 && m <= 12 ? months[m] : '';
+  }
+}
+
+class _OrgChartViewport extends StatefulWidget {
+  final double viewportWidth;
+  final String tiersSignature;
+  final Widget child;
+
+  const _OrgChartViewport({
+    required this.viewportWidth,
+    required this.tiersSignature,
+    required this.child,
+  });
+
+  @override
+  State<_OrgChartViewport> createState() => _OrgChartViewportState();
+}
+
+class _OrgChartViewportState extends State<_OrgChartViewport> {
+  final TransformationController _controller = TransformationController();
+  final GlobalKey _contentKey = GlobalKey();
+  bool _userInteracted = false;
+  bool _fitScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleFit();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrgChartViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tiersSignature != widget.tiersSignature ||
+        (oldWidget.viewportWidth - widget.viewportWidth).abs() > 1.0) {
+      _userInteracted = false;
+      _scheduleFit();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scheduleFit() {
+    if (_fitScheduled) return;
+    _fitScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fitScheduled = false;
+      _applyInitialCenterFit();
+    });
+  }
+
+  void _applyInitialCenterFit() {
+    if (!mounted || _userInteracted) return;
+    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final contentWidth = box.size.width;
+    if (contentWidth <= 0 || widget.viewportWidth <= 0) return;
+
+    if (contentWidth > widget.viewportWidth + 1.0) {
+      final fitScale = (widget.viewportWidth / contentWidth).clamp(0.5, 1.0);
+      final tx = (widget.viewportWidth - contentWidth * fitScale) / 2.0;
+      _controller.value = Matrix4.identity()
+        ..translate(tx, 0.0)
+        ..scale(fitScale, fitScale);
+    } else {
+      _controller.value = Matrix4.identity();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InteractiveViewer(
+      key: const ValueKey('org-chart-interactive-viewer'),
+      transformationController: _controller,
+      constrained: false,
+      boundaryMargin: const EdgeInsets.all(320),
+      minScale: 0.15,
+      maxScale: 3.0,
+      panEnabled: true,
+      scaleEnabled: true,
+      onInteractionStart: (_) {
+        _userInteracted = true;
+      },
+      child: ConstrainedBox(
+        key: _contentKey,
+        constraints: BoxConstraints(minWidth: widget.viewportWidth),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }
 }
 
-/// Media query helper that returns the combined bottom padding from safe area
-/// plus a small spacer so content doesn't sit behind bottom navigation.
+class _ChipMeta {
+  final String position;
+  final GlobalKey key;
+  _ChipMeta({required this.position, required this.key});
+}
+
+/// Represents a single orthogonal connector polyline segment on the RT diagram.
+class OrgConnectorLine {
+  final List<Offset> points;
+  final double stroke;
+  const OrgConnectorLine({required this.points, this.stroke = 2.0});
+}
+
+/// Computes strictly orthogonal (90-degree right-angle) connector lines
+/// between adjacent active tiers in [tierPositions] using badge [rects].
+///
+/// Rules:
+/// - Vertical stem exits from bottom-center `(p.center.dx, p.bottom)` of each parent.
+/// - Single aligned parent -> single child uses a direct vertical line.
+/// - Multiple children (or multiple parents) share a single horizontal branching line
+///   at `busY` (midpoint between parent bottom and child top), with vertical stems
+///   from parents to `busY` and vertical drops from `busY` to top-center
+///   `(c.center.dx, c.top)` of each child.
+List<OrgConnectorLine> computeOrgConnectorLines(
+  List<List<String>> tierPositions,
+  Map<String, Rect> rects, {
+  double stroke = 2.0,
+}) {
+  final activeTiers = <List<String>>[];
+  for (final tier in tierPositions) {
+    final present = <String>[];
+    for (final pos in tier) {
+      if (rects.containsKey(pos) && !present.contains(pos)) {
+        present.add(pos);
+      }
+    }
+    if (present.isNotEmpty) {
+      activeTiers.add(present);
+    }
+  }
+
+  final lines = <OrgConnectorLine>[];
+  for (var i = 1; i < activeTiers.length; i++) {
+    final parentPositions = activeTiers[i - 1];
+    final childPositions = activeTiers[i];
+
+    final parentRects = <Rect>[for (final p in parentPositions) rects[p]!];
+    final childRects = <Rect>[for (final c in childPositions) rects[c]!];
+    if (parentRects.isEmpty || childRects.isEmpty) continue;
+
+    double maxParentBottom = parentRects.first.bottom;
+    for (final pr in parentRects) {
+      if (pr.bottom > maxParentBottom) maxParentBottom = pr.bottom;
+    }
+
+    double minChildTop = childRects.first.top;
+    for (final cr in childRects) {
+      if (cr.top < minChildTop) minChildTop = cr.top;
+    }
+
+    final busY = maxParentBottom + (minChildTop - maxParentBottom) / 2.0;
+
+    if (parentRects.length == 1 && childRects.length == 1) {
+      final pr = parentRects.first;
+      final cr = childRects.first;
+      final px = pr.center.dx;
+      final cx = cr.center.dx;
+      if ((px - cx).abs() <= 1.0) {
+        final midX = (px + cx) / 2.0;
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(midX, pr.bottom), Offset(midX, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      } else {
+        final minX = px < cx ? px : cx;
+        final maxX = px > cx ? px : cx;
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(px, pr.bottom), Offset(px, busY)],
+            stroke: stroke,
+          ),
+        );
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(minX, busY), Offset(maxX, busY)],
+            stroke: stroke,
+          ),
+        );
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(cx, busY), Offset(cx, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      }
+    } else {
+      // 1. Vertical stem down from bottom-center of each parent badge to busY
+      for (final pr in parentRects) {
+        lines.add(
+          OrgConnectorLine(
+            points: [
+              Offset(pr.center.dx, pr.bottom),
+              Offset(pr.center.dx, busY),
+            ],
+            stroke: stroke,
+          ),
+        );
+      }
+
+      // 2. Single horizontal branching line at busY spanning all parent stems & child drops
+      final allXs = <double>[
+        ...parentRects.map((r) => r.center.dx),
+        ...childRects.map((r) => r.center.dx),
+      ];
+      final minX = allXs.reduce((a, b) => a < b ? a : b);
+      final maxX = allXs.reduce((a, b) => a > b ? a : b);
+      if ((maxX - minX).abs() > 0.5) {
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(minX, busY), Offset(maxX, busY)],
+            stroke: stroke,
+          ),
+        );
+      }
+
+      // 3. Vertical drop from busY to top-center of each child badge
+      for (final cr in childRects) {
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(cr.center.dx, busY), Offset(cr.center.dx, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      }
+    }
+  }
+
+  return lines;
+}
+
+class _OrgChartWithConnectors extends StatefulWidget {
+  final List<List<OrgNode>> tiers;
+  final bool isDark;
+  final Widget Function(OrgNode node) buildChip;
+
+  const _OrgChartWithConnectors({
+    required this.tiers,
+    required this.isDark,
+    required this.buildChip,
+  });
+
+  @override
+  State<_OrgChartWithConnectors> createState() =>
+      _OrgChartWithConnectorsState();
+}
+
+class _OrgChartWithConnectorsState extends State<_OrgChartWithConnectors> {
+  final GlobalKey _rootKey = GlobalKey();
+  final List<_ChipMeta> _chips = [];
+  final Map<String, GlobalKey> _chipKeys = {};
+  List<OrgConnectorLine> _lines = [];
+  bool _recomputeScheduled = false;
+
+  GlobalKey _keyFor(String position) {
+    return _chipKeys.putIfAbsent(position, () => GlobalKey());
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleRecompute();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrgChartWithConnectors oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _scheduleRecompute();
+  }
+
+  void _scheduleRecompute() {
+    if (_recomputeScheduled) return;
+    _recomputeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recomputeScheduled = false;
+      _recompute();
+    });
+  }
+
+  bool _sameLines(List<OrgConnectorLine> a, List<OrgConnectorLine> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final pa = a[i].points;
+      final pb = b[i].points;
+      if (pa.length != pb.length) return false;
+      for (var j = 0; j < pa.length; j++) {
+        if ((pa[j].dx - pb[j].dx).abs() > 0.01 ||
+            (pa[j].dy - pb[j].dy).abs() > 0.01) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  Map<String, Rect> _measureChipRects() {
+    final rootBox = _rootKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rootBox == null || !rootBox.hasSize) return const <String, Rect>{};
+    final rects = <String, Rect>{};
+    for (final c in _chips) {
+      final ctx = c.key.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) continue;
+      final topLeft = box.localToGlobal(Offset.zero, ancestor: rootBox);
+      rects[c.position] = topLeft & box.size;
+    }
+    return rects;
+  }
+
+  List<List<String>> _tierPositionMatrix() {
+    return [
+      for (final tier in widget.tiers) [for (final node in tier) node.position],
+    ];
+  }
+
+  void _recompute() {
+    if (!mounted) return;
+    final rects = _measureChipRects();
+    if (rects.isEmpty && _chips.isNotEmpty) {
+      _scheduleRecompute();
+      return;
+    }
+    final lines = computeOrgConnectorLines(_tierPositionMatrix(), rects);
+    if (_sameLines(_lines, lines)) return;
+    setState(() => _lines = lines);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _chips.clear();
+    _scheduleRecompute();
+
+    final lineColor = AppColors.accent.withValues(
+      alpha: widget.isDark ? 0.65 : 0.5,
+    );
+
+    Widget buildTierRow(List<OrgNode> nodesAtTier) {
+      final children = <Widget>[];
+      for (final node in nodesAtTier) {
+        if (!node.hasActiveMembers) continue;
+        final key = _keyFor(node.position);
+        _chips.add(_ChipMeta(position: node.position, key: key));
+        children.add(KeyedSubtree(key: key, child: widget.buildChip(node)));
+      }
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            children[i],
+          ],
+        ],
+      );
+    }
+
+    final tierPositions = _tierPositionMatrix();
+
+    return Stack(
+      key: _rootKey,
+      alignment: Alignment.topCenter,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              key: const ValueKey('org-connectors-custom-paint'),
+              painter: OrgConnectorsPainter(
+                fallbackLines: _lines,
+                color: lineColor,
+                measureRects: _measureChipRects,
+                tierPositions: tierPositions,
+              ),
+            ),
+          ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            for (var i = 0; i < widget.tiers.length; i++) ...[
+              if (i > 0) const SizedBox(height: 48),
+              buildTierRow(widget.tiers[i]),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class OrgConnectorsPainter extends CustomPainter {
+  final List<OrgConnectorLine> fallbackLines;
+  final Color color;
+  final Map<String, Rect> Function()? measureRects;
+  final List<List<String>> tierPositions;
+
+  OrgConnectorsPainter({
+    required this.fallbackLines,
+    required this.color,
+    this.measureRects,
+    this.tierPositions = const <List<String>>[],
+  });
+
+  Map<String, Rect> computeCurrentRects() {
+    return measureRects?.call() ?? const <String, Rect>{};
+  }
+
+  List<OrgConnectorLine> computeCurrentLines() {
+    final rects = computeCurrentRects();
+    if (rects.isNotEmpty && tierPositions.isNotEmpty) {
+      return computeOrgConnectorLines(tierPositions, rects);
+    }
+    return fallbackLines;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final activeLines = computeCurrentLines();
+    if (activeLines.isEmpty) return;
+
+    final verticalPaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.butt
+      ..strokeJoin = StrokeJoin.miter
+      ..isAntiAlias = true;
+
+    final horizontalPaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.square
+      ..strokeJoin = StrokeJoin.miter
+      ..isAntiAlias = true;
+
+    for (final line in activeLines) {
+      if (line.points.length < 2) continue;
+      for (var i = 0; i < line.points.length - 1; i++) {
+        final p0 = line.points[i];
+        final p1 = line.points[i + 1];
+        final isHorizontal = (p0.dy - p1.dy).abs() < 0.05;
+        canvas.drawLine(p0, p1, isHorizontal ? horizontalPaint : verticalPaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant OrgConnectorsPainter old) =>
+      old.fallbackLines != fallbackLines ||
+      old.color != color ||
+      old.tierPositions != tierPositions;
+}
+
 class DashboardMedia {
   DashboardMedia._();
 

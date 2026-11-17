@@ -93,14 +93,20 @@ func RequireAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		// Per-request validation: ensure every claimed RW membership is still
-		// active in the database. This is the revocation-safe layer — if a
-		// user's RW membership is deactivated or revoked, subsequent requests
-		// with the same stale JWT will silently drop that membership from the
+		// ── Per-request RW membership validation ────────────────────
+		// Re-validate every RW membership claimed in the JWT against the
+		// database. This is the revocation-safe layer — if a user's RW
+		// membership is deactivated or revoked, subsequent requests with
+		// the same stale JWT will silently drop that membership from the
 		// context. The user's existing RT access is unaffected.
+		//
+		// We re-run the same logic as loadRWMemberships so that both
+		// explicit and inferred memberships are re-validated on every
+		// request, with their Source field preserved.
 		var validRWMemberships []RWMembership
+
+		// 1. Validate explicit memberships from user_rw_memberships.
 		if len(rwContextFromToken) > 0 {
-			// Collect all rw_ids claimed in the token for a single query.
 			rwIDs := make(map[string]bool, len(rwContextFromToken))
 			for _, m := range rwContextFromToken {
 				rwIDs[m.RWID] = true
@@ -111,11 +117,10 @@ func RequireAuth(next http.Handler) http.Handler {
 			}
 
 			if len(ids) > 0 && AuthDBPool != nil {
-				// Build parameter placeholders: $1, $2, …
 				placeholders := make([]string, len(ids))
 				args := make([]interface{}, len(ids))
 				for i, id := range ids {
-					placeholders[i] = fmt.Sprintf("$%d", i+2) // +2 because $1 is user_id
+					placeholders[i] = fmt.Sprintf("$%d", i+2)
 					args[i] = id
 				}
 				q := fmt.Sprintf(
@@ -137,13 +142,81 @@ func RequireAuth(next http.Handler) http.Handler {
 					}
 					for _, tc := range rwContextFromToken {
 						if j, ok := validSet[tc.RWID]; ok {
+							// Preserve Source from the token: explicit remains explicit.
 							validRWMemberships = append(validRWMemberships, RWMembership{
 								RWID:    tc.RWID,
 								Jabatan: j,
+								Source:  tc.Source,
 							})
 						}
 					}
 				}
+			}
+		}
+
+		// 2. Re-infer RW memberships from the user's active RT membership.
+		//    This ensures RT officials get their inferred RW membership
+		//    validated on every request (not just at login time).
+		if AuthDBPool != nil {
+			rtRows, err := AuthDBPool.Raw().QueryContext(validateCtx, `
+				SELECT urm.jabatan, r.rw_id
+				FROM user_rt_memberships urm
+				JOIN rts r ON r.id = urm.rt_id
+				WHERE urm.user_id = $1
+				  AND urm.is_active = true
+				  AND urm.jabatan IS NOT NULL
+				  AND urm.jabatan != ''
+			`, claims.UserID)
+			if err == nil {
+				defer rtRows.Close()
+				// Collect already-validated explicit memberships to avoid duplicates.
+				existingRWIDs := make(map[string]struct{})
+				for _, m := range validRWMemberships {
+					existingRWIDs[m.RWID] = struct{}{}
+				}
+
+				for rtRows.Next() {
+					var rtJabatan, rtRWID string
+					if err := rtRows.Scan(&rtJabatan, &rtRWID); err != nil {
+						continue
+					}
+					// Only eligible RT jabatan can infer RW access.
+					if _, ok := validRTJabatans[rtJabatan]; !ok {
+						continue
+					}
+					// Skip if already have an explicit membership for this RW.
+					if _, dup := existingRWIDs[rtRWID]; dup {
+						continue
+					}
+					// Validate the RT's RW is active.
+					var rwNumber int
+					var rwName string
+					var rwActive bool
+					err = AuthDBPool.Raw().QueryRowContext(validateCtx,
+						`SELECT rw_number, name, is_active FROM rws WHERE id = $1`,
+						rtRWID,
+					).Scan(&rwNumber, &rwName, &rwActive)
+					if err != nil {
+						if err == sql.ErrNoRows {
+							continue
+						}
+						continue
+					}
+					if !rwActive {
+						continue
+					}
+					existingRWIDs[rtRWID] = struct{}{}
+					validRWMemberships = append(validRWMemberships, RWMembership{
+						RWID:     rtRWID,
+						RWNumber: rwNumber,
+						RWName:   rwName,
+						Jabatan:  rtJabatan,
+						Source:   RWMembershipSourceRTInferred,
+					})
+				}
+				// Log inference errors silently — RT inference failure does
+				// not invalidate explicit memberships, but we still record it.
+				_ = err
 			}
 		}
 
@@ -288,10 +361,14 @@ func RequirePermission(pool *database.Pool, permission string) func(http.Handler
 				return
 			}
 
-			// All users (jabatan-based and role-based without jabatan) are
-			// evaluated by PermissionResolver.HasPermission:
-			//   - jabatan-based: checked against position_permissions DB table
-			//   - no jabatan: passes through (RequireRole enforces role access)
+			// Role-based users (no jabatan) pass through RequirePermission;
+			// their access is enforced by RequireRole middleware stacked on the route.
+			// Jabatan-based users are evaluated against position_permissions.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
 
@@ -425,8 +502,43 @@ func RequireAccess(roles []Role, jabatans []Jabatan) func(http.Handler) http.Han
 	}
 }
 
-// RequireNotificationAdmin allows only SUPER_ADMIN or Ketua RT (jabatan "ketua") to access notification management.
-func RequireNotificationAdmin() func(http.Handler) http.Handler {
+// RequireNotificationAdmin allows only users with the notification.manage
+// permission to access notification management. SUPER_ADMIN always passes.
+// Jabatan-based users are evaluated against the position_permissions table.
+// Users without a jabatan are denied — notification management is not a
+// role-based (role-only) permission.
+//
+// This replaces the previous hardcoded jabatan "ketua" check so that any
+// jabatan granted notification.manage via position_permissions gains access
+// without code changes.
+func HasNotificationManage(ctx context.Context, pool *database.Pool, ac *AuthContext) (bool, error) {
+	if ac == nil {
+		return false, nil
+	}
+	if ac.SystemRole == SystemRoleSuperAdmin {
+		return true, nil
+	}
+	if ac.Jabatan == "" || ac.MembershipID == "" || ac.RTID == "" || pool == nil {
+		return false, nil
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	jabatan, err := validateMembershipJabatan(ctx, tx, ac.UserID, ac.RTID, ac.Jabatan)
+	if err != nil {
+		return false, err
+	}
+	if jabatan == "" {
+		return false, nil
+	}
+	return hasPermissionForPosition(ctx, tx, jabatan, "notification.manage")
+}
+
+func RequireNotificationAdmin(pool *database.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
@@ -434,34 +546,32 @@ func RequireNotificationAdmin() func(http.Handler) http.Handler {
 				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 				return
 			}
-			// System-level SUPER_ADMIN bypass — unrestricted access.
-			if ac.SystemRole == SystemRoleSuperAdmin {
-				next.ServeHTTP(w, r)
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+			has, err := HasNotificationManage(ctx, pool, ac)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to check permission")
 				return
 			}
-			// Ketua RT position access
-			if ac.Jabatan == JabatanKetua || strings.EqualFold(strings.TrimSpace(string(ac.Jabatan)), string(JabatanKetua)) {
-				next.ServeHTTP(w, r)
+			if !has {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
 				return
 			}
-			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "only super_admin or ketua rt can access notifications")
+			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// RequireAllowedRT returns a middleware that verifies the tenant RT is in the allowed
-// list (RT 002 and RT 003). Non-allowed RTs receive 403 Forbidden.
+// RequireAllowedRT returns a middleware that enforces RT existence and scope access.
+// It eliminates hardcoded RT-code whitelists; the single source of truth for
+// RT scope is SCOPED_RT_IDS (config-driven, auto-derived by the fresh-install
+// bootstrap) and active membership for ordinary tenants.
 //
 // RT validation rules:
-//   - Non-SuperAdmin: must have a valid, active RT from JWT membership. No fallback.
-//   - SuperAdmin with RTID from JWT: same whitelist + active check as above.
-//   - SuperAdmin without JWT RTID: MUST have an RT provided via X-RT-ID header (or
-//     equivalent mechanism set by RequireAuth). The header RT is validated against
-//     the whitelist and the active flag in the rts table. No fallback to a default RT.
-//     If no RT is provided, the request is rejected with 400 Bad Request.
-//
-// This prevents Super Admins from silently accessing any RT or bypassing the
-// whitelist by relying on an empty RTID.
+//   - Tenant access is granted solely by membership (JWT carries an RT that is
+//     an actually active RT). Non-members cannot reach any tenant data.
+//   - SuperAdmin requires their pinned RT (or the configured X-RT-ID) to be active AND
+//     to be in cfg.RTIDs (from SCOPED_RT_IDS). An empty cfg.RTIDs fails closed.
 type rtStatusScanner interface {
 	Scan(dest ...any) error
 }
@@ -493,7 +603,7 @@ func writeRTStatusErrorWithLogger(w http.ResponseWriter, err error, requestID st
 	}()
 }
 
-func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
+func RequireAllowedRT(pool *database.Pool, cfg ScopingConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
@@ -502,7 +612,7 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Every tenant-scoped request MUST have a valid RTID.
+			// Every tenant-scoped request MUST have a valid RTID pinned in the JWT.
 			// No bypass for any role — including Super Admin.
 			rtIDToValidate := ac.RTID
 			if rtIDToValidate == "" {
@@ -522,7 +632,7 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 
-			rtCode, isActive, err := scanRTStatus(effectivePool.Raw().QueryRowContext(ctx,
+			_, isActive, err := scanRTStatus(effectivePool.Raw().QueryRowContext(ctx,
 				`SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`,
 				rtIDToValidate,
 			))
@@ -530,28 +640,29 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 				writeRTStatusError(w, err, httpx.GetRequestID(r.Context()))
 				return
 			}
-
-			if !isActive || !AllowedRTCodes[rtCode] {
-				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not enabled or not allowed")
+			if !isActive {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not active")
 				return
+			}
+
+			// SuperAdmin is authorized by system role, but pinned beyond its JWT
+			// scope: the requested RT must be in SCOPED_RT_IDS. Empty scope fails
+			// closed. Tenant members are pinned by construction to their own RT.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				scoped := false
+				for _, id := range cfg.RTIDs {
+					if id == rtIDToValidate {
+						scoped = true
+						break
+					}
+				}
+				if !scoped {
+					httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not in the configured scope")
+					return
+				}
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// AllowedRTCodes defines the set of RT codes that are permitted for operational access.
-var AllowedRTCodes = map[string]bool{
-	"002": true,
-	"003": true,
-}
-
-// AllowedRTCodesList returns the allowed RT codes as a sorted []string for iteration.
-func AllowedRTCodesList() []string {
-	result := make([]string, 0, len(AllowedRTCodes))
-	for code := range AllowedRTCodes {
-		result = append(result, code)
-	}
-	return result
 }

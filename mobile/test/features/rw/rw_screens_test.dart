@@ -44,6 +44,22 @@ class MockRwApiClient extends RwApiClient {
   }
 
   @override
+  Future<RwKasReportDetail> getKasReportDetail(String rwId,
+      {String? period, String? startDate, String? endDate}) async {
+    return const RwKasReportDetail(
+      period: '2026-10',
+      startDate: '',
+      endDate: '',
+      openingBalance: '1000000.00',
+      totalIncome: '5000000.00',
+      totalExpense: '2000000.00',
+      netBalance: '3000000.00',
+      totalBalance: '4000000.00',
+      transactionCount: 8,
+    );
+  }
+
+  @override
   Future<RwTransactionsResponse> getTransactions({
     required String rwId,
     String? period,
@@ -51,6 +67,8 @@ class MockRwApiClient extends RwApiClient {
     String? endDate,
     int page = 1,
     int pageSize = 20,
+    String? type,
+    String? categoryId,
   }) async {
     return RwTransactionsResponse(
       data: [
@@ -144,8 +162,29 @@ class MockRwApiClient extends RwApiClient {
       totalLocationBalances: '15000000.00',
       isReconciled: true,
       discrepancy: '0.00',
+      unallocatedBalance: '0.00',
+      allocatedPercentage: 100.0,
+      status: 'matched',
+      statusLabel: 'TEREKONSILIASI (Cocok Sempurna)',
       categoryBreakdown: [],
     );
+  }
+
+  @override
+  Future<List<RwRtInfo>> getRTRs(String rwId) async {
+    return const [
+      RwRtInfo(id: 'rt-1', name: 'RT 001', rt: '001', rwNumber: 2, label: 'RT 001'),
+      RwRtInfo(id: 'rt-2', name: 'RT 002', rt: '002', rwNumber: 2, label: 'RT 002'),
+    ];
+  }
+
+  @override
+  Future<List<RwFinancialCategory>> getCategories({bool? isActive}) async {
+    return const [
+      RwFinancialCategory(id: 'cat-1', name: 'Konsumsi', type: 'expense', isActive: true),
+      RwFinancialCategory(id: 'cat-2', name: 'ATK', type: 'expense', isActive: true),
+      RwFinancialCategory(id: 'cat-3', name: 'Pemasukan Lain', type: 'income', isActive: true),
+    ];
   }
 }
 
@@ -158,7 +197,7 @@ void main() {
     'jabatan': 'bendahara',
     'rw': '002',
     'rw_memberships': [
-      {'rw_id': 'rw-002', 'jabatan': 'bendahara', 'rw_name': 'RW 002'},
+      {'rw_id': 'rw-002', 'jabatan': 'bendahara', 'rw_name': 'RW 002', 'source': 'explicit'},
     ],
   };
 
@@ -235,13 +274,69 @@ void main() {
       await tester.tap(find.text('Rekonsiliasi'));
       await tester.pumpAndSettle();
       expect(find.text('Rekonsiliasi Kas RW'), findsOneWidget);
-      expect(find.textContaining('TEREKONSILIASI'), findsOneWidget);
+      expect(find.textContaining('TEREKONSILIASI'), findsAtLeastNWidgets(1));
       await tester.tap(find.text('Tutup'));
       await tester.pumpAndSettle();
     });
 
-    testWidgets('RwKasScreen renders with MenuAppBarTitle, KAS summary, and action buttons', (tester) async {
+    testWidgets('RwFundLocationScreen filter dropdowns do not overflow on normal screen', (tester) async {
       tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(mockUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Both dropdowns exist as DropdownButtonFormField, no overflow exception
+      expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+
+      // Open category dropdown and verify menu can be opened without overflow
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('RwFundLocationScreen filter dropdowns do not overflow on narrow screen', (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(mockUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No overflow exception on narrow screen
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('RwKasScreen renders with MenuAppBarTitle, KAS summary, and action buttons', (tester) async {
+      tester.view.physicalSize = const Size(1200, 1500);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
         tester.view.resetPhysicalSize();
@@ -288,7 +383,7 @@ void main() {
         'role': AppRole.warga,
         'rw': '002',
         'rw_memberships': [
-          {'rw_id': 'rw-002', 'jabatan': 'anggota', 'rw_name': 'RW 002'},
+          {'rw_id': 'rw-002', 'jabatan': 'anggota', 'rw_name': 'RW 002', 'source': 'explicit'},
         ],
       };
 
@@ -329,7 +424,7 @@ void main() {
       expect(find.textContaining('Mode Read-Only'), findsOneWidget);
     });
 
-    testWidgets('RwFundLocationScreen & RwKasScreen respect wakil_ketua permissions (can create, cannot transfer/update)', (tester) async {
+    testWidgets('RwFundLocationScreen & RwKasScreen respect wakil_ketua permissions (read-only for all features, cannot write)', (tester) async {
       final wakilKetuaUser = {
         'id': 'user-wk',
         'email': 'wakil.ketua@test.com',
@@ -337,11 +432,11 @@ void main() {
         'role': AppRole.warga,
         'rw': '002',
         'rw_memberships': [
-          {'rw_id': 'rw-002', 'jabatan': 'wakil_ketua', 'rw_name': 'RW 002'},
+          {'rw_id': 'rw-002', 'jabatan': 'wakil_ketua', 'rw_name': 'RW 002', 'source': 'explicit'},
         ],
       };
 
-      // 1. Fund location screen for wakil_ketua
+      // 1. Fund location screen for wakil_ketua (read-only per final matrix)
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -355,17 +450,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Has finance.create: can see Tambah Lokasi
-      expect(find.text('Tambah Lokasi'), findsOneWidget);
-      // Lacks finance.update: cannot see Transfer Antar-Lokasi
+      // Final matrix: Pengurus RW has READ ONLY, cannot create or update
+      expect(find.text('Tambah Lokasi'), findsNothing);
       expect(find.text('Transfer Antar-Lokasi'), findsNothing);
       // Can view Riwayat Transfer & Rekonsiliasi
       expect(find.text('Riwayat Transfer'), findsOneWidget);
       expect(find.text('Rekonsiliasi'), findsOneWidget);
-      // Not in full read-only mode
-      expect(find.textContaining('Mode Read-Only'), findsNothing);
+      // Mode Read-Only badge is visible
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
 
-      // 2. KAS screen for wakil_ketua
+      // 2. KAS screen for wakil_ketua (read-only per final matrix)
       tester.view.physicalSize = const Size(1200, 1000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -386,10 +480,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Has finance.create: can record kas masuk & kas keluar
-      expect(find.text('Catat Kas Masuk'), findsOneWidget);
-      expect(find.text('Catat Kas Keluar'), findsOneWidget);
-      expect(find.textContaining('Mode Read-Only'), findsNothing);
+      // Final matrix: cannot record kas masuk & kas keluar
+      expect(find.text('Catat Kas Masuk'), findsNothing);
+      expect(find.text('Catat Kas Keluar'), findsNothing);
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
     });
 
     testWidgets('Navigation Shell distributes tabs evenly for Warga (<= 4 tabs) and provides Drawer', (tester) async {
@@ -439,7 +533,7 @@ void main() {
       expect(scaffold.drawer, isNotNull);
 
       // Verify each item inside BottomAppBar is wrapped in Expanded (equal width division)
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(3));
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
 
       // Open drawer via ScaffoldState and verify drawer contents
       final scaffoldState = tester.state<ScaffoldState>(find.byType(Scaffold));
@@ -466,6 +560,7 @@ void main() {
             'rw_id': 'rw-002',
             'rw_name': 'RW 002 Urena',
             'jabatan': 'bendahara',
+            'source': 'explicit',
           }
         ],
       };
@@ -531,6 +626,7 @@ void main() {
             'rw_name': 'RW 002 Sukamaju',
             'jabatan': 'ketua',
             'status': 'active',
+            'source': 'explicit',
           }
         ],
       };
@@ -575,6 +671,7 @@ void main() {
             'rw_name': 'RW 002 Sukamaju',
             'jabatan': 'ketua',
             'status': 'active',
+            'source': 'explicit',
           }
         ],
       };
@@ -607,6 +704,109 @@ void main() {
       // LOKASI DANA tab content should be visible
       expect(find.text('Rekening Bank'), findsAtLeastNWidgets(1));
       expect(find.text('Brankas Fisik'), findsAtLeastNWidgets(1));
+    });
+
+    testWidgets('RwKeuanganScreen does not crash on multiple rebuilds with tab count change', (tester) async {
+      // User with explicit membership → LOKASI DANA tab shown (3 tabs).
+      // This exercises the ticker recreation path: initState() creates a
+      // TabController with length=2, then build() recreates it with length=3
+      // when showLokasiDana is true. With SingleTickerProviderStateMixin this
+      // would crash because createTicker() can only be called once.
+      final explicitUser = {
+        'id': 'user-1',
+        'name': 'Pengurus RW Test',
+        'email': 'pengurus@rw.local',
+        'role': 'pengurus',
+        'system_role': 'warga',
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-002',
+            'rw_number': 2,
+            'rw_name': 'RW 002 Sukamaju',
+            'jabatan': 'ketua',
+            'status': 'active',
+            'source': 'explicit',
+          }
+        ],
+      };
+
+      // 1. Open screen with explicit user (3 tabs). First build triggers
+      //    initState (length=2) then build() (recreate with length=3).
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(explicitUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKeuanganScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(Tab, 'BERANDA'), findsOneWidget);
+      expect(find.widgetWithText(Tab, 'KAS'), findsOneWidget);
+      expect(find.widgetWithText(Tab, 'LOKASI DANA'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 2. Rebuild with same explicit user (tab count unchanged → no controller
+      //    recreation, but still exercises the TabController lifecycle).
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(explicitUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKeuanganScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(Tab, 'LOKASI DANA'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 3. Tap KAS tab and verify content (per-tab state preserved).
+      await tester.tap(find.widgetWithText(Tab, 'KAS'));
+      await tester.pumpAndSettle();
+      expect(find.text('Catat Kas Masuk'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('RwKeuanganScreen rt_inferred user shows 1 tab only (BERANDA)', (tester) async {
+      final rtInferredUser = {
+        'id': 'user-rt-inferred',
+        'email': 'ketua.rt@test.com',
+        'name': 'Ketua RT 002',
+        'role': AppRole.warga,
+        'rw': '002',
+        'jabatan': 'ketua',
+        'rw_memberships': [
+          {'rw_id': 'rw-016', 'jabatan': 'ketua', 'rw_name': 'RW 016', 'source': 'rt_inferred'},
+        ],
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(rtInferredUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKeuanganScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Only BERANDA tab for rt_inferred user (KAS and LOKASI DANA are hidden)
+      expect(find.widgetWithText(Tab, 'BERANDA'), findsOneWidget);
+      expect(find.widgetWithText(Tab, 'KAS'), findsNothing);
+      expect(find.widgetWithText(Tab, 'LOKASI DANA'), findsNothing);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('RwDashboardScreen summary cards render without overflow at standard mobile width', (tester) async {
@@ -797,6 +997,120 @@ void main() {
       expect(find.text('TOTAL SALDO'), findsOneWidget);
       expect(find.text('TOTAL PEMASUKAN'), findsOneWidget);
       expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
+
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('RT inferred membership → read-only UI for all RW screens', (tester) async {
+      final rtInferredUser = {
+        'id': 'user-rt-inferred',
+        'email': 'ketua.rt@test.com',
+        'name': 'Ketua RT 002',
+        'role': AppRole.warga,
+        'rw': '002',
+        'jabatan': 'ketua',
+        'rw_memberships': [
+          {'rw_id': 'rw-016', 'jabatan': 'ketua', 'rw_name': 'RW 016', 'source': 'rt_inferred'},
+        ],
+      };
+
+      // 1. Fund location screen should be read-only
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(rtInferredUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Tambah Lokasi'), findsNothing);
+      expect(find.text('Transfer Antar-Lokasi'), findsNothing);
+
+      // 2. KAS screen should be read-only
+      tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(rtInferredUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKasScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Catat Kas Masuk'), findsNothing);
+      expect(find.text('Catat Kas Keluar'), findsNothing);
+
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('multi-RW: explicit RW has write, inferred RW has read-only', (tester) async {
+      final multiMembershipUser = {
+        'id': 'user-multi',
+        'email': 'multi@test.com',
+        'name': 'Ketua RT',
+        'role': AppRole.warga,
+        'jabatan': 'ketua',
+        'rw_memberships': [
+          {'rw_id': 'rw-016', 'jabatan': 'ketua', 'rw_name': 'RW 016', 'source': 'rt_inferred'},
+          {'rw_id': 'rw-017', 'jabatan': 'bendahara', 'rw_name': 'RW 017', 'source': 'explicit'},
+        ],
+      };
+
+      // 1. Viewing inferred RW-016 → read-only
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(multiMembershipUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Tambah Lokasi'), findsNothing);
+      expect(find.text('Transfer Antar-Lokasi'), findsNothing);
+
+      // 2. Switching to explicit RW-017 → full controls
+      tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(multiMembershipUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKasScreen(rwId: 'rw-017'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsNothing);
+      expect(find.text('Catat Kas Masuk'), findsOneWidget);
+      expect(find.text('Catat Kas Keluar'), findsOneWidget);
 
       addTearDown(() {
         tester.view.resetPhysicalSize();

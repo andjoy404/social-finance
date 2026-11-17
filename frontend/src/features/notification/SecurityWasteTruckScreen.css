@@ -1,0 +1,51 @@
+.security-waste-truck-page {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 24px;
+  color: var(--sf-text);
+  background: var(--sf-bg);
+}
+
+.security-waste-truck-page .ant-tabs,
+.security-waste-truck-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.security-waste-truck-page .ant-tabs-tab {
+  color: var(--sf-text-muted);
+}
+
+.security-waste-truck-page .ant-tabs-tab-active .ant-tabs-tab-btn,
+.security-waste-truck-page .ant-tabs-tab:hover {
+  color: var(--sf-text);
+}
+
+.security-waste-truck-page .ant-tabs-nav::before {
+  border-color: var(--sf-border);
+}
+
+.security-waste-truck-page .sf-card {
+  box-sizing: border-box;
+  border-color: var(--sf-border);
+  color: var(--sf-text);
+  background: var(--sf-surface);
+}
+
+.security-waste-truck-page .ant-empty-description,
+.security-waste-truck-page .ant-alert-message,
+.security-waste-truck-page .ant-alert-description {
+  color: var(--sf-text);
+}
+
+.security-waste-truck-page .ant-alert {
+  border-color: var(--sf-border);
+  background: var(--sf-surface);
+}
+
+@media (max-width: 640px) {
+  .security-waste-truck-page {
+    padding: 16px;
+  }
+}

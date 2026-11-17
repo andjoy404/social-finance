@@ -51,6 +51,7 @@ class PaginationInfo {
 class BackendResident {
   final String id;
   final String rtId;
+  final String? userId;
   final String? householdId;
   final String fullName;
   final String? phone;
@@ -63,10 +64,13 @@ class BackendResident {
   final String? jabatan;
   final String? startDate;
   final String? endDate;
+  final String? avatarPath;
+  final String? avatarThumbPath;
 
   const BackendResident({
     required this.id,
     required this.rtId,
+    this.userId,
     this.householdId,
     required this.fullName,
     this.phone,
@@ -79,12 +83,15 @@ class BackendResident {
     this.jabatan,
     this.startDate,
     this.endDate,
+    this.avatarPath,
+    this.avatarThumbPath,
   });
 
   factory BackendResident.fromJson(Map<String, dynamic> json) {
     return BackendResident(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
+      userId: json['user_id'] as String?,
       householdId: json['household_id'] as String?,
       fullName: json['full_name'] as String? ?? '',
       phone: json['phone'] as String?,
@@ -97,6 +104,8 @@ class BackendResident {
       jabatan: json['jabatan'] as String?,
       startDate: json['start_date'] as String?,
       endDate: json['end_date'] as String?,
+      avatarPath: json['avatar_path']?.toString(),
+      avatarThumbPath: json['avatar_thumb_path']?.toString(),
     );
   }
 }
@@ -225,7 +234,8 @@ class UpdateHouseholdRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
-    if (startDate != null && startDate!.isNotEmpty) data['start_date'] = startDate;
+    if (startDate != null && startDate!.isNotEmpty)
+      data['start_date'] = startDate;
     if (endDate != null) data['end_date'] = endDate;
     if (address != null) data['address'] = address;
     if (isActive != null) data['is_active'] = isActive;
@@ -243,6 +253,7 @@ class CreateSpecialResidentRequest {
   final String phone;
   final String email;
   final bool isActive;
+  final String? password;
 
   const CreateSpecialResidentRequest({
     required this.jabatan,
@@ -251,10 +262,11 @@ class CreateSpecialResidentRequest {
     required this.phone,
     required this.email,
     required this.isActive,
+    this.password,
   });
 
   Map<String, dynamic> toJson() {
-    return {
+    final data = <String, dynamic>{
       'jabatan': jabatan,
       'full_name': fullName,
       'nik': nik,
@@ -262,6 +274,10 @@ class CreateSpecialResidentRequest {
       'email': email,
       'is_active': isActive,
     };
+    if (password != null) {
+      data['password'] = password;
+    }
+    return data;
   }
 }
 
@@ -274,6 +290,7 @@ class UpdateSpecialResidentRequest {
   final String? email;
   final String? jabatan;
   final bool? isActive;
+  final String? password;
 
   const UpdateSpecialResidentRequest({
     this.fullName,
@@ -282,16 +299,21 @@ class UpdateSpecialResidentRequest {
     this.email,
     this.jabatan,
     this.isActive,
+    this.password,
   });
 
   Map<String, dynamic> toJson() {
-    final data = <String, dynamic>{};
-    if (fullName != null) data['full_name'] = fullName;
-    if (nik != null) data['nik'] = nik;
-    if (phone != null) data['phone'] = phone;
-    if (email != null) data['email'] = email;
-    if (jabatan != null) data['jabatan'] = jabatan;
-    if (isActive != null) data['is_active'] = isActive;
+    final data = <String, dynamic>{
+      'full_name': fullName,
+      'nik': nik,
+      'phone': phone,
+      'email': email,
+      'jabatan': jabatan,
+      'is_active': isActive,
+    };
+    if (password != null) {
+      data['password'] = password;
+    }
     return data;
   }
 }
@@ -326,7 +348,8 @@ class UpdateResidentRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (isActive != null) data['is_active'] = isActive;
-    if (startDate != null && startDate!.isNotEmpty) data['start_date'] = startDate;
+    if (startDate != null && startDate!.isNotEmpty)
+      data['start_date'] = startDate;
     if (endDate != null) data['end_date'] = endDate;
     if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;
@@ -337,6 +360,7 @@ class UpdateResidentRequest {
 @immutable
 class MappedResident {
   final String id;
+  final String? userId;
   final String? householdId;
   final String name;
   final String? nik;
@@ -352,9 +376,12 @@ class MappedResident {
   final String? jabatan;
   final String? startDate;
   final String? endDate;
+  final String? avatarPath;
+  final String? avatarThumbPath;
 
   const MappedResident({
     required this.id,
+    this.userId,
     this.householdId,
     required this.name,
     this.nik,
@@ -370,6 +397,8 @@ class MappedResident {
     this.jabatan,
     this.startDate,
     this.endDate,
+    this.avatarPath,
+    this.avatarThumbPath,
   });
 
   String get maskedNik {
@@ -414,21 +443,38 @@ class MappedResident {
   /// User-facing jabatan label (Indonesian position name).
   String? get displayJabatan {
     if (jabatan == null || jabatan!.isEmpty) return null;
-    switch (jabatan!) {
+    final normalized = jabatan!.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
+    switch (normalized) {
       case 'ketua':
+      case 'ketua_rt':
         return 'Ketua RT';
       case 'wakil_ketua':
-        return 'Wakil Ketua RT';
+      case 'wakil_ketua_rt':
+        return 'Wakil Ketua';
       case 'sekretaris':
-        return 'Sekretaris RT';
+      case 'sekretaris_rt':
+        return 'Sekretaris';
       case 'bendahara':
-        return 'Bendahara RT';
+      case 'bendahara_rt':
+        return 'Bendahara';
       case 'keamanan':
-        return 'Seksi Keamanan';
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt':
+        return 'Keamanan';
       case 'sosial':
+      case 'sosial_rt':
+      case 'seksi_sosial':
         return 'Seksi Sosial';
-      case 'kebersihan_pembangunan':
+      case 'operasional':
+      case 'operasional_rt':
         return 'Operasional';
+      case 'kebersihan':
+      case 'kebersihan_rt':
+        return 'Kebersihan';
       default:
         return jabatan;
     }
@@ -437,27 +483,52 @@ class MappedResident {
   /// Color for jabatan badge based on position.
   Color get jabatanColor {
     if (jabatan == null || jabatan!.isEmpty) return AppColors.accent;
-    switch (jabatan!) {
+    final normalized = jabatan!.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
+    switch (normalized) {
       case 'ketua':
+      case 'ketua_rt':
         return AppColors.accent;
       case 'wakil_ketua':
+      case 'wakil_ketua_rt':
         return AppColors.info;
       case 'sekretaris':
+      case 'sekretaris_rt':
         return AppColors.success;
       case 'bendahara':
+      case 'bendahara_rt':
         return AppColors.warning;
       case 'keamanan':
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt':
         return AppColors.danger;
-      case 'kebersihan_pembangunan':
-        return AppColors.info;
+      case 'operasional':
+      case 'operasional_rt':
+        return AppColors.teal;
+      case 'kebersihan':
+      case 'kebersihan_rt':
+        return AppColors.chartreuse;
       case 'sosial':
-        return AppColors.warning;
+      case 'sosial_rt':
+      case 'seksi_sosial':
+        return AppColors.lightPink;
       default:
         return AppColors.accent;
     }
   }
 
-  bool get isNeutralJabatan => jabatan == 'sosial';
+  bool get isNeutralJabatan {
+    final normalized = (jabatan ?? '').trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
+    return normalized == 'sosial' ||
+        normalized == 'sosial_rt' ||
+        normalized == 'seksi_sosial';
+  }
 
   factory MappedResident.fromBackend(
     BackendResident resident,
@@ -466,6 +537,7 @@ class MappedResident {
     final mappedJabatan = resident.jabatan;
     return MappedResident(
       id: resident.id,
+      userId: resident.userId,
       householdId: resident.householdId,
       name: resident.fullName,
       nik: resident.nik,
@@ -478,11 +550,13 @@ class MappedResident {
           : household?.occupancyStatus == 'TENANT'
           ? 'Penyewa'
           : null,
-      isActive: resident.isActive,
+      isActive: resident.isActive && (household?.isActive ?? true),
       rtNumber: resident.rtNumber,
       rw: resident.rw,
       rtName: resident.rtName,
       jabatan: mappedJabatan,
+      avatarPath: resident.avatarPath,
+      avatarThumbPath: resident.avatarThumbPath,
       startDate: household?.startDate ?? resident.startDate,
       endDate: household?.endDate ?? resident.endDate,
     );

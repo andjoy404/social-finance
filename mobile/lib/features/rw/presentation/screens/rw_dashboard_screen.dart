@@ -71,26 +71,86 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
       final api = ref.read(rwApiClientProvider);
       final periodStr = _formatPeriod();
 
+      // Read-only RT officials (rt_inferred membership) may only read Beranda
+      // (rw.dashboard.read). KAS/transaction endpoints require rw.kas.read and
+      // are denied by the backend — mirror the web, which also renders Beranda
+      // without transactions for these users.
+      final user = ref.read(authRepositoryProvider)?.valueOrNull;
+      final hasFeatureAccess =
+          rwMembershipHasFeatureAccess(user, widget.rwId);
+
       final dashboardFuture = api.getDashboard(
         widget.rwId,
         period: periodStr,
       );
-      final recentTxFuture = api.getTransactions(
-        rwId: widget.rwId,
-        page: 1,
-        pageSize: 5,
-      );
-      final yearTxFuture = api.getTransactions(
-        rwId: widget.rwId,
-        startDate: '${_activeDate.year}-01-01',
-        endDate: '${_activeDate.year}-12-31',
-        pageSize: 100,
-      );
+
+      Future<RwTransactionsResponse> fetchRecentTx() async {
+        if (!hasFeatureAccess) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 5,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+        try {
+          return await api.getTransactions(
+            rwId: widget.rwId,
+            page: 1,
+            pageSize: 5,
+          );
+        } catch (_) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 5,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+      }
+
+      Future<RwTransactionsResponse> fetchYearTx() async {
+        if (!hasFeatureAccess) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 100,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+        try {
+          return await api.getTransactions(
+            rwId: widget.rwId,
+            startDate: '${_activeDate.year}-01-01',
+            endDate: '${_activeDate.year}-12-31',
+            pageSize: 100,
+          );
+        } catch (_) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 100,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+      }
 
       final results = await Future.wait([
         dashboardFuture,
-        recentTxFuture,
-        yearTxFuture,
+        fetchRecentTx(),
+        fetchYearTx(),
       ]);
 
       if (mounted) {
@@ -248,6 +308,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final name = _userName ?? '';
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
@@ -264,7 +325,6 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         : (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    super.build(context);
     final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(
@@ -562,6 +622,112 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
     );
   }
 
+  void _showSummaryCardDetail({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(
+                            alpha: isDark ? 0.2 : 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(
+                              ctx,
+                            ).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSummaryCard(
     BuildContext context, {
     required String label,
@@ -570,62 +736,73 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
     required Color color,
     required IconData icon,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
+    return InkWell(
+      onTap: () => _showSummaryCardDetail(
+        context: context,
+        title: label,
+        value: value,
+        color: color,
+        icon: icon,
+        subtitle: 'Periode: $period',
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Icon(icon, size: 16, color: color),
             ),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.lightTextMuted,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.lightTextMuted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: color,
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
                     ),
                   ),
-                ),
-                Text(
-                  'Periode: $period',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textMutedColor(context),
+                  Text(
+                    'Periode: $period',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMutedColor(context),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

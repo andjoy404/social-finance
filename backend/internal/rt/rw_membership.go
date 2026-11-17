@@ -22,6 +22,8 @@ var AllowedRWJabatans = map[string]bool{
 	"wakil_ketua": true,
 	"sekretaris":  true,
 	"bendahara":   true,
+	"anggota":     true,
+	"pengurus":    true,
 }
 
 type RWMembership struct {

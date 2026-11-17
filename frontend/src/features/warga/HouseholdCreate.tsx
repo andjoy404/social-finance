@@ -153,7 +153,7 @@ function HouseholdFormFields({
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="hf-head-name">
           <UserOutlined style={{ marginRight: 4 }} />
-          Nama Kepala Keluarga <span style={{ color: 'var(--sf-danger)' }}>*</span>
+          Nama Lengkap Warga <span style={{ color: 'var(--sf-danger)' }}>*</span>
         </label>
         <input
           id="hf-head-name"
@@ -362,7 +362,7 @@ export function HouseholdCreate() {
 
   /* SUPER_ADMIN RT selector state */
   const [rtOptions, setRtOptions] = useState<ApiRT[]>([])
-  const [selectedRtId, setSelectedRtId] = useState<string>('')
+  const [selectedRtId, setSelectedRtId] = useState<string>(() => (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sf_active_rt_id') || '' : ''))
   const [rtLoading, setRtLoading] = useState(false)
   const [rtError, setRtError] = useState<ApiErrorType | null>(null)
 
@@ -414,7 +414,7 @@ export function HouseholdCreate() {
 
     const errs: string[] = []
     if (!form.house_number.trim()) errs.push('Nomor rumah harus diisi.')
-    if (!form.head_name.trim()) errs.push('Nama kepala keluarga harus diisi.')
+    if (!form.head_name.trim()) errs.push('Nama lengkap warga harus diisi.')
     if (!form.nik.trim()) {
       errs.push('KTP / NIK harus diisi.')
     } else if (!/^[0-9]{16}$/.test(form.nik.trim())) {
@@ -512,6 +512,9 @@ export function HouseholdCreate() {
                 disabled={loading || rtLoading}
                 onChange={(v) => {
                   setSelectedRtId(v)
+                  if (v && typeof sessionStorage !== 'undefined') {
+                    try { sessionStorage.setItem('sf_active_rt_id', v) } catch { /* ignore */ }
+                  }
                   if (validationErrors.length > 0) setValidationErrors([])
                 }}
               />
@@ -634,7 +637,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
   const validate = (): boolean => {
     const errs: string[] = []
     if (!form.house_number.trim()) errs.push('Nomor rumah harus diisi.')
-    if (!form.head_name.trim()) errs.push('Nama kepala keluarga harus diisi.')
+    if (!form.head_name.trim()) errs.push('Nama lengkap warga harus diisi.')
     if (!form.nik.trim()) {
       errs.push('KTP / NIK harus diisi.')
     } else if (!/^[0-9]{16}$/.test(form.nik.trim())) {

@@ -582,7 +582,9 @@ func TestIsolation_RTtoRW_DirectTransferRejected(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // Test 11: Penerimaan dana RT ke RW tercatat sebagai transaksi KAS Masuk RW
-//          dengan source_rt_id yang benar
+//
+//	dengan source_rt_id yang benar
+//
 // -----------------------------------------------------------------------------
 func TestIsolation_RTtoRW_LegitimateKasIncome(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -590,6 +592,12 @@ func TestIsolation_RTtoRW_LegitimateKasIncome(t *testing.T) {
 	_, router := setupRtRwIsoRouter(t, []string{rwID})
 
 	rtID := "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"
+	var prevRwID sql.NullString
+	_ = pool.Raw().QueryRowContext(context.Background(), `SELECT rw_id FROM rts WHERE id = $1`, rtID).Scan(&prevRwID)
+	_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE rts SET rw_id = $1 WHERE id = $2`, rwID, rtID)
+	t.Cleanup(func() {
+		_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE rts SET rw_id = $1 WHERE id = $2`, prevRwID, rtID)
+	})
 	_, tokenRW := createRtRwIsoRWUserToken(t, pool, rwID, auth.RoleBendahara, auth.JabatanBendahara)
 	locRW := createTestRtRwIsoRWLocation(t, pool, rwID, "Kas Tunai RW Resmi", "coh", "500000.00")
 
@@ -715,4 +723,3 @@ func TestIsolation_RT_RW_LedgersAndLocationsStrictlyIndependent(t *testing.T) {
 		t.Fatalf("expected RT balance 1000000.00, got %s", rtBal)
 	}
 }
-

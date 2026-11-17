@@ -572,6 +572,63 @@ func (h *Handler) hasStaffFinanceRead(ctx context.Context, tx *sql.Tx, ac *auth.
 
 // --- Bills Handlers ---
 
+// isWargaForOverdueWarning checks whether the authenticated user should receive
+// the overdue 3+ months warning. Previously this function filtered by role,
+// but the warning must be available for ALL jabatan based on data, not role.
+// The RT/RW scope isolation is still enforced by the backend query using ac.RTID.
+func isWargaForOverdueWarning(ac *auth.AuthContext) bool {
+	if ac == nil || ac.UserID == "" || ac.RTID == "" {
+		return false
+	}
+	// Removed role-based filtering: warning eligibility is determined by
+	// actual bill data, not by the user's jabatan or membership roles.
+	// SuperAdmin is still excluded here to keep backward-compatible scope,
+	// but all resident/jabatan roles within the RT will receive the warning
+	// based on their overdue bills.
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return false
+	}
+	// Keep only the basic RTID/UserID validation; all other roles (ketua,
+	// bendahara, pengurus, anggota, etc.) are eligible.
+	return true
+}
+
+// GetOverdueWarningSummary returns the global overdue warning summary for the currently
+// authenticated resident (warga). Identity and RT scope are derived strictly from AuthContext.
+func (h *Handler) GetOverdueWarningSummary(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok || ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if h.pool == nil {
+		writeJSON(w, http.StatusOK, OverdueWarningSummary{
+			HasOverdue3Months: false,
+			TotalOutstanding:  0,
+			OverdueBillCount:  0,
+		})
+		return
+	}
+
+	if !isWargaForOverdueWarning(ac) {
+		writeJSON(w, http.StatusOK, OverdueWarningSummary{
+			HasOverdue3Months: false,
+			TotalOutstanding:  0,
+			OverdueBillCount:  0,
+		})
+		return
+	}
+
+	summary, err := GetOverdueWarningSummaryForUser(r.Context(), h.pool.Raw(), ac.RTID, ac.UserID, time.Now())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to compute overdue summary")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
 	if !ok {
@@ -1275,8 +1332,8 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	var uploadedKey string
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+		if err := r.ParseMultipartForm(5 << 20); err != nil {
 			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
 			return
 		}
@@ -1423,8 +1480,8 @@ func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Reques
 	var uploadedKey string
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+		if err := r.ParseMultipartForm(5 << 20); err != nil {
 			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
 			return
 		}
@@ -1532,8 +1589,8 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
 		httpx.WriteValidationError(w, "invalid multipart form or file too large (max 5MB)", nil)
 		return
 	}

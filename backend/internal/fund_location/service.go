@@ -64,6 +64,36 @@ func (s *Service) GetLocationByID(ctx context.Context, rtID, id string) (*FundLo
 	return s.repo.GetLocationByID(ctx, tx, id, rtID)
 }
 
+// ListPublicRekening returns balance-free records for all active Rekening
+// in rtID — safe for every authenticated tenant member of that RT (warga).
+// Brankas / COH are never included by design.
+func (s *Service) ListPublicRekening(ctx context.Context, rtID string) ([]PublicRekeningView, error) {
+	cat := string(CategoryRekening)
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	list, err := s.repo.ListLocationsByRT(ctx, tx, rtID, &cat, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PublicRekeningView, 0, len(list))
+	for _, l := range list {
+		if l == nil || !l.IsActive {
+			continue
+		}
+		out = append(out, PublicRekeningView{
+			ID:            l.ID,
+			Name:          l.Name,
+			BankName:      l.BankName,
+			AccountNumber: l.AccountNumber,
+			AccountHolder: l.AccountHolder,
+		})
+	}
+	return out, nil
+}
+
 func (s *Service) ListLocationsByRT(ctx context.Context, rtID string, category *string, isActive *bool) ([]*FundLocation, error) {
 	tx, err := s.pool.BeginTx(ctx)
 	if err != nil {

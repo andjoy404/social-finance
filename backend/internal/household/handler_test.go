@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,8 +25,6 @@ import (
 const (
 	testSigningKey = "test-signing-secret-at-least-16-chars"
 )
-
-var rtCounter int64 = time.Now().UnixNano() % 100000
 
 func testPool(t *testing.T) *database.Pool {
 	t.Helper()
@@ -89,11 +86,15 @@ func makeTenantToken(t *testing.T, userID, membershipID, rtID string, role auth.
 
 		// If rtID is a valid UUID, upsert test membership
 		if _, err := uuid.Parse(rtID); err == nil {
+			var jabatan any = nil
+			if role == auth.RolePengurus {
+				jabatan = "ketua"
+			}
 			_, err = db.ExecContext(ctx,
-				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
-				 VALUES ($1, $2, $3, $4, true)
-				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, is_active = true, rt_id = EXCLUDED.rt_id`,
-				realMID, realUserID, rtID, string(role),
+				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+				 VALUES ($1, $2, $3, $4, $5, true)
+				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, jabatan = EXCLUDED.jabatan, is_active = true, rt_id = EXCLUDED.rt_id`,
+				realMID, realUserID, rtID, string(role), jabatan,
 			)
 			if err != nil {
 				t.Fatalf("failed to insert test membership %s: %v", membershipID, err)
@@ -101,12 +102,16 @@ func makeTenantToken(t *testing.T, userID, membershipID, rtID string, role auth.
 		}
 	}
 
-	return makeToken(t, auth.TokenClaims{
+	claims := auth.TokenClaims{
 		UserID: realUserID,
 		MID:    realMID,
 		RTID:   rtID,
 		Role:   string(role),
-	})
+	}
+	if role == auth.RolePengurus {
+		claims.Jabatan = "ketua"
+	}
+	return makeToken(t, claims)
 }
 
 func makeSuperAdminToken(t *testing.T) string {
@@ -172,9 +177,9 @@ func setupTestRT(t *testing.T, pool *database.Pool, name string, rw int, rtStr s
 	t.Helper()
 	db := pool.Raw()
 
-	c := atomic.AddInt64(&rtCounter, 1)
-	uniqueName := fmt.Sprintf("%s_%d", name, c)
-	uniqueRT := fmt.Sprintf("%s_%d", rtStr, c)
+	suffix := uuid.NewString()
+	uniqueName := fmt.Sprintf("%s_%s", name, suffix)
+	uniqueRT := fmt.Sprintf("%s_%s", rtStr, suffix)
 
 	var id string
 	err := db.QueryRowContext(context.Background(),
@@ -188,9 +193,11 @@ func setupTestRT(t *testing.T, pool *database.Pool, name string, rw int, rtStr s
 
 	t.Cleanup(func() {
 		db.Exec("DELETE FROM residency_periods WHERE resident_id IN (SELECT id FROM residents WHERE rt_id = $1)", id)
-		db.Exec("DELETE FROM household_occupancies WHERE household_id IN (SELECT id FROM households WHERE rt_id = $1) OR physical_house_id IN (SELECT id FROM physical_houses WHERE rt_id = $1)", id)
+		db.Exec(`DELETE FROM users WHERE id IN (SELECT user_id FROM residents WHERE rt_id = $1)`, id)
+		db.Exec("DELETE FROM user_rt_memberships WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM physical_houses WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM residents WHERE rt_id = $1", id)
+		db.Exec("DELETE FROM household_occupancies WHERE household_id IN (SELECT id FROM households WHERE rt_id = $1) OR physical_house_id IN (SELECT id FROM physical_houses WHERE rt_id = $1)", id)
 		db.Exec("DELETE FROM households WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM rts WHERE id = $1", id)
 	})
@@ -231,7 +238,7 @@ func insertTestHouseholdFixture(t *testing.T, db *sql.DB, rtID, headName string,
 		}
 		_, err = db.ExecContext(context.Background(),
 			`INSERT INTO household_occupancies (physical_house_id, household_id, occupancy_status, start_date, end_date)
-			 VALUES ($1, $2, $3, CURRENT_DATE, NULL)`,
+			 VALUES ($1, $2, $3, CURRENT_DATE - INTERVAL '10 days', NULL)`,
 			phID, id, st,
 		)
 		if err != nil {
@@ -261,7 +268,7 @@ func insertTestResidentFixture(t *testing.T, db *sql.DB, rtID, householdID, full
 		if err == nil {
 			_, err = db.ExecContext(context.Background(),
 				`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date, end_date)
-				 VALUES ($1, $2, CURRENT_DATE, NULL)`,
+				 VALUES ($1, $2, CURRENT_DATE - INTERVAL '10 days', NULL)`,
 				id, hoID,
 			)
 			if err != nil {
@@ -322,8 +329,8 @@ func TestCreateHousehold(t *testing.T) {
 		if result.Nik == nil || *result.Nik != "3171010101010001" {
 			t.Errorf("expected nik '3171010101010001', got %v", result.Nik)
 		}
-		if result.Phone == nil || *result.Phone != "+6281234567890" {
-			t.Errorf("expected phone '+6281234567890', got %v", result.Phone)
+		if result.Phone == nil || *result.Phone != "081234567890" {
+			t.Errorf("expected phone '081234567890', got %v", result.Phone)
 		}
 		if result.Email == nil || *result.Email != "john@example.com" {
 			t.Errorf("expected email 'john@example.com', got %v", result.Email)
@@ -363,7 +370,7 @@ func TestCreateHousehold(t *testing.T) {
 
 	t.Run("with optional address", func(t *testing.T) {
 		addr := "Jl. Test No. 123"
-		phone := "+6281234567893"
+		phone := "081234567893"
 		nik := fmt.Sprintf("317101%010d", time.Now().UnixNano()%10000000000)
 		body := fmt.Sprintf(`{"head_name":"Jane Doe","house_number":"A12","address":"Jl. Test No. 123","phone":"081234567893","email":"jane@example.com","nik":"%s","occupancy_status":"TENANT"}`, nik)
 		req := httptest.NewRequest("POST", "/api/v1/households", bytes.NewBufferString(body))
@@ -1613,9 +1620,9 @@ func TestSuperAdminListResidents(t *testing.T) {
 
 	// Insert residents directly via SQL for reliability
 	db := pool.Raw()
-	c := atomic.AddInt64(&rtCounter, 1)
-	resAName := fmt.Sprintf("SAResA-%d", c)
-	resBName := fmt.Sprintf("SAResB-%d", c+1)
+	suffix := uuid.NewString()
+	resAName := fmt.Sprintf("SAResA-%s", suffix)
+	resBName := fmt.Sprintf("SAResB-%s", suffix)
 
 	_, err := db.ExecContext(context.Background(),
 		`INSERT INTO residents (rt_id, full_name, is_active) VALUES ($1, $2, true)`,

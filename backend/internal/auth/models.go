@@ -2,13 +2,28 @@ package auth
 
 import "social-finance/internal/database"
 
+// RWMembershipSource indicates how an RW membership was granted.
+type RWMembershipSource string
+
+const (
+	RWMembershipSourceExplicit   RWMembershipSource = "explicit"
+	RWMembershipSourceRTInferred RWMembershipSource = "rt_inferred"
+)
+
 // RWMembership represents a user's active membership in a Rukun Warga (RW).
-// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara')
+// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara').
+// Source indicates whether the membership is explicit (user_rw_memberships) or
+// inferred from RT membership (user_rt_memberships + rts.rw_id). The Source field
+// is populated by the server during token generation and validated on every request.
+//
+// NOTE: Source is serialized in the JWT (rw_context claim) so the middleware can
+// distinguish explicit from inferred memberships.  Client input is NEVER trusted.
 type RWMembership struct {
-	RWID     string `json:"rw_id"`
-	RWNumber int    `json:"rw_number"`
-	RWName   string `json:"rw_name"`
-	Jabatan  string `json:"jabatan"`
+	RWID     string              `json:"rw_id"`
+	RWNumber int                 `json:"rw_number"`
+	RWName   string              `json:"rw_name"`
+	Jabatan  string              `json:"jabatan"`
+	Source   RWMembershipSource  `json:"source"`
 }
 
 // SystemRole represents a global-level role (not tied to an RT).
@@ -43,26 +58,28 @@ var ValidRoles = map[Role]bool{
 type Jabatan string
 
 const (
-	JabatanKetua                 Jabatan = "ketua"
-	JabatanWakilKetua            Jabatan = "wakil_ketua"
-	JabatanSekretaris            Jabatan = "sekretaris"
-	JabatanBendahara             Jabatan = "bendahara"
-	JabatanKeamanan              Jabatan = "keamanan"
-	JabatanSosial                Jabatan = "sosial"
-	JabatanKebersihanPembangunan Jabatan = "kebersihan_pembangunan"
-	JabatanAnggota               Jabatan = "anggota"
+	JabatanKetua       Jabatan = "ketua"
+	JabatanWakilKetua  Jabatan = "wakil_ketua"
+	JabatanSekretaris  Jabatan = "sekretaris"
+	JabatanBendahara   Jabatan = "bendahara"
+	JabatanKeamanan    Jabatan = "keamanan"
+	JabatanSosial      Jabatan = "sosial"
+	JabatanOperasional Jabatan = "operasional"
+	JabatanKebersihan  Jabatan = "kebersihan"
+	JabatanAnggota     Jabatan = "anggota"
 )
 
 // ValidJabatans maps recognized RT positions.
 var ValidJabatans = map[Jabatan]bool{
-	JabatanKetua:                 true,
-	JabatanWakilKetua:            true,
-	JabatanSekretaris:            true,
-	JabatanBendahara:             true,
-	JabatanKeamanan:              true,
-	JabatanSosial:                true,
-	JabatanKebersihanPembangunan: true,
-	JabatanAnggota:               true,
+	JabatanKetua:       true,
+	JabatanWakilKetua:  true,
+	JabatanSekretaris:  true,
+	JabatanBendahara:   true,
+	JabatanKeamanan:    true,
+	JabatanSosial:      true,
+	JabatanOperasional: true,
+	JabatanKebersihan:  true,
+	JabatanAnggota:     true,
 }
 
 // AllJabatans returns all valid jabatan values in a stable order.
@@ -73,7 +90,8 @@ var AllJabatans = []Jabatan{
 	JabatanBendahara,
 	JabatanKeamanan,
 	JabatanSosial,
-	JabatanKebersihanPembangunan,
+	JabatanOperasional,
+	JabatanKebersihan,
 	JabatanAnggota,
 }
 

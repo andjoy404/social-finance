@@ -61,10 +61,10 @@ type CreateHouseholdInput struct {
 	Email           *string         `json:"email,omitempty"`
 	Address         *string         `json:"address,omitempty"`
 	OccupancyStatus OccupancyStatus `json:"occupancy_status"`
-	StartDate       *string         `json:"start_date,omitempty"`   // YYYY-MM-DD
-	EndDate         *string         `json:"end_date,omitempty"`     // YYYY-MM-DD
-	MoveInDate      *string         `json:"move_in_date,omitempty"` // YYYY-MM-DD
-	MoveOutDate     *string         `json:"move_out_date,omitempty"`// YYYY-MM-DD
+	StartDate       *string         `json:"start_date,omitempty"`    // YYYY-MM-DD
+	EndDate         *string         `json:"end_date,omitempty"`      // YYYY-MM-DD
+	MoveInDate      *string         `json:"move_in_date,omitempty"`  // YYYY-MM-DD
+	MoveOutDate     *string         `json:"move_out_date,omitempty"` // YYYY-MM-DD
 	IsActive        *bool           `json:"is_active,omitempty"`
 	Password        *string         `json:"password,omitempty"`
 }
@@ -98,43 +98,48 @@ type MoveHouseholdInput struct {
 
 // Resident represents a resident linked to a household.
 type Resident struct {
-	ID          string    `json:"id"`
-	RTID        string    `json:"rt_id"`
-	HouseholdID *string   `json:"household_id,omitempty"`
-	FullName    string    `json:"full_name"`
-	Phone       *string   `json:"phone,omitempty"`
-	Nik         *string   `json:"nik,omitempty"`
-	Email       *string   `json:"email,omitempty"`
-	StartDate   *string   `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate     *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
-	MoveInDate  *string   `json:"move_in_date,omitempty"`
-	MoveOutDate *string   `json:"move_out_date,omitempty"`
-	IsActive    bool      `json:"is_active"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	RTNumber    *string   `json:"rt_number,omitempty"`
-	RW          *int      `json:"rw,omitempty"`
-	RTName      *string   `json:"rt_name,omitempty"`
-	UserID      *string   `json:"user_id,omitempty"`
-	Jabatan     *string   `json:"jabatan,omitempty"`
+	ID              string    `json:"id"`
+	RTID            string    `json:"rt_id"`
+	HouseholdID     *string   `json:"household_id,omitempty"`
+	FullName        string    `json:"full_name"`
+	Phone           *string   `json:"phone,omitempty"`
+	Nik             *string   `json:"nik,omitempty"`
+	Email           *string   `json:"email,omitempty"`
+	StartDate       *string   `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate         *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate      *string   `json:"move_in_date,omitempty"`
+	MoveOutDate     *string   `json:"move_out_date,omitempty"`
+	IsActive        bool      `json:"is_active"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	RTNumber        *string   `json:"rt_number,omitempty"`
+	RW              *int      `json:"rw,omitempty"`
+	RTName          *string   `json:"rt_name,omitempty"`
+	UserID          *string   `json:"user_id,omitempty"`
+	Jabatan         *string   `json:"jabatan,omitempty"`
 	OccupancyStatus *string   `json:"occupancy_status,omitempty"`
-	HouseNumber    *string   `json:"house_number,omitempty"`
+	HouseNumber     *string   `json:"house_number,omitempty"`
+	AvatarPath      *string   `json:"avatar_path,omitempty"`
+	AvatarThumbPath *string   `json:"avatar_thumb_path,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.
 // HouseholdID is required for normal residents; nil/empty for special residents
-// (keamanan, kebersihan_pembangunan) who have no household chain.
+// (keamanan, operasional, kebersihan) who have no household chain.
+// RequestedRTID is optional: allowed for SUPER_ADMIN to explicitly specify the target RT;
+// forbidden for tenant users (who always inherit RT from their authenticated membership).
 type CreateResidentInput struct {
-	HouseholdID *string `json:"household_id"`
-	FullName    string  `json:"full_name"`
-	Phone       *string `json:"phone"`
-	Nik         *string `json:"nik"`
-	Email       *string `json:"email"`
-	StartDate   *string `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate     *string `json:"end_date,omitempty"`   // YYYY-MM-DD
-	MoveInDate  *string `json:"move_in_date,omitempty"`
-	MoveOutDate *string `json:"move_out_date,omitempty"`
-	Password    *string `json:"password,omitempty"`
+	HouseholdID   *string `json:"household_id"`
+	RequestedRTID *string `json:"rt_id,omitempty"`
+	FullName      string  `json:"full_name"`
+	Phone         *string `json:"phone"`
+	Nik           *string `json:"nik"`
+	Email         *string `json:"email"`
+	StartDate     *string `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate       *string `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate    *string `json:"move_in_date,omitempty"`
+	MoveOutDate   *string `json:"move_out_date,omitempty"`
+	Password      *string `json:"password,omitempty"`
 }
 
 // MoveResidentInput holds fields for moving a resident to another household.
@@ -197,36 +202,33 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// NormalizePhone converts Indonesian phone input to canonical +62 format.
-// Accepts: 081234567890, 6281234567890, +6281234567890
-// Returns: +6281234567890
+// NormalizePhone converts Indonesian phone input to standard local 08 format.
+// Accepts: 081234567890, 6281234567890, +6281234567890 (with optional spaces/dashes)
+// Returns: 081234567890
 func NormalizePhone(phone string) (string, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
 		return "", fmt.Errorf("phone is required")
 	}
-	canon := trimmed
-	if strings.HasPrefix(canon, "+62") {
-		// Strip leading +0 if present
-		if len(canon) > 3 && canon[3] == '0' {
-			canon = "+62" + canon[4:]
-		}
-	} else if strings.HasPrefix(canon, "08") {
-		canon = "+62" + canon[1:]
-	} else if strings.HasPrefix(canon, "62") {
-		canon = "+" + canon
-	} else {
-		return "", fmt.Errorf("phone number format is invalid")
-	}
-	// Strip any internal dashes or spaces that may remain
 	var sb strings.Builder
-	for _, c := range canon {
+	for _, c := range trimmed {
 		if (c >= '0' && c <= '9') || c == '+' {
 			sb.WriteByte(byte(c))
 		}
 	}
-	canon = sb.String()
-	return canon, nil
+	cleaned := sb.String()
+	if strings.HasPrefix(cleaned, "+62") {
+		cleaned = cleaned[3:]
+	} else if strings.HasPrefix(cleaned, "62") {
+		cleaned = cleaned[2:]
+	}
+	if !strings.HasPrefix(cleaned, "0") {
+		cleaned = "0" + cleaned
+	}
+	if !strings.HasPrefix(cleaned, "08") {
+		return "", fmt.Errorf("phone number format is invalid")
+	}
+	return cleaned, nil
 }
 
 // NormalizeEmail trims whitespace and lowercases the email.

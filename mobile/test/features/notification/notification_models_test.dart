@@ -52,7 +52,11 @@ void main() {
       expect(tmpl.isActive, isTrue);
       expect(tmpl.createdAt, isNotNull);
 
-      final updated = tmpl.copyWith(isActive: false, name: 'Template Baru', imageUrl: 'https://example.com/new.jpg');
+      final updated = tmpl.copyWith(
+        isActive: false,
+        name: 'Template Baru',
+        imageUrl: 'https://example.com/new.jpg',
+      );
       expect(updated.id, equals('tmpl-123'));
       expect(updated.isActive, isFalse);
       expect(updated.name, equals('Template Baru'));
@@ -74,14 +78,9 @@ void main() {
             'variables': {'bill_id': '101'},
             'recipients_count': 12,
             'created_at': '2026-10-29T01:00:00Z',
-          }
+          },
         ],
-        'pagination': {
-          'page': 1,
-          'per_page': 20,
-          'total': 1,
-          'total_pages': 1,
-        }
+        'pagination': {'page': 1, 'per_page': 20, 'total': 1, 'total_pages': 1},
       };
 
       final resp = NotificationLogsResponse.fromJson(json);
@@ -92,6 +91,64 @@ void main() {
       expect(log.recipientsCount, equals(12));
       expect(log.variables['bill_id'], equals('101'));
     });
-  });
-}
 
+    test('preserves the sender or recipient activity context', () {
+      final log = NotificationLogEntry.fromJson({
+        'id': 'log-recipient',
+        'rt_id': 'rt-1',
+        'event_type': 'waste_truck_arrival',
+        'title': 'Truk Sampah Tiba',
+        'body': 'Truk telah sampai.',
+        'status': 'SENT',
+        'history_category': 'mine',
+        'activity_relation': 'received_by_me',
+        'variables': const <String, dynamic>{},
+        'recipients_count': 0,
+      });
+
+      expect(log.activityRelation, 'received_by_me');
+      expect(log.toJson()['activity_relation'], 'received_by_me');
+    });
+
+    test(
+      'preserves explicit delivery outcomes and treats missing statuses as unknown',
+      () {
+        NotificationLogEntry parseStatus(Object? status) =>
+            NotificationLogEntry.fromJson({
+              'id': 'log-status',
+              'rt_id': 'rt-1',
+              'event_type': 'iuran_overdue_3_months',
+              'title': 'Pengingat',
+              'body': 'Tunggakan',
+              'status': status,
+              'variables': const <String, dynamic>{},
+              'recipients_count': 1,
+            });
+
+        expect(parseStatus('SENT').status, 'SENT');
+        expect(parseStatus('sent').status, 'SENT');
+        expect(parseStatus('FAILED').status, 'FAILED');
+        expect(parseStatus('PARTIAL').status, 'PARTIAL');
+        expect(parseStatus(null).status, 'UNKNOWN');
+        expect(parseStatus('').status, 'UNKNOWN');
+        expect(parseStatus('unrecognized').status, 'UNKNOWN');
+      },
+    );
+  });
+
+  test(
+    'WasteTruckDispatchEntry parses the message shown in dispatch details',
+    () {
+      final entry = WasteTruckDispatchEntry.fromJson({
+        'id': 'dispatch-1',
+        'event_type': 'waste_truck_arrival',
+        'title': 'Truk Sampah Tiba',
+        'body': 'Truk telah sampai di lingkungan.',
+        'status': 'SENT',
+        'created_at': '2026-10-29T01:00:00Z',
+      });
+
+      expect(entry.body, 'Truk telah sampai di lingkungan.');
+    },
+  );
+}

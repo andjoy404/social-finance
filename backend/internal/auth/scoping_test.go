@@ -267,15 +267,18 @@ func TestHasRWScopePermission(t *testing.T) {
 	if hasRWScopePermission("ketua", "user.delete") {
 		t.Error("ketua should NOT have user.delete")
 	}
-	// wakil_ketua: NO finance.update — security gate finding.
+	// wakil_ketua: read-only (NO write operations per final matrix).
 	if !hasRWScopePermission("wakil_ketua", "finance.read") {
 		t.Error("wakil_ketua should have finance.read")
 	}
 	if hasRWScopePermission("wakil_ketua", "finance.update") {
 		t.Error("wakil_ketua must NOT have finance.update (security gate)")
 	}
-	if !hasRWScopePermission("wakil_ketua", "finance.approve") {
-		t.Error("wakil_ketua should have finance.approve")
+	if hasRWScopePermission("wakil_ketua", "finance.approve") {
+		t.Error("wakil_ketua must NOT have finance.approve (read-only)")
+	}
+	if hasRWScopePermission("wakil_ketua", "finance.create") {
+		t.Error("wakil_ketua must NOT have finance.create (read-only)")
 	}
 	// sekretaris: read-only.
 	if !hasRWScopePermission("sekretaris", "finance.read") {

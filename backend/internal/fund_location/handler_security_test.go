@@ -25,8 +25,8 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("Bendahara RW membership for matching rwId passes", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:   "user-id",
-			RTID:     "rt-uuid-1",
+			UserID: "user-id",
+			RTID:   "rt-uuid-1",
 			RWMemberships: []auth.RWMembership{
 				{RWID: "rw-uuid-1", Jabatan: "bendahara"},
 				{RWID: "rw-uuid-2", Jabatan: "ketua"},
@@ -40,8 +40,8 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("Bendahara RW membership does NOT cross rwId", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:   "user-id",
-			RTID:     "rt-uuid-1",
+			UserID: "user-id",
+			RTID:   "rt-uuid-1",
 			RWMemberships: []auth.RWMembership{
 				{RWID: "rw-uuid-2", Jabatan: "bendahara"},
 				{RWID: "rw-uuid-1", Jabatan: "sekretaris"},
@@ -56,8 +56,8 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("Ketua RW is blocked", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:   "user-id",
-			RTID:     "rt-uuid-1",
+			UserID: "user-id",
+			RTID:   "rt-uuid-1",
 			RWMemberships: []auth.RWMembership{
 				{RWID: "rw-uuid-1", Jabatan: "ketua"},
 			},
@@ -70,8 +70,8 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("Wakil Ketua RW is blocked", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:   "user-id",
-			RTID:     "rt-uuid-1",
+			UserID: "user-id",
+			RTID:   "rt-uuid-1",
 			RWMemberships: []auth.RWMembership{
 				{RWID: "rw-uuid-1", Jabatan: "wakil_ketua"},
 			},
@@ -84,8 +84,8 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("Sekretaris RW is blocked", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:   "user-id",
-			RTID:     "rt-uuid-1",
+			UserID: "user-id",
+			RTID:   "rt-uuid-1",
 			RWMemberships: []auth.RWMembership{
 				{RWID: "rw-uuid-1", Jabatan: "sekretaris"},
 			},
@@ -98,9 +98,9 @@ func TestCheckRWBendaharaAccessSecurity(t *testing.T) {
 
 	t.Run("No RW memberships → rejected", func(t *testing.T) {
 		ac := &auth.AuthContext{
-			UserID:          "user-id",
-			RTID:            "rt-uuid-1",
-			RWMemberships:   nil,
+			UserID:        "user-id",
+			RTID:          "rt-uuid-1",
+			RWMemberships: nil,
 		}
 		err := h.checkRWBendaharaAccess(ac, "rw-uuid-1")
 		if err == nil {

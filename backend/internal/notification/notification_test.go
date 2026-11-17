@@ -2,10 +2,12 @@ package notification_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,15 +27,48 @@ type inMemoryRepo struct {
 	dedupRecords        map[string]bool            // dedupKey:userID -> exists
 	dedupForceError     bool                       // when true, CheckAndRecordDedup returns an error
 	dedupForceErrorOnce bool                       // when true, error is returned only once
+	schedules           map[string]*notification.NotificationSchedule
+	scheduleLogs        map[string]bool // schedule dedupKey -> exists
+	scheduleStatuses    map[string]string
+	scheduleFailures    map[string]string
+	reminderTemplate    *notification.NotificationTemplate
+	dispatchLogs        map[string]inMemoryDispatch
+	recipientDeliveries []notification.NotificationLogEntry
+	dispatchCounter     int
+	dispatchUpdates     chan string
+	executions          map[string]struct {
+		at          time.Time
+		status      string
+		errorDetail *string
+		summary     *notification.ScheduleExecutionSummary
+	}
+}
+
+type inMemoryDispatch struct {
+	rtID     string
+	senderID string
+	entry    notification.WasteTruckDispatchEntry
 }
 
 func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
-		devices:      make(map[string]map[string]bool),
-		verifiers:    make(map[string][]string),
-		rtUsers:      make(map[string][]string),
-		billUsers:    make(map[string][]string),
-		dedupRecords: make(map[string]bool),
+		devices:          make(map[string]map[string]bool),
+		verifiers:        make(map[string][]string),
+		rtUsers:          make(map[string][]string),
+		billUsers:        make(map[string][]string),
+		dedupRecords:     make(map[string]bool),
+		schedules:        make(map[string]*notification.NotificationSchedule),
+		scheduleLogs:     make(map[string]bool),
+		scheduleStatuses: make(map[string]string),
+		scheduleFailures: make(map[string]string),
+		dispatchLogs:     make(map[string]inMemoryDispatch),
+		executions: make(map[string]struct {
+			at          time.Time
+			status      string
+			errorDetail *string
+			summary     *notification.ScheduleExecutionSummary
+		}),
+		dispatchUpdates: make(chan string, 8),
 	}
 }
 
@@ -106,6 +141,20 @@ func (r *inMemoryRepo) GetTokensForPaymentVerifiers(ctx context.Context, rtID st
 	return tokens, nil
 }
 
+func (r *inMemoryRepo) GetPaymentVerifierUserIDs(ctx context.Context, rtID string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var uids []string
+	seen := make(map[string]bool)
+	for _, uid := range r.verifiers[rtID] {
+		if !seen[uid] {
+			seen[uid] = true
+			uids = append(uids, uid)
+		}
+	}
+	return uids, nil
+}
+
 func (r *inMemoryRepo) GetTokensForRT(ctx context.Context, rtID string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -122,6 +171,30 @@ func (r *inMemoryRepo) GetTokensForRT(ctx context.Context, rtID string) ([]strin
 		}
 	}
 	return tokens, nil
+}
+
+func (r *inMemoryRepo) GetTokensForWasteTruckArrival(ctx context.Context, rtID string) ([]string, error) {
+	return r.GetTokensForRT(ctx, rtID)
+}
+
+func (r *inMemoryRepo) GetWasteTruckArrivalRecipients(ctx context.Context, rtID string) ([]notification.WasteTruckArrivalRecipient, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	recipients := make([]notification.WasteTruckArrivalRecipient, 0)
+	for _, userID := range r.rtUsers[rtID] {
+		recipient := notification.WasteTruckArrivalRecipient{UserID: userID}
+		for token, active := range r.devices[userID] {
+			if active {
+				recipient.Tokens = append(recipient.Tokens, token)
+			}
+		}
+		recipients = append(recipients, recipient)
+	}
+	return recipients, nil
+}
+
+func (r *inMemoryRepo) GetRTBroadcastRecipients(ctx context.Context, rtID string) ([]notification.WasteTruckArrivalRecipient, error) {
+	return r.GetWasteTruckArrivalRecipients(ctx, rtID)
 }
 
 func (r *inMemoryRepo) GetRecipientUserIDsForBill(ctx context.Context, rtID, billID string) ([]string, error) {
@@ -147,6 +220,77 @@ func (r *inMemoryRepo) CheckAndRecordDedup(ctx context.Context, rtID, userID, ev
 	return true, nil
 }
 
+func (r *inMemoryRepo) RecordWasteTruckDispatch(ctx context.Context, rtID, senderUserID, dedupKey, title, body string, payload map[string]string) (string, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dedupRecords[dedupKey] {
+		return "", false, nil
+	}
+	r.dedupRecords[dedupKey] = true
+	r.dispatchCounter++
+	id := "dispatch-" + strconv.Itoa(r.dispatchCounter)
+	var imageURL *string
+	if image := payload["image_url"]; image != "" {
+		imageURL = &image
+	}
+	r.dispatchLogs[id] = inMemoryDispatch{
+		rtID:     rtID,
+		senderID: senderUserID,
+		entry: notification.WasteTruckDispatchEntry{
+			ID: id, EventType: notification.EventWasteTruckArrival, Title: title,
+			Body:     body,
+			ImageURL: imageURL, Status: "PENDING", CreatedAt: time.Now(),
+		},
+	}
+	payload["notification_id"] = id
+	return id, true, nil
+}
+
+func (r *inMemoryRepo) RecordBroadcastRecipientDelivery(ctx context.Context, rtID, senderUserID, recipientUserID, eventType, broadcastID, title, body string, payload map[string]string, status string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	userID := recipientUserID
+	r.recipientDeliveries = append(r.recipientDeliveries, notification.NotificationLogEntry{
+		RTID: rtID, UserID: &userID, EventType: eventType,
+		DedupKey: "recipient:" + eventType + ":" + broadcastID + ":" + recipientUserID,
+		Title:    title, Body: body, Status: status,
+		ActivityRelation: "received_by_me",
+	})
+	return nil
+}
+
+func (r *inMemoryRepo) UpdateWasteTruckDispatch(ctx context.Context, rtID, senderUserID, id, status, failureReason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	record, ok := r.dispatchLogs[id]
+	if !ok || record.rtID != rtID || record.senderID != senderUserID {
+		return sql.ErrNoRows
+	}
+	record.entry.Status = status
+	record.entry.FailureReason = nil
+	if failureReason != "" {
+		record.entry.FailureReason = &failureReason
+	}
+	r.dispatchLogs[id] = record
+	select {
+	case r.dispatchUpdates <- status:
+	default:
+	}
+	return nil
+}
+
+func (r *inMemoryRepo) ListWasteTruckDispatches(ctx context.Context, rtID, senderUserID string, offset, limit int) ([]notification.WasteTruckDispatchEntry, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entries := make([]notification.WasteTruckDispatchEntry, 0)
+	for _, record := range r.dispatchLogs {
+		if record.rtID == rtID && record.senderID == senderUserID {
+			entries = append(entries, record.entry)
+		}
+	}
+	return entries, len(entries), nil
+}
+
 func (r *inMemoryRepo) ListTemplates(ctx context.Context, rtID, eventType string, isActive *bool) ([]notification.NotificationTemplate, error) {
 	return []notification.NotificationTemplate{}, nil
 }
@@ -156,6 +300,9 @@ func (r *inMemoryRepo) GetTemplateByID(ctx context.Context, rtID, id string) (*n
 }
 
 func (r *inMemoryRepo) GetActiveTemplateForEvent(ctx context.Context, rtID, eventType string) (*notification.NotificationTemplate, error) {
+	if r.reminderTemplate != nil {
+		return r.reminderTemplate, nil
+	}
 	return nil, nil
 }
 
@@ -196,11 +343,66 @@ func (r *inMemoryRepo) DeleteTemplate(ctx context.Context, rtID, id string) erro
 	return nil
 }
 
+// RW-scoped template methods
+
+func (r *inMemoryRepo) ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]notification.NotificationTemplate, error) {
+	return []notification.NotificationTemplate{}, nil
+}
+
+func (r *inMemoryRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:        "rw-tmpl-1",
+		RWID:      rwID,
+		Name:      in.Name,
+		EventType: in.EventType,
+		Channel:   in.Channel,
+		Title:     in.Title,
+		Body:      in.Body,
+		IsActive:  true,
+		Variables: allowedVars,
+	}, nil
+}
+
+func (r *inMemoryRepo) UpdateRWTemplate(ctx context.Context, rwID, id string, in notification.UpdateTemplateInput) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RWID:     rwID,
+		Name:     in.Name,
+		Title:    in.Title,
+		Body:     in.Body,
+		IsActive: true,
+	}, nil
+}
+
+func (r *inMemoryRepo) ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RWID:     rwID,
+		IsActive: false,
+	}, nil
+}
+
+func (r *inMemoryRepo) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
+	return nil
+}
+
 func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return []notification.NotificationLogEntry{}, 0, nil
 }
 
+func (r *inMemoryRepo) ListManagementHistory(ctx context.Context, rtID, userID, category string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return []notification.NotificationLogEntry{}, 0, nil
+}
+
 func (r *inMemoryRepo) GetLogByID(ctx context.Context, rtID, id string) (*notification.NotificationLogEntry, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) GetBroadcastRecipientLog(ctx context.Context, rtID, userID, eventType, broadcastID string) (*notification.NotificationLogEntry, error) {
 	return nil, nil
 }
 
@@ -218,6 +420,335 @@ func (r *inMemoryRepo) GetUnreadCount(ctx context.Context, rtID, userID string, 
 
 func (r *inMemoryRepo) GetDefaultRTID(ctx context.Context) (string, error) {
 	return "test-rt-002", nil
+}
+
+// Schedule management (mock)
+
+func (r *inMemoryRepo) CreateSchedule(ctx context.Context, rtID, userID string, in notification.CreateScheduleInput) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id := "sched-" + strconv.Itoa(len(r.schedules)+1)
+	now := time.Now()
+	s := &notification.NotificationSchedule{
+		ID:         id,
+		RTID:       rtID,
+		EventType:  in.EventType,
+		TemplateID: in.TemplateID,
+		Name:       in.Name,
+		IsActive:   true,
+		SendDays:   append([]int{}, in.SendDays...),
+		SendHour:   in.SendHour,
+		SendMinute: in.SendMinute,
+		Timezone:   in.Timezone,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		CreatedBy:  userID,
+		UpdatedBy:  userID,
+	}
+	r.schedules[id] = s
+	return s, nil
+}
+
+func (r *inMemoryRepo) GetSchedule(ctx context.Context, rtID, id string) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, nil
+	}
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) ListSchedules(ctx context.Context, rtID, eventType string, isActive *bool) ([]*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.NotificationSchedule
+	for _, s := range r.schedules {
+		if s.RTID != rtID {
+			continue
+		}
+		if eventType != "" && s.EventType != eventType {
+			continue
+		}
+		if isActive != nil && s.IsActive != *isActive {
+			continue
+		}
+		copied := *s
+		list = append(list, &copied)
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) UpdateSchedule(ctx context.Context, rtID, id, userID string, in notification.UpdateScheduleInput) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, sql.ErrNoRows
+	}
+	if in.Name != nil {
+		s.Name = *in.Name
+	}
+	if in.IsActive != nil {
+		s.IsActive = *in.IsActive
+	}
+	if in.SendDays != nil {
+		s.SendDays = append([]int{}, *in.SendDays...)
+	}
+	if in.SendHour != nil {
+		s.SendHour = *in.SendHour
+	}
+	if in.SendMinute != nil {
+		s.SendMinute = *in.SendMinute
+	}
+	if in.Timezone != nil {
+		s.Timezone = *in.Timezone
+	}
+	s.UpdatedAt = time.Now()
+	s.UpdatedBy = userID
+	r.schedules[id] = s
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) DeleteSchedule(ctx context.Context, rtID, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return sql.ErrNoRows
+	}
+	delete(r.schedules, id)
+	return nil
+}
+
+func (r *inMemoryRepo) ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, nil
+	}
+	s.IsActive = !s.IsActive
+	s.UpdatedAt = time.Now()
+	s.UpdatedBy = userID
+	r.schedules[id] = s
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) GetDueSchedules(ctx context.Context, now time.Time) ([]*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.NotificationSchedule
+	for _, s := range r.schedules {
+		if !s.IsActive {
+			continue
+		}
+		dayMatch := false
+		for _, d := range s.SendDays {
+			if d == now.Day() {
+				dayMatch = true
+				break
+			}
+		}
+		if !dayMatch {
+			continue
+		}
+		if now.Hour() == s.SendHour && now.Minute() == s.SendMinute {
+			copied := *s
+			list = append(list, &copied)
+		}
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) GetIuranReminderRecipients(ctx context.Context, rtID string, asOf time.Time) ([]*notification.IuranReminderRecipient, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.IuranReminderRecipient
+	for billID, userIDs := range r.billUsers {
+		for _, uid := range userIDs {
+			list = append(list, &notification.IuranReminderRecipient{
+				BillID:  billID,
+				UserID:  uid,
+				RTID:    rtID,
+				Period:  "bulan ini",
+				Amount:  "100000",
+				DueDate: asOf.Format("2006-01-02"),
+			})
+		}
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) UpdateScheduleExecuted(ctx context.Context, scheduleID, rtID string, at time.Time, status string) error {
+	return r.UpdateScheduleExecutedDetailed(ctx, scheduleID, rtID, at, status, nil, nil)
+}
+
+func (r *inMemoryRepo) UpdateScheduleExecutedDetailed(ctx context.Context, scheduleID, rtID string, at time.Time, status string, errorDetail *string, summary *notification.ScheduleExecutionSummary, configHash ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[scheduleID]
+	if !ok || s.RTID != rtID {
+		return sql.ErrNoRows
+	}
+	s.LastExecutedAt = &at
+	s.LastExecutedStatus = &status
+	s.LastExecutedError = errorDetail
+	s.LastExecutedSummary = summary
+	s.UpdatedAt = at
+	r.schedules[scheduleID] = s
+
+	cfg := ""
+	if len(configHash) > 0 && configHash[0] != "" {
+		cfg = configHash[0]
+	} else {
+		cfg = notification.ComputeScheduleConfigHashFromSchedule(s)
+	}
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		loc = time.FixedZone(s.Timezone, 7*3600)
+	}
+	execDate := at.In(loc).Format("2006-01-02")
+	k := scheduleID + ":" + execDate + ":" + cfg
+	r.executions[k] = struct {
+		at          time.Time
+		status      string
+		errorDetail *string
+		summary     *notification.ScheduleExecutionSummary
+	}{at: at, status: status, errorDetail: errorDetail, summary: summary}
+	return nil
+}
+
+func (r *inMemoryRepo) RecordScheduleExecution(ctx context.Context, scheduleID, rtID string, execDate time.Time, configHash, status string, errorDetail *string, summary *notification.ScheduleExecutionSummary) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	dateStr := execDate.Format("2006-01-02")
+	k := scheduleID + ":" + dateStr + ":" + configHash
+	r.executions[k] = struct {
+		at          time.Time
+		status      string
+		errorDetail *string
+		summary     *notification.ScheduleExecutionSummary
+	}{at: execDate, status: status, errorDetail: errorDetail, summary: summary}
+	return nil
+}
+
+func (r *inMemoryRepo) IsScheduleExecutionDone(ctx context.Context, scheduleID, execDate, configHash string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := scheduleID + ":" + execDate + ":" + configHash
+	if rec, ok := r.executions[k]; ok && rec.status != "" {
+		return true, nil
+	}
+	cfgPrefix := "schedule:" + scheduleID + ":" + execDate + ":c_" + configHash + ":"
+	for logKey, val := range r.scheduleLogs {
+		if val && strings.HasPrefix(logKey, cfgPrefix) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *inMemoryRepo) IsRecipientAlreadySentToday(ctx context.Context, dedupKey string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.scheduleStatuses[dedupKey] == "SENT", nil
+}
+
+func (r *inMemoryRepo) AcquireConn(ctx context.Context) (*sql.Conn, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) TryAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) (bool, error) {
+	return true, nil
+}
+
+func (r *inMemoryRepo) ReleaseAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) error {
+	return nil
+}
+
+func (r *inMemoryRepo) IsScheduleExecutedToday(ctx context.Context, scheduleID, execDate string, configHash ...string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(configHash) > 0 && configHash[0] != "" {
+		k := scheduleID + ":" + execDate + ":" + configHash[0]
+		if _, ok := r.executions[k]; ok {
+			return true, nil
+		}
+		prefix := "schedule:" + scheduleID + ":" + execDate + ":c_" + configHash[0] + ":"
+		for lk, val := range r.scheduleLogs {
+			if val && strings.HasPrefix(lk, prefix) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	prefix := "schedule:" + scheduleID + ":" + execDate + ":"
+	for k, val := range r.scheduleLogs {
+		if val && strings.HasPrefix(k, prefix) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *inMemoryRepo) RecordScheduleDelivery(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string, status, failureReason string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.scheduleLogs[dedupKey] {
+		return "", nil // duplicate
+	}
+	r.scheduleLogs[dedupKey] = true
+	r.scheduleStatuses[dedupKey] = status
+	r.scheduleFailures[dedupKey] = failureReason
+
+	// Backward compatibility alias for unit tests asserting legacy dedup key without config hash
+	if idx := strings.Index(dedupKey, ":c_"); idx != -1 {
+		rest := dedupKey[idx+3:]
+		if nextColon := strings.Index(rest, ":"); nextColon != -1 {
+			legacyKey := dedupKey[:idx] + rest[nextColon:]
+			r.scheduleLogs[legacyKey] = true
+			r.scheduleStatuses[legacyKey] = status
+			r.scheduleFailures[legacyKey] = failureReason
+		}
+	}
+
+	return "log-" + dedupKey, nil
+}
+
+func (r *inMemoryRepo) ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*notification.NotificationSchedulerHistory, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Return empty for in-memory repo (history is tracked via notification_logs in pgRepository)
+	return []*notification.NotificationSchedulerHistory{}, 0, nil
+}
+
+func (r *inMemoryRepo) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string, configHash ...string) ([]*notification.NotificationSchedulerRecipientDetail, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Return empty for in-memory repo
+	return []*notification.NotificationSchedulerRecipientDetail{}, nil
+}
+
+func (r *inMemoryRepo) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) RecordRWDedup(ctx context.Context, rwID, userID, eventType, dedupKey, title, body string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
+func (r *inMemoryRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {
@@ -258,6 +789,123 @@ func TestDeviceRegistrationLifecycle(t *testing.T) {
 	}
 	if len(tokensAfter) != 0 {
 		t.Fatalf("expected 0 tokens after unregister, got %v", tokensAfter)
+	}
+}
+
+func TestWasteTruckDispatchHistoryAndActualFailureStatus(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	provider.SetSendError(errors.New("provider failure"))
+	svc := notification.NewService(repo, provider)
+
+	rtID := "rt-security-history"
+	senderID := "security-user-a"
+	repo.rtUsers[rtID] = []string{"resident"}
+	if err := repo.RegisterDevice(context.Background(), "resident", "resident-token", "android", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.NotifyWasteTruckArrival(context.Background(), rtID, senderID, "", nil)
+	select {
+	case status := <-repo.dispatchUpdates:
+		if status != "FAILED" {
+			t.Fatalf("dispatch status = %q, want FAILED", status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for actual dispatch result")
+	}
+
+	entries, total, err := svc.ListWasteTruckHistory(context.Background(), &auth.AuthContext{
+		UserID:  senderID,
+		RTID:    rtID,
+		Jabatan: auth.JabatanKeamanan,
+	}, rtID, 1, 20)
+	if err != nil {
+		t.Fatalf("ListWasteTruckHistory: %v", err)
+	}
+	if total != 1 || len(entries) != 1 {
+		t.Fatalf("history count = %d, entries = %d, want one sender-owned dispatch", total, len(entries))
+	}
+	if entries[0].Status != "FAILED" || entries[0].FailureReason == nil {
+		t.Fatalf("history should expose actual failure and safe reason, got %+v", entries[0])
+	}
+	if strings.Contains(*entries[0].FailureReason, "provider failure") {
+		t.Fatal("history exposed raw provider error")
+	}
+	if len(repo.recipientDeliveries) != 1 ||
+		repo.recipientDeliveries[0].UserID == nil ||
+		*repo.recipientDeliveries[0].UserID != "resident" ||
+		repo.recipientDeliveries[0].Status != "FAILED" {
+		t.Fatalf("expected recipient-scoped history for the resident: %+v", repo.recipientDeliveries)
+	}
+
+	otherSenderEntries, _, err := svc.ListWasteTruckHistory(context.Background(), &auth.AuthContext{
+		UserID:  "security-user-b",
+		RTID:    rtID,
+		Jabatan: auth.JabatanKeamanan,
+	}, rtID, 1, 20)
+	if err != nil {
+		t.Fatalf("ListWasteTruckHistory for second sender: %v", err)
+	}
+	if len(otherSenderEntries) != 0 {
+		t.Fatalf("second sender received another officer's history: %+v", otherSenderEntries)
+	}
+}
+
+// TestWasteTruckDispatchWithoutDeviceHasNoDeviceStatusAndRecipientHistory verifies
+// that when there are no devices, the dispatch and recipient history
+// show NO_DEVICE rather than UNKNOWN or FAILED.
+func TestWasteTruckDispatchWithoutDeviceHasNoDeviceStatusAndRecipientHistory(t *testing.T) {
+	repo := newInMemoryRepo()
+	svc := notification.NewService(repo, notification.NewMockPushProvider())
+	rtID := "rt-security-no-device"
+	repo.rtUsers[rtID] = []string{"resident"}
+
+	svc.NotifyWasteTruckArrival(context.Background(), rtID, "security-user", "", nil)
+	select {
+	case status := <-repo.dispatchUpdates:
+		if status != "NO_DEVICE" {
+			t.Fatalf("dispatch status = %q, want NO_DEVICE when no provider attempt was made", status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for dispatch result")
+	}
+	if len(repo.recipientDeliveries) != 1 ||
+		repo.recipientDeliveries[0].Status != "NO_DEVICE" ||
+		repo.recipientDeliveries[0].ActivityRelation != "received_by_me" {
+		t.Fatalf("expected unknown recipient history without claiming provider failure: %+v", repo.recipientDeliveries)
+	}
+}
+
+func TestManualBroadcastRecordsPerPengurusRecipientHistory(t *testing.T) {
+	repo := newInMemoryRepo()
+	svc := notification.NewService(repo, notification.NewMockPushProvider())
+	rtID := "rt-manual-broadcast"
+	repo.rtUsers[rtID] = []string{"sender", "pengurus-recipient"}
+	if err := repo.RegisterDevice(context.Background(), "pengurus-recipient", "pengurus-token", "android", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SendManualPush(context.Background(), rtID, "sender", notification.ManualPushInput{
+		Title: "Pengumuman RT",
+		Body:  "Kegiatan warga",
+	}); err != nil {
+		t.Fatalf("SendManualPush: %v", err)
+	}
+	if len(repo.recipientDeliveries) != 2 {
+		t.Fatalf("expected per-user recipient records for RT broadcast membership, got %+v", repo.recipientDeliveries)
+	}
+	var recipientRecord *notification.NotificationLogEntry
+	for index := range repo.recipientDeliveries {
+		entry := &repo.recipientDeliveries[index]
+		if entry.UserID != nil && *entry.UserID == "pengurus-recipient" {
+			recipientRecord = entry
+		}
+	}
+	if recipientRecord == nil || recipientRecord.Status != "SENT" ||
+		recipientRecord.EventType != notification.EventManualPush ||
+		recipientRecord.ActivityRelation != "received_by_me" {
+		t.Fatalf("Pengurus recipient history missing or incorrect: %+v", repo.recipientDeliveries)
 	}
 }
 
@@ -1165,22 +1813,14 @@ func TestPaymentVerified_APPROVED_NotifiesSubmitterAndVerifiers(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 push messages (submitter + verifier), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 push message to submitter (verifiers excluded), got %d", len(msgs))
 	}
-
-	tokenSet := make(map[string]bool)
-	for _, m := range msgs {
-		tokenSet[m.Token] = true
-		if m.Data["status"] != "APPROVED" {
-			t.Errorf("expected status APPROVED in message, got %s", m.Data["status"])
-		}
+	if msgs[0].Token != submitterToken {
+		t.Errorf("expected message to submitter token %s, got %s", submitterToken, msgs[0].Token)
 	}
-	if !tokenSet[submitterToken] {
-		t.Errorf("expected message to submitter token %s", submitterToken)
-	}
-	if !tokenSet[verifierToken] {
-		t.Errorf("expected message to verifier token %s", verifierToken)
+	if msgs[0].Data["status"] != "APPROVED" {
+		t.Errorf("expected status APPROVED in message, got %s", msgs[0].Data["status"])
 	}
 }
 
@@ -1207,8 +1847,8 @@ func TestPaymentVerified_DuplicateCallsSendNoDuplicatePush(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	firstBatch := provider.GetMessages()
-	if len(firstBatch) != 2 {
-		t.Fatalf("expected 2 initial messages, got %d", len(firstBatch))
+	if len(firstBatch) != 1 {
+		t.Fatalf("expected 1 initial message, got %d", len(firstBatch))
 	}
 
 	// Second call with identical arguments should be deduplicated
@@ -1216,7 +1856,7 @@ func TestPaymentVerified_DuplicateCallsSendNoDuplicatePush(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	secondBatch := provider.GetMessages()
-	if len(secondBatch) != 2 {
+	if len(secondBatch) != 1 {
 		t.Fatalf("expected deduplication to prevent duplicate messages, got %d", len(secondBatch))
 	}
 }
@@ -1255,8 +1895,8 @@ func TestPaymentVerified_SubmitterAlsoVerifierNoDuplicatePush(t *testing.T) {
 	}
 }
 
-// TestPaymentVerified_REJECTED_NotifiesSubmitterAndVerifiers verifies that a REJECTED
-// payment verification delivers a push to both the submitter and all authorized verifiers.
+// TestPaymentVerified_REJECTED_NotifiesSubmitterOnly verifies that a REJECTED
+// payment verification delivers a push to the submitter only, excluding verifiers.
 func TestPaymentVerified_REJECTED_NotifiesSubmitterAndVerifiers(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1278,22 +1918,14 @@ func TestPaymentVerified_REJECTED_NotifiesSubmitterAndVerifiers(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 push messages (submitter + verifier), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 push message to submitter (verifiers excluded), got %d", len(msgs))
 	}
-
-	tokenSet := make(map[string]bool)
-	for _, m := range msgs {
-		tokenSet[m.Token] = true
-		if m.Data["status"] != "REJECTED" {
-			t.Errorf("expected status REJECTED in message, got %s", m.Data["status"])
-		}
+	if msgs[0].Token != submitterToken {
+		t.Errorf("expected message to submitter token %s, got %s", submitterToken, msgs[0].Token)
 	}
-	if !tokenSet[submitterToken] {
-		t.Errorf("expected message to submitter token %s", submitterToken)
-	}
-	if !tokenSet[verifierToken] {
-		t.Errorf("expected message to verifier token %s", verifierToken)
+	if msgs[0].Data["status"] != "REJECTED" {
+		t.Errorf("expected status REJECTED in message, got %s", msgs[0].Data["status"])
 	}
 }
 
@@ -1350,15 +1982,11 @@ func TestPaymentVerified_PengurusPaysOwnBillReceivesVerification(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-	foundSubmitter := false
-	for _, m := range msgs {
-		if m.Token == pengurusToken {
-			foundSubmitter = true
-			break
-		}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 push message to pengurus submitter (verifier excluded), got %d", len(msgs))
 	}
-	if !foundSubmitter {
-		t.Error("expected pengurus submitter to receive verification notification")
+	if msgs[0].Token != pengurusToken {
+		t.Errorf("expected pengurus submitter to receive verification notification, got token %s", msgs[0].Token)
 	}
 }
 
@@ -1383,9 +2011,8 @@ func TestPaymentVerified_EmptySubmitterUserIDNoVerifiers(t *testing.T) {
 	}
 }
 
-// TestPaymentVerified_EmptySubmitterWithVerifierNotifiesVerifiers verifies that when
-// submitterUserID is empty but verifier group has tokens, the verifier group
-// still receives the notification.
+// TestPaymentVerified_EmptySubmitterResolvesBillRecipients verifies that when
+// submitterUserID is empty, bill occupants receive the notification and verifiers do not.
 func TestPaymentVerified_EmptySubmitterWithVerifierNotifiesVerifiers(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1393,31 +2020,32 @@ func TestPaymentVerified_EmptySubmitterWithVerifierNotifiesVerifiers(t *testing.
 
 	ctx := context.Background()
 	rtID := "rt-01"
+	billID := "bill-empty-sub"
+	wargaUser := "user-warga-bill"
+	wargaToken := "tok-warga-bill"
 	verifierUser := "user-verifier-empty"
 	verifierToken := "tok-verifier-empty"
 
+	_ = repo.RegisterDevice(ctx, wargaUser, wargaToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
 	repo.verifiers[rtID] = []string{verifierUser}
+	repo.billUsers[billID] = []string{wargaUser}
 
-	// No submitter — verifier should still receive
-	svc.NotifyPaymentVerified(ctx, rtID, "bill-empty-sub", "pay-empty-sub", "", "APPROVED", "")
+	// Submitter empty — should notify bill occupant, NOT verifier
+	svc.NotifyPaymentVerified(ctx, rtID, billID, "pay-empty-sub", "", "APPROVED", "")
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
 	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message to verifier (no submitter), got %d", len(msgs))
+		t.Fatalf("expected 1 message to bill occupant (verifier excluded), got %d", len(msgs))
 	}
-	if msgs[0].Token != verifierToken {
-		t.Errorf("expected message to verifier token %s, got %s", verifierToken, msgs[0].Token)
+	if msgs[0].Token != wargaToken {
+		t.Errorf("expected message to warga token %s, got %s", wargaToken, msgs[0].Token)
 	}
 }
 
-// TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList verifies that when
-// the mock verifier list does not include a token registered for a
-// role=ketua user, that user does not receive a push notification.
-// NOTE: This tests service-level notification delivery against a mock repo.
-// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
-// RequireAccess middleware; for that, see repository_db_test.go.
+// TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList verifies that verifiers
+// (such as role=ketua) do not receive payment verified notifications.
 func TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1432,9 +2060,6 @@ func TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList(t *testing.T) {
 
 	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
-
-	// Register a token that mimics a role=ketua user WITHOUT jabatan —
-	// this token is intentionally NOT placed in the verifier list.
 	_ = repo.RegisterDevice(ctx, "user-ketua-nojabatan", "tok-ketua-nojabatan", "android", nil)
 
 	repo.verifiers[rtID] = []string{verifierUser}
@@ -1443,26 +2068,18 @@ func TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-	foundKetuaNoJabatan := false
 	for _, m := range msgs {
-		if m.Token == "tok-ketua-nojabatan" {
-			foundKetuaNoJabatan = true
+		if m.Token == "tok-ketua-nojabatan" || m.Token == verifierToken {
+			t.Errorf("verifier token %s should NOT receive payment verified notification", m.Token)
 		}
 	}
-	if foundKetuaNoJabatan {
-		t.Error("token not in verifier list should NOT receive notification")
-	}
-	if len(msgs) != 2 {
-		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message (submitter only), got %d", len(msgs))
 	}
 }
 
 // TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList verifies that
-// when the mock verifier list does not include a token for a
-// role=wakil_ketua user, that user does not receive a push notification.
-// NOTE: This tests service-level notification delivery against a mock repo.
-// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
-// RequireAccess middleware; for that, see repository_db_test.go.
+// wakil ketua / verifiers do not receive payment verified notifications.
 func TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1477,9 +2094,6 @@ func TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList(t *testing.T)
 
 	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
-
-	// Register a token that mimics a role=wakil_ketua user WITHOUT jabatan —
-	// this token is intentionally NOT placed in the verifier list.
 	_ = repo.RegisterDevice(ctx, "user-wakil-ketua-nojabatan", "tok-wakil-ketua-nojabatan", "android", nil)
 
 	repo.verifiers[rtID] = []string{verifierUser}
@@ -1488,28 +2102,18 @@ func TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList(t *testing.T)
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-
-	foundWakilKetua := false
 	for _, m := range msgs {
-		if m.Token == "tok-wakil-ketua-nojabatan" {
-			foundWakilKetua = true
+		if m.Token == "tok-wakil-ketua-nojabatan" || m.Token == verifierToken {
+			t.Errorf("verifier token %s should NOT receive notification", m.Token)
 		}
 	}
-	if foundWakilKetua {
-		t.Error("token not in verifier list should NOT receive notification")
-	}
-	if len(msgs) != 2 {
-		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message (submitter only), got %d", len(msgs))
 	}
 }
 
 // TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList verifies that
-// when the mock verifier list does not include a token for a
-// pengurus+jabatan=anggota user, that user does not receive a push
-// notification.
-// NOTE: This tests service-level notification delivery against a mock repo.
-// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
-// RequirePermission middleware; for that, see repository_db_test.go.
+// non-submitters do not receive payment verified notifications.
 func TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1524,9 +2128,6 @@ func TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList(t *testing.T)
 
 	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
-
-	// Register a token that mimics pengurus+jabatan=anggota —
-	// this token is intentionally NOT placed in the verifier list.
 	_ = repo.RegisterDevice(ctx, "user-pengurus-anggota", "tok-pengurus-anggota", "android", nil)
 
 	repo.verifiers[rtID] = []string{verifierUser}
@@ -1535,27 +2136,18 @@ func TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList(t *testing.T)
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-
-	foundAnggota := false
 	for _, m := range msgs {
-		if m.Token == "tok-pengurus-anggota" {
-			foundAnggota = true
+		if m.Token == "tok-pengurus-anggota" || m.Token == verifierToken {
+			t.Errorf("non-submitter token %s should NOT receive notification", m.Token)
 		}
 	}
-	if foundAnggota {
-		t.Error("token not in verifier list should NOT receive notification")
-	}
-	if len(msgs) != 2 {
-		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message (submitter only), got %d", len(msgs))
 	}
 }
 
 // TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList verifies that
-// when the mock verifier list includes a token for a
-// pengurus+jabatan=bendahara user, that user DOES receive a push notification.
-// NOTE: This tests service-level notification delivery against a mock repo.
-// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
-// position_permissions check; for that, see repository_db_test.go.
+// bendahara verifier does NOT receive payment verified notifications.
 func TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1568,8 +2160,6 @@ func TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList(t *testing.T)
 
 	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
 
-	// Register a token that mimics pengurus+jabatan=bendahara —
-	// this token IS placed in the verifier list.
 	pengurusBendahara := "user-pengurus-bendahara-2"
 	_ = repo.RegisterDevice(ctx, pengurusBendahara, "tok-pengurus-bendahara-2", "android", nil)
 	repo.verifiers[rtID] = []string{pengurusBendahara}
@@ -1578,27 +2168,18 @@ func TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList(t *testing.T)
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-
-	foundPengurusBendahara := false
 	for _, m := range msgs {
 		if m.Token == "tok-pengurus-bendahara-2" {
-			foundPengurusBendahara = true
+			t.Error("verifier bendahara must NOT receive payment verified notification")
 		}
 	}
-	if !foundPengurusBendahara {
-		t.Error("token in verifier list should receive notification")
-	}
-	if len(msgs) != 2 {
-		t.Errorf("expected 2 messages (submitter + pengurus bendahara), got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message (submitter only), got %d", len(msgs))
 	}
 }
 
-// TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList verifies that when
-// the mock verifier list includes a token for a warga+jabatan=ketua user,
-// that user DOES receive a push notification.
-// NOTE: This tests service-level notification delivery against a mock repo.
-// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
-// position_permissions check; for that, see repository_db_test.go.
+// TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList verifies that ketua verifier
+// does NOT receive payment verified notifications.
 func TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -1611,8 +2192,6 @@ func TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList(t *testing.T) {
 
 	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
 
-	// Register a token that mimics warga+jabatan=ketua —
-	// this token IS placed in the verifier list.
 	wargaKetua := "user-warga-ketua-2"
 	_ = repo.RegisterDevice(ctx, wargaKetua, "tok-warga-ketua-2", "android", nil)
 	repo.verifiers[rtID] = []string{wargaKetua}
@@ -1621,17 +2200,624 @@ func TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	msgs := provider.GetMessages()
-
-	foundWargaKetua := false
 	for _, m := range msgs {
 		if m.Token == "tok-warga-ketua-2" {
-			foundWargaKetua = true
+			t.Error("verifier ketua must NOT receive payment verified notification")
 		}
 	}
-	if !foundWargaKetua {
-		t.Error("token in verifier list should receive notification")
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message (submitter only), got %d", len(msgs))
 	}
+}
+
+// TestPaymentSubmitted_RecordsVerifierPersonalDeliveryLogs verifies that NotifyPaymentSubmitted
+// records a personal notification log for every authorized verifier.
+func TestPaymentSubmitted_RecordsVerifierPersonalDeliveryLogs(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	verifier1 := "user-bendahara-1"
+	verifier2 := "user-ketua-1"
+	_ = repo.RegisterDevice(ctx, verifier1, "tok-bendahara-1", "android", nil)
+	_ = repo.RegisterDevice(ctx, verifier2, "tok-ketua-1", "android", nil)
+	repo.verifiers[rtID] = []string{verifier1, verifier2}
+
+	payID := "pay-sub-123"
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-sub-123", payID)
+	time.Sleep(150 * time.Millisecond)
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	rtDedup := "payment_submitted:" + payID
+	v1Dedup := "payment_submitted:" + payID + ":" + verifier1
+	v2Dedup := "payment_submitted:" + payID + ":" + verifier2
+
+	if !repo.dedupRecords[rtDedup] {
+		t.Errorf("expected RT-level dedup log %s to be recorded", rtDedup)
+	}
+	if !repo.dedupRecords[v1Dedup] {
+		t.Errorf("expected personal verifier log %s to be recorded for bendahara", v1Dedup)
+	}
+	if !repo.dedupRecords[v2Dedup] {
+		t.Errorf("expected personal verifier log %s to be recorded for ketua", v2Dedup)
+	}
+}
+
+// TestExecuteSchedule_PaymentReminder verifies the iuran payment reminder
+// execution: per-recipient idempotency (dedup) and that multiple recipients
+// each receive exactly one push per schedule execution date.
+func TestExecuteSchedule_PaymentReminder(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC) // WIB-alike day 5, 08:00
+
+	// Active template for the reminder event.
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat Pembayaran Iuran {{period}}",
+		Body:      "Tagihan {{amount}} jatuh tempo {{due_date}}.",
+		IsActive:  true,
+	}
+
+	// Two recipients (two bills / two users) eligible for reminder.
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	// Both users have active FCM tokens.
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	scheduleInput := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat Bulanan",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", scheduleInput)
+	if err != nil {
+		t.Fatalf("CreateSchedule returned error: %v", err)
+	}
+	schedule := created
+
+	// First execution: both recipients receive a push.
+	sent, err := svc.ExecuteSchedule(context.Background(), schedule, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 2 {
+		t.Fatalf("expected 2 sends on first execution, got %d", sent)
+	}
+	msgs := provider.GetMessages()
 	if len(msgs) != 2 {
-		t.Errorf("expected 2 messages (submitter + warga ketua), got %d", len(msgs))
+		t.Fatalf("expected 2 push messages after first execution, got %d", len(msgs))
 	}
+
+	// Second execution same date: dedup should suppress all pushes.
+	sent2, err := svc.ExecuteSchedule(context.Background(), schedule, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule second run returned error: %v", err)
+	}
+	if sent2 != 0 {
+		t.Fatalf("expected 0 sends on duplicate execution, got %d", sent2)
+	}
+	msgs = provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected still 2 push messages after dedup, got %d", len(msgs))
+	}
+
+	// Schedule last executed should be updated.
+	sched, err := repo.GetSchedule(context.Background(), rtID, schedule.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("failed to fetch schedule: %v", err)
+	}
+	if sched.LastExecutedAt == nil {
+		t.Error("expected schedule LastExecutedAt to be set")
+	}
+}
+
+// TestExecuteSchedule_NoRecipients verifies that a schedule with no eligible
+// recipients sends nothing without error.
+func TestExecuteSchedule_NoRecipients(t *testing.T) {
+	repo := newInMemoryRepo()
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-x",
+		RTID:      "test-rt-002",
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	svc := notification.NewService(repo, notification.NewMockPushProvider())
+
+	schedule := &notification.NotificationSchedule{
+		ID:         "sched-empty",
+		RTID:       "test-rt-002",
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-x",
+		IsActive:   true,
+		SendDays:   []int{5},
+		SendHour:   8,
+		Timezone:   "Asia/Jakarta",
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), schedule, time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 sends when no recipients, got %d", sent)
+	}
+	sched, err := repo.GetSchedule(context.Background(), "test-rt-002", "sched-empty")
+	if err == nil && sched != nil && sched.LastExecutedStatus != nil {
+		if *sched.LastExecutedStatus != "no_recipients" {
+			t.Fatalf("expected status 'no_recipients', got %s", *sched.LastExecutedStatus)
+		}
+	}
+}
+
+// failProvider fails every send.
+type failProvider struct {
+	notification.MockPushProvider
+}
+
+func (p *failProvider) Send(ctx context.Context, token string, title, body string, data map[string]string) error {
+	return p.MockPushProvider.Send(ctx, token, title, body, data)
+}
+
+// partialFailProvider fails sends to a specific token, succeeds others.
+type partialFailProvider struct {
+	notification.MockPushProvider
+	failToken string
+}
+
+func (p *partialFailProvider) Send(ctx context.Context, token string, title, body string, data map[string]string) error {
+	if token == p.failToken {
+		return errors.New("simulated FCM failure for " + token)
+	}
+	return p.MockPushProvider.Send(ctx, token, title, body, data)
+}
+
+// TestExecuteSchedule_CatchUpAfterRestart verifies catch-up: a schedule set for
+// 08:00 still executes when the backend comes back at 08:15 on the same local
+// day (shouldExecuteNow no longer requires an exact minute match).
+func TestExecuteSchedule_CatchUpAfterRestart(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	scheduleTime := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 5, 8, 15, 0, 0, time.UTC) // backend restarted 15 min late
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{scheduleTime.Day()},
+		SendHour:   scheduleTime.Hour(),
+		SendMinute: scheduleTime.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 2 {
+		t.Fatalf("expected catch-up to send 2 pushes at 08:15, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 2 {
+		t.Fatalf("expected 2 recorded messages, got %d", len(provider.GetMessages()))
+	}
+}
+
+// TestExecuteSchedule_FCMFailLogsFailed verifies that when FCM fails, the log
+// status is FAILED (not SENT), no message is recorded as delivered, and the
+// schedule status is "failed".
+func TestExecuteSchedule_FCMFailLogsFailed(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	provider.SetSendError(errors.New("FCM unavailable"))
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 successful sends when FCM fails, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 0 {
+		t.Fatalf("expected no delivered messages on FCM failure, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "failed" {
+		t.Fatalf("expected schedule status 'failed', got %q", status)
+	}
+	if repo.scheduleStatuses["schedule:"+created.ID+":2026-11-05:user-a"] != "FAILED" ||
+		repo.scheduleFailures["schedule:"+created.ID+":2026-11-05:user-a"] == "" {
+		t.Fatalf("provider-reported failure must be preserved with evidence: statuses=%v reasons=%v", repo.scheduleStatuses, repo.scheduleFailures)
+	}
+}
+
+// TestExecuteSchedule_NoRetryAfterSuccess verifies that a successful execution
+// is not repeated on the same execution date (dedup).
+func TestExecuteSchedule_NoRetryAfterSuccess(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	// First execution delivers.
+	if sent, _ := svc.ExecuteSchedule(context.Background(), created, now); sent != 1 {
+		t.Fatalf("expected 1 send on first execution, got %d", sent)
+	}
+	if got := len(provider.GetMessages()); got != 1 {
+		t.Fatalf("expected 1 message after first execution, got %d", got)
+	}
+
+	// Second execution same date: dedup suppresses re-delivery.
+	if sent, _ := svc.ExecuteSchedule(context.Background(), created, now); sent != 0 {
+		t.Fatalf("expected 0 sends on duplicate execution, got %d", sent)
+	}
+	if got := len(provider.GetMessages()); got != 1 {
+		t.Fatalf("expected still 1 message after dedup, got %d", got)
+	}
+}
+
+// TestExecuteSchedule_EmptyTokenNotSuccess verifies that a recipient with no
+// FCM token is NO_DEVICE, not a provider failure or a successful delivery.
+func TestExecuteSchedule_EmptyTokenNotSuccess(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	// user-a has NO registered device (empty tokens).
+	repo.billUsers["bill-1"] = []string{"user-a"}
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 successful sends with empty token, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 0 {
+		t.Fatalf("expected no messages for empty-token recipient, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "no_device" {
+		t.Fatalf("expected schedule status 'no_device' (no provider attempt), got %q", status)
+	}
+	if repo.scheduleStatuses["schedule:"+created.ID+":2026-11-05:user-a"] != "NO_DEVICE" ||
+		repo.scheduleFailures["schedule:"+created.ID+":2026-11-05:user-a"] != "" {
+		t.Fatalf("no-token delivery should remain NO_DEVICE without failure evidence: statuses=%v reasons=%v", repo.scheduleStatuses, repo.scheduleFailures)
+	}
+}
+
+func TestExecuteSchedule_SuccessWithNoTokenRecipientRemainsSent(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-sent"] = []string{"user-sent"}
+	repo.billUsers["bill-no-token"] = []string{"user-no-token"}
+	if err := repo.RegisterDevice(context.Background(), "user-sent", "tok-sent", "android", nil); err != nil {
+		t.Fatalf("register successful recipient device: %v", err)
+	}
+
+	schedule, err := repo.CreateSchedule(context.Background(), rtID, "user-test", notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	})
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), schedule, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule: %v", err)
+	}
+	if sent != 1 {
+		t.Fatalf("successful provider sends = %d, want 1", sent)
+	}
+	if got := repo.scheduleStatuses["schedule:"+schedule.ID+":2026-11-05:user-sent"]; got != "SENT" {
+		t.Fatalf("successful recipient status = %q, want SENT", got)
+	}
+	if got := repo.scheduleStatuses["schedule:"+schedule.ID+":2026-11-05:user-no-token"]; got != "NO_DEVICE" {
+		t.Fatalf("recipient without token status = %q, want NO_DEVICE", got)
+	}
+	updatedSchedule, err := repo.GetSchedule(context.Background(), rtID, schedule.ID)
+	if err != nil || updatedSchedule == nil || updatedSchedule.LastExecutedStatus == nil {
+		t.Fatalf("get updated schedule: schedule=%+v err=%v", updatedSchedule, err)
+	}
+	if got := *updatedSchedule.LastExecutedStatus; got != "success" {
+		t.Fatalf("aggregate schedule status = %q, want success when all attempted sends succeeded", got)
+	}
+}
+
+// TestExecuteSchedule_DeepLinkUsesBillID verifies the FCM deep link points to
+// the bill ID (not the notification ID) and the notification_id is carried as
+// metadata.
+func TestExecuteSchedule_DeepLinkUsesBillID(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	billID := "bill-abc-123"
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers[billID] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, _ := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	_, _ = svc.ExecuteSchedule(context.Background(), created, now)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	deepLink := msgs[0].Data["deep_link"]
+	expected := "/home/iuran/detail/" + billID
+	if deepLink != expected {
+		t.Fatalf("expected deep link %q, got %q", expected, deepLink)
+	}
+}
+
+// TestExecuteSchedule_PartialFailure verifies that when FCM fails for some but
+// not all tokens, the per-recipient logs reflect SENT/FAILED and the schedule
+// status is "partial".
+func TestExecuteSchedule_PartialFailure(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := &partialFailProvider{
+		MockPushProvider: *notification.NewMockPushProvider(),
+		failToken:        "tok-b",
+	}
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 1 {
+		t.Fatalf("expected 1 successful send (partial), got %d", sent)
+	}
+	if len(provider.GetMessages()) != 1 {
+		t.Fatalf("expected 1 delivered message on partial failure, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "partial" {
+		t.Fatalf("expected schedule status 'partial', got %q", status)
+	}
+	if repo.scheduleStatuses["schedule:"+created.ID+":2026-11-05:user-a"] != "SENT" ||
+		repo.scheduleStatuses["schedule:"+created.ID+":2026-11-05:user-b"] != "FAILED" ||
+		repo.scheduleFailures["schedule:"+created.ID+":2026-11-05:user-b"] == "" {
+		t.Fatalf("partial result must retain explicit per-recipient provider evidence: statuses=%v reasons=%v", repo.scheduleStatuses, repo.scheduleFailures)
+	}
+}
+
+func (r *inMemoryRepo) DeactivateSchedule(ctx context.Context, rtID, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.schedules[id]; ok && s.RTID == rtID {
+		s.IsActive = false
+	}
+	return nil
+}
+
+func (r *inMemoryRepo) CancelSchedulesForActivity(ctx context.Context, rtID, activityID string) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var n int64
+	for _, s := range r.schedules {
+		if s.RTID == rtID && s.ActivityID != nil && *s.ActivityID == activityID && s.IsActive {
+			s.IsActive = false
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Mock ActivityInfoFetch: no stored fixtures by default — tests that need
+// activities should extend the mock instead of relying on this stub.
+func (r *inMemoryRepo) ActivityInfoFetch(ctx context.Context, rtID, activityID string) (*notification.ActivityPayload, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (r *inMemoryRepo) ListActivityStateCandidates(ctx context.Context, now time.Time) ([]notification.ActivityPayload, error) {
+	return nil, nil
 }

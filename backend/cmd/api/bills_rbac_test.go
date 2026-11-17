@@ -119,7 +119,7 @@ func TestRBAC_KetuaRTCanViewAllBillsInRT(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestRBAC_BendaharaRTCanViewAllBillsInRT(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestRBAC_WargaBiasaCannotViewAllBillsInRT(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
@@ -429,11 +429,11 @@ func TestRBAC_PengurusOtherRTCannotReadOtherRTBills(t *testing.T) {
 	ctx := context.Background()
 
 	var rt003ID, rt002ID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rt003ID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rt003ID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
-	err = pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' LIMIT 1`).Scan(&rt002ID)
+	err = pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND is_active = true LIMIT 1`).Scan(&rt002ID)
 	if err != nil {
 		t.Fatalf("get rt 002: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestRBAC_PositionWithoutFinanceReadDenied(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestRBAC_FinanceReadCannotApproveWithoutFinanceApprove(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 003: %v", err)
 	}
@@ -642,7 +642,7 @@ func TestRBAC_WargaCannotVerifyPayment(t *testing.T) {
 	ctx := context.Background()
 
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' LIMIT 1`).Scan(&rtID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND is_active = true LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt 002: %v", err)
 	}

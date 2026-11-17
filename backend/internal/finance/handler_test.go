@@ -239,6 +239,7 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
 		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
+		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
@@ -3030,6 +3031,21 @@ func TestPaymentProofEndpoints(t *testing.T) {
 		}
 		if updated.ProofMimeType == nil || *updated.ProofMimeType != "image/png" {
 			t.Errorf("expected mime_type image/png, got %v", updated.ProofMimeType)
+		}
+	})
+
+	t.Run("reject oversized proof (5 MiB + 1)", func(t *testing.T) {
+		big := append([]byte{}, validPNG...)
+		// pad with zeros after the PNG header to exceed 5 MiB total
+		big = append(big, make([]byte, 5*1024*1024)...)
+		body, ct := createMultipart("file", "big.png", "image/png", big)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+payment.ID+"/proof", body)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for 5 MiB+1 file, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 

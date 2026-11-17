@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
+	"social-finance/internal/community"
 	"social-finance/internal/config"
 	"social-finance/internal/database"
 	"social-finance/internal/devseed"
@@ -27,18 +28,40 @@ import (
 	httpx "social-finance/internal/http"
 	"social-finance/internal/migration"
 	"social-finance/internal/notification"
+	"social-finance/internal/profilephoto"
 	rtpkg "social-finance/internal/rt"
 	rw "social-finance/internal/rw"
+	"social-finance/internal/security"
 	"social-finance/internal/storage"
 )
 
 func main() {
 	// Check for --bootstrap flag first.
 	if len(os.Args) > 1 && os.Args[1] == "--bootstrap" {
-		if err := runBootstrap(); err != nil {
+		cfg, err := config.Load()
+		if err != nil {
+			slog.Error("configuration error", "error", err)
+			os.Exit(1)
+		}
+		auth.SigningSecret = []byte(cfg.JWTSecret)
+		if cfg.JWTExpiry > 0 {
+			auth.DefaultAccessTokenLifetime = time.Duration(cfg.JWTExpiry) * time.Second
+		}
+		pool, err := database.NewPool(context.Background(), cfg)
+		if err != nil {
+			slog.Error("database connection", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		if err := runAutoProvision(context.Background(), pool); err != nil {
+			slog.Error("auto-provision failed", "error", err)
+			os.Exit(1)
+		}
+		if err := runBootstrapWithPool(context.Background(), pool); err != nil {
 			slog.Error("bootstrap failed", "error", err)
 			os.Exit(1)
 		}
+		slog.Info("bootstrap completed successfully")
 		os.Exit(0)
 	}
 
@@ -109,13 +132,6 @@ func main() {
 
 	slog.Info("database connected", "host", cfg.DBHost, "database", cfg.DBName)
 
-	if cfg.AppEnv != "production" {
-		if err := runBootstrap(); err != nil {
-			slog.Error("bootstrap failed", "error", err)
-			return
-		}
-	}
-
 	// Initialize auth module.
 	if cfg.JWTSecret != "" {
 		auth.SigningSecret = []byte(cfg.JWTSecret)
@@ -130,6 +146,18 @@ func main() {
 		RefreshLifetime: time.Duration(cfg.RefreshExpiry) * time.Second,
 	})
 	authHandler := auth.NewHandler(pool, authSvc)
+
+	// Run automatic provisioning (idempotent) before bootstrap.
+	if err := runAutoProvision(ctx, pool); err != nil {
+		slog.Error("auto-provision failed", "error", err)
+		os.Exit(1)
+	}
+
+	// Run bootstrap after provisioning.
+	if err := runBootstrapWithPool(ctx, pool); err != nil {
+		slog.Error("bootstrap failed", "error", err)
+		os.Exit(1)
+	}
 
 	s3Storage, err := storage.NewS3Storage(storage.S3Config{
 		Endpoint:        cfg.RustFSEndpoint,
@@ -167,6 +195,9 @@ func main() {
 	// deterministically by tests that pass an explicit reference time.
 	if cfg.AppEnv != "test" {
 		finance.StartVoluntaryDueExpiryScheduler(ctx, pool)
+		secSched := security.NewScheduler(security.NewService(security.NewRepository(pool)))
+		secSched.Start()
+		defer secSched.Stop()
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
@@ -205,55 +236,163 @@ func main() {
 	slog.Info("server stopped")
 }
 
-// runBootstrap creates a default SUPER_ADMIN user based on system_role.
+// resolveRT002 looks up the canonical RT 002 (Urena) by its physical tenant
+// number (rw=16, rt='002'). Returns the RT UUID, or sql.ErrNoRows if absent.
+func resolveRT002(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (string, error) {
+	var rtID string
+	err := q.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND rw = 16 AND is_active = true LIMIT 1`).Scan(&rtID)
+	if err != nil {
+		return "", err
+	}
+	return rtID, nil
+}
 
-// It reads configuration from environment variables:
-
-//   - BOOTSTRAP_EMAIL: email for the super admin (required)
-
-//   - BOOTSTRAP_PASSWORD: password for the super admin (required)
-
-//   - BOOTSTRAP_NAME: full name for the super admin (default "Super Admin")
-
+// runAutoProvision creates RW 016 and RT 002 (Urena) if they don't exist,
+// and derives SCOPED_RT_IDS from the resulting UUID.
 //
+// Scope policy:
+//   - If SCOPED_RT_IDS is explicitly configured (non-blank), it is treated as
+//     authoritative and is left untouched on every restart — operator scope
+//     never shrinks or expands silently.
+//   - If SCOPED_RT_IDS is blank/unset (e.g. fresh install with docker default
+//     SCOPED_RT_IDS=), it is auto-derived to the bootstrapped RT 002 UUID.
+//     This keeps fresh installs self-contained while staying fail-closed once
+//     LoadScoping validates the resulting value.
+//
+// Idempotent: an existing RW 016 + RT 002 are always reused; never replaced.
+// On a fresh database, brand-new UUIDs are generated — we never hardcode
+// legacy canonical UUIDs from a prior database.
+func runAutoProvision(ctx context.Context, pool *database.Pool) error {
+	explicitScope := strings.TrimSpace(os.Getenv("SCOPED_RT_IDS")) != ""
+	// applyDerivedScope installs the auto-derived scope only when the operator
+	// did not configure one explicitly.
+	applyDerivedScope := func(rtID string) error {
+		if explicitScope {
+			slog.Info("auto-provision: keeping operator-configured SCOPED_RT_IDS unchanged", "rt_id", rtID)
+			return nil
+		}
+		if err := os.Setenv("SCOPED_RT_IDS", rtID); err != nil {
+			return fmt.Errorf("auto-provision: set SCOPED_RT_IDS: %w", err)
+		}
+		slog.Info("auto-provision: auto-derived SCOPED_RT_IDS from bootstrapped RT", "rt_id", rtID)
+		return nil
+	}
 
+	if rtID, err := resolveRT002(ctx, pool.Raw()); err == nil {
+		if err := applyDerivedScope(rtID); err != nil {
+			return err
+		}
+		slog.Info("auto-provision: RT 002 already exists, reusing existing ID", "rt_id", rtID)
+		return nil
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("auto-provision: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// ---- Resolve or create RW 016 ----
+	var rwID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM rws WHERE rw_number = 16 AND is_active = true LIMIT 1`).Scan(&rwID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// No RW present; create with a fresh UUID.
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO rws (rw_number, name, is_active, created_at, updated_at)
+			VALUES (16, 'RW 016', true, now(), now())
+			RETURNING id
+		`).Scan(&rwID)
+		if err != nil {
+			slog.Error("auto-provision: insert RW 016 failed", "operation", "insert rws", "error", err)
+			return fmt.Errorf("auto-provision: insert RW 016: %w", err)
+		}
+		slog.Info("auto-provision: created new RW 016", "rw_id", rwID)
+	case err != nil:
+		return fmt.Errorf("auto-provision: query RW 016: %w", err)
+	default:
+		slog.Info("auto-provision: reusing existing RW 016", "rw_id", rwID)
+	}
+	if rwID == "" {
+		return fmt.Errorf("auto-provision: RW 016 UUID empty after resolution")
+	}
+
+	// ---- Resolve or create RT 002 ----
+	rtID, err := resolveRT002(ctx, tx)
+	if err == nil {
+		// RT 002 already present inside the transaction.
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("auto-provision: commit provision tx: %w", err)
+		}
+		committed = true
+		if err := applyDerivedScope(rtID); err != nil {
+			return err
+		}
+		slog.Info("auto-provision: RT 002 already exists, reusing existing ID", "rt_id", rtID)
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("auto-provision: query RT 002 inside tx: %w", err)
+	}
+
+	// Fresh RT 002 with a fresh UUID (gen_random_uuid default).
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO rts (name, rw, rt, address, head_name, is_active, rw_id)
+		VALUES ('Urena', 16, '002', 'GNI Urena', 'Atom', true, $1)
+		RETURNING id
+	`, rwID).Scan(&rtID)
+	if err != nil {
+		slog.Error("auto-provision: insert RT 002 failed", "operation", "insert rts", "rw_id", rwID, "error", err)
+		return fmt.Errorf("auto-provision: insert RT 002 (rw %s): %w", rwID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		committed = true // commit succeeded; avoid double-rollback no-op
+		return fmt.Errorf("auto-provision: commit provision tx: %w", err)
+	}
+	committed = true
+	if err := applyDerivedScope(rtID); err != nil {
+		return err
+	}
+	slog.Info("auto-provision: RW 016 and RT 002 provisioned", "rw_id", rwID, "rt_id", rtID)
+	return nil
+}
+
+// runBootstrap creates a default SUPER_ADMIN user based on system_role.
+// It reads configuration from environment variables:
+//   - BOOTSTRAP_EMAIL: email for the super admin (required)
+//   - BOOTSTRAP_PASSWORD: password for the super admin (required)
+//   - BOOTSTRAP_NAME: full name for the super admin (default "Super Admin")
+//
 // This endpoint is NOT publicly exposed. It is run via:
-
-//   docker compose run --rm backend /tmp/build/api --bootstrap
-
+//
+//	docker compose run --rm backend /tmp/build/api --bootstrap
 func runBootstrap() error {
-
 	cfg, err := config.Load()
-
 	if err != nil {
-
 		return fmt.Errorf("load config: %w", err)
-
 	}
-
-	// Initialize auth module for hashing.
-
 	if cfg.JWTSecret != "" {
-
 		auth.SigningSecret = []byte(cfg.JWTSecret)
-
 	}
-
 	if cfg.JWTExpiry > 0 {
-
 		auth.DefaultAccessTokenLifetime = time.Duration(cfg.JWTExpiry) * time.Second
-
 	}
-
 	pool, err := database.NewPool(context.Background(), cfg)
-
 	if err != nil {
-
 		return fmt.Errorf("database connection: %w", err)
-
 	}
-
 	defer pool.Close()
+	return runBootstrapWithPool(context.Background(), pool)
+}
+
+func runBootstrapWithPool(ctx context.Context, pool *database.Pool) error {
 
 	// Read and normalize bootstrap variables.
 
@@ -311,10 +450,10 @@ func runBootstrap() error {
 		slog.Info("bootstrap: super admin already exists", "user_id", userID)
 	}
 
-	// Ensure membership in canonical RT 002 if it exists in database.
-	rt002ID, errRT := devseed.ResolveCanonicalUrenaRT(context.Background(), tx)
+	// Ensure membership in RT 002 (Urena) if it exists.
+	rt002ID, errRT := resolveRT002(context.Background(), tx)
 	if errRT != nil && !errors.Is(errRT, sql.ErrNoRows) {
-		return fmt.Errorf("resolve canonical rt 002 for super admin: %w", errRT)
+		return fmt.Errorf("bootstrap: resolve RT 002 for super admin: %w", errRT)
 	}
 	if rt002ID != "" {
 		_, errMem := tx.ExecContext(context.Background(), `
@@ -534,10 +673,174 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// ────────────────────────────────────────────────────────────────────
 
 	// RT management routes — system-level, SUPER_ADMIN only.
+	// (Handler is instantiated later, after notification service is available.)
+
+	// Notification credentials must be loaded before RT handler so that
+	// default notification template/schedule can be seeded for new RTs.
+	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
+	if fcmCreds == "" {
+		fcmCreds = os.Getenv("FCM_CREDENTIALS")
+	}
+	fcmProject := os.Getenv("FCM_PROJECT_ID")
+	if fcmProject == "" {
+		fcmProject = "social-finance-andjoy"
+	}
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
+	})
+
+	// Household and resident routes (tenant-scoped, requires auth context).
+	hh := household.NewHandler(pool)
+
+	// Read access: warga, bendahara, pengurus.
+	// jabatan-based users evaluated via position_permissions;
+	// role-based users still pass through RequireRole.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermission(pool, "warga.read"))
+		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
+		r.Get("/api/v1/households", hh.ListHouseholds)
+		r.Get("/api/v1/households/{id}", hh.GetHousehold)
+		r.Get("/api/v1/residents", hh.ListResidents)
+		r.Get("/api/v1/residents/{id}", hh.GetResident)
+		r.Get("/api/v1/warga/export", household.HandleWargaExport(pool))
+	})
+
+	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
+	// Both role-based (Bendahara, Pengurus) and jabatan-based (Ketua) access allowed.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermission(pool, "warga.export"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
+		))
+		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
+		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
+	})
+
+	// Write access: warga creation (households & residents).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Users with a jabatan must possess the warga.create permission in position_permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermission(pool, "warga.create"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
+		r.Post("/api/v1/households", hh.CreateHousehold)
+		r.Post("/api/v1/residents", hh.CreateResident)
+	})
+
+	// Pembuatan petugas khusus (keamanan, kebersihan, operasional) tanpa household.
+	// Tidak memerlukan warga.create — special resident adalah akun petugas, bukan warga.
+	// Hanya pengurus (Ketua/WakilKetua/Sekretaris/Bendahara) atau super admin yang berwenang.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
+		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
+	})
+
+	// Write access: warga mutation (update, move, deactivate for households & residents).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Users with a jabatan must possess the warga.update permission in position_permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermission(pool, "warga.update"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
+		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
+		r.Patch("/api/v1/households/{id}", hh.UpdateHousehold)
+		r.Delete("/api/v1/households/{id}", hh.DeactivateHousehold)
+		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
+		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
+		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
+		r.Post("/api/v1/residents/{id}/reset-password-code", hh.GenerateResetPasswordCode)
+		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
+	})
+
+	// Warga import requires additional warga.import permission (only ketua).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua) access allowed.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermission(pool, "warga.create"))
+		r.Use(auth.RequirePermission(pool, "warga.update"))
+		r.Use(auth.RequirePermission(pool, "warga.import"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
+		))
+		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
+		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
+		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))
+		r.Post("/api/v1/warga/import/commit/xlsx", household.HandleWargaImportCommitXLSX(pool))
+	})
+
+	// Finance module
+	var store storage.Service
+	if len(opts) > 0 && opts[0] != nil {
+		store = opts[0]
+	} else {
+		store = storage.NewMockStorage()
+	}
+
+	// Profile photos: upload/replace/clear. Only users whose membership carries
+	// the resident.profile_photo.manage permission (currently position 'ketua')
+	// may change a resident's photo. Visibility of uploaded photos is enforced
+	// by the community image reference check for residents.
+	profileH := profilephoto.NewHandler(pool, store)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		// RequirePermission evaluates jabatan-based users against
+		// position_permissions (super_admin bypass). Role-based users
+		// (jabatan empty) would sail through that gate, so pair it with
+		// RequireAccess limited to position 'ketua' (+ super_admin bypass).
+		r.Use(auth.RequirePermission(pool, "resident.profile_photo.manage"))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua}))
+		r.Post("/api/v1/residents/{id}/photo", profileH.Upload)
+		r.Delete("/api/v1/residents/{id}/photo", profileH.Delete)
+	})
+	finSvc := finance.NewService(pool, store)
+
+	// Notification service must be initialised after finance service and before
+	// RT handler so that default notification template/schedule can be seeded
+	// for new RTs.
+	notifRepo := notification.NewRepository(pool)
+	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
+	notifProvider.SetProjectID(fcmProject)
+	notifSvc := notification.NewService(notifRepo, notifProvider)
+	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
+
+	// Wire notification into finance service
+	finSvc.SetNotifier(notifSvc)
+
+	// Start the generic notification scheduler (auto reminder iuran, etc.).
+	// It runs catch-up on startup then ticks every minute. Disabled in the test
+	// environment so automated tests are not affected by background pushes.
+	if appEnv != "test" {
+		notifScheduler := notification.NewScheduler(pool, notifSvc, appEnv)
+		notifScheduler.Start(context.Background())
+	}
 
 	rtSvc := rtpkg.NewService()
-	rtHandler := rtpkg.NewHandler(rtSvc, pool)
+	rtHandler := rtpkg.NewHandler(rtSvc, pool, notifSvc)
 
+	// RT management routes — system-level, SUPER_ADMIN only.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
@@ -559,101 +862,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Delete("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.RemoveJabatan)
 	})
 
-	// Household and resident routes (tenant-scoped, requires auth context).
-	hh := household.NewHandler(pool)
-
-	// Read access: warga, bendahara, pengurus.
-	// jabatan-based users evaluated via position_permissions;
-	// role-based users still pass through RequireRole.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequirePermission(pool, "warga.read"))
-		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
-		r.Get("/api/v1/households", hh.ListHouseholds)
-		r.Get("/api/v1/households/{id}", hh.GetHousehold)
-		r.Get("/api/v1/residents", hh.ListResidents)
-		r.Get("/api/v1/residents/{id}", hh.GetResident)
-		r.Get("/api/v1/warga/export", household.HandleWargaExport(pool))
-	})
-
-	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
-	// Both role-based (Bendahara, Pengurus) and jabatan-based (Ketua) access allowed.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequirePermission(pool, "warga.export"))
-		r.Use(auth.RequireAccess(
-			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
-		))
-		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
-		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
-	})
-
-	// Write access: warga creation (households & residents).
-	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
-	// Users with a jabatan must possess the warga.create permission in position_permissions.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequirePermission(pool, "warga.create"))
-		r.Use(auth.RequireAccess(
-			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
-		))
-		r.Post("/api/v1/households", hh.CreateHousehold)
-		r.Post("/api/v1/residents", hh.CreateResident)
-		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
-	})
-
-	// Write access: warga mutation (update, move, deactivate for households & residents).
-	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
-	// Users with a jabatan must possess the warga.update permission in position_permissions.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequirePermission(pool, "warga.update"))
-		r.Use(auth.RequireAccess(
-			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
-		))
-		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
-		r.Patch("/api/v1/households/{id}", hh.UpdateHousehold)
-		r.Delete("/api/v1/households/{id}", hh.DeactivateHousehold)
-		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
-		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
-		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
-		r.Post("/api/v1/residents/{id}/reset-password-code", hh.GenerateResetPasswordCode)
-		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
-	})
-
-	// Warga import requires additional warga.import permission (only ketua).
-	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua) access allowed.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequirePermission(pool, "warga.create"))
-		r.Use(auth.RequirePermission(pool, "warga.update"))
-		r.Use(auth.RequirePermission(pool, "warga.import"))
-		r.Use(auth.RequireAccess(
-			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
-		))
-		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
-		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
-		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))
-		r.Post("/api/v1/warga/import/commit/xlsx", household.HandleWargaImportCommitXLSX(pool))
-	})
-
-	// Finance module
-	var store storage.Service
-	if len(opts) > 0 && opts[0] != nil {
-		store = opts[0]
-	} else {
-		store = storage.NewMockStorage()
-	}
-	finSvc := finance.NewService(pool, store)
 	finH := finance.NewHandler(pool, finSvc, store)
 
 	// Wire household occupancy bill synchronization hook
@@ -667,12 +875,13 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Self-submitted payments by warga/staff use finance.create permission.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "finance.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
 		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
+		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
@@ -697,7 +906,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Both role-based (Pengurus) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus},
 			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua},
@@ -711,7 +920,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// jabatan-based users evaluated via position_permissions for finance.create, finance.update, finance.approve.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "finance.create"))
 		r.Use(auth.RequirePermission(pool, "finance.update"))
 		r.Use(auth.RequirePermission(pool, "finance.approve"))
@@ -743,8 +952,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Get("/api/v1/fund-locations", locH.ListLocations)
+		r.Get("/api/v1/fund-locations/rekening/public", locH.ListPublicRekening)
 		r.Post("/api/v1/fund-locations", locH.CreateLocation)
 		r.Get("/api/v1/fund-locations/{id}", locH.GetLocation)
 		r.Patch("/api/v1/fund-locations/{id}", locH.UpdateLocation)
@@ -760,7 +970,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 
 	rwRepo := rw.NewRepository(pool.Raw())
 	rwSvc := rw.NewService(pool, rwRepo, scopingCfg)
-	rwHandler := rw.NewHandler(pool, rwSvc, store)
+	rwSvc.SetNotifier(notifSvc)
+	rwHandler := rw.NewHandler(pool, rwSvc, notifSvc, store)
 
 	// RW operational endpoints
 	// Requires RW membership via RequireRWScope (from scoping.go)
@@ -768,9 +979,24 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRWScope(pool, *scopingCfg))
 		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
+		r.Get("/api/v1/rw/{rwId}/notifications", rwHandler.ListNotifications)
+		r.Post("/api/v1/rw/{rwId}/notifications/manual", rwHandler.SendManualPush)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates", rwHandler.ListRWTemplates)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.GetRWTemplateByID)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates/{id}/preview", rwHandler.PreviewRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/{id}/preview", rwHandler.PreviewRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/preview", rwHandler.PreviewRWTemplateDirect)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/{id}/send", rwHandler.SendRWTemplateNotification)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates", rwHandler.CreateRWTemplate)
+		r.Put("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.UpdateRWTemplate)
+		r.Patch("/api/v1/rw/{rwId}/notifications/templates/{id}/toggle", rwHandler.ToggleRWTemplateActive)
+		r.Delete("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.DeleteRWTemplate)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
+		r.Get("/api/v1/rw/{rwId}/kas/report", rwHandler.GetKASReportDetail)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
+		r.Get("/api/v1/rw/{rwId}/rts", rwHandler.GetRTRs)
 		r.Post("/api/v1/rw/{rwId}/opening-balance", rwHandler.UpdateOpeningBalance)
+		r.Post("/api/v1/rw/{rwId}/locations/{id}/opening-balance", rwHandler.AllocateOpeningBalance)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
 		r.Post("/api/v1/rw/{rwId}/kas/transactions", rwHandler.CreateKASTransaction)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}", rwHandler.GetKASTransactionByID)
@@ -792,32 +1018,13 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
 	})
 
-	// Notification module
-	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
-	if fcmCreds == "" {
-		fcmCreds = os.Getenv("FCM_CREDENTIALS")
-	}
-	fcmProject := os.Getenv("FCM_PROJECT_ID")
-	if fcmProject == "" {
-		fcmProject = "social-finance-andjoy"
-	}
-
-	notifRepo := notification.NewRepository(pool)
-	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
-	notifProvider.SetProjectID(fcmProject)
-	notifSvc := notification.NewService(notifRepo, notifProvider)
-	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
-
-	// Wire notification into finance service
-	finSvc.SetNotifier(notifSvc)
-
 	// Public notification image streaming
 	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 
 	// Notification device token management and notification history (accessible to all authenticated RT members)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Post("/api/v1/notifications/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
 		r.Post("/api/v1/devices", notifH.RegisterDevice)
@@ -841,7 +1048,10 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Waste truck arrival and manual push: pengurus or security
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Get("/api/v1/notifications/waste-truck/template", notifH.GetWasteTruckTemplate)
+		r.Get("/api/v1/notifications/waste-truck/history", notifH.ListWasteTruckHistory)
+		r.Post("/api/v1/notifications/waste-truck/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
 	})
@@ -851,9 +1061,10 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// non-whitelisted RTs (e.g. rt-999) via template CRUD or test-push.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireNotificationAdmin(pool))
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
+		r.Get("/api/v1/notifications/management-history", notifH.ListManagementHistory)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
 		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)
 		r.Get("/api/v1/notifications/templates/{id}", notifH.GetTemplate)
@@ -862,6 +1073,231 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
 		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/test-push", notifH.TestPush)
+
+		// Notification schedules (generic scheduler). Access-controlled with the
+		// same notification.manage permission (SUPER_ADMIN + Ketua RT).
+		r.Get("/api/v1/notifications/schedules", notifH.ListSchedules)
+		r.Post("/api/v1/notifications/schedules", notifH.CreateSchedule)
+		r.Get("/api/v1/notifications/schedules/{id}", notifH.GetSchedule)
+		r.Put("/api/v1/notifications/schedules/{id}", notifH.UpdateSchedule)
+		r.Patch("/api/v1/notifications/schedules/{id}/toggle-active", notifH.ToggleScheduleActive)
+		r.Delete("/api/v1/notifications/schedules/{id}", notifH.DeleteSchedule)
+
+		// Scheduler execution history (aggregated per execution) —
+		// accessible to notification.manage users (Ketua RT / Super Admin).
+		r.Get("/api/v1/notifications/schedules/history", notifH.ListSchedulerHistory)
+		r.Get("/api/v1/notifications/schedules/{schedule_id}/recipients", notifH.GetSchedulerRecipientDetail)
+	})
+
+	// RT-scoped list of households with 3+ month overdue
+	// obligatory bills, field notes, and export. The path uses a legacy
+	// /api/v1/rw/{rwId}/... shape for client compatibility, but the feature is
+	// RT-scoped: handlers resolve tenant RT via authenticated context/header and
+	// do not use {rwId} as authorization scope. Cross-RT access is prevented by
+	// RequireAllowedRT + handler tenant resolution.
+	//
+	// Access: SUPER_ADMIN bypass; jabatan kebersihan, keamanan, or ketua with the
+	// corresponding rw.monitoring.* position permission. RequireAccess blocks
+	// role-based users without the allowed jabatan (including role-only users who
+	// would otherwise pass RequirePermission's role-based pass-through on stacked routes).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKebersihan, auth.JabatanKeamanan, auth.JabatanKetua}))
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.read"))
+			r.Get("/api/v1/rw/{rwId}/monitoring", notifH.ListMonitoringHouseholds)
+			r.Get("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.ListMonitoringNotes)
+		})
+		r.With(auth.RequirePermission(pool, "rw.monitoring.read")).Get("/api/v1/rw/{rwId}/monitoring/read-only", notifH.ListMonitoringHouseholdsReadOnly)
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.notes.write"))
+			r.Post("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.CreateMonitoringNote)
+			r.Patch("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.UpdateMonitoringNote)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.export"))
+			r.Get("/api/v1/rw/{rwId}/monitoring/export/excel", notifH.ExportMonitoringExcel)
+			r.Get("/api/v1/rw/{rwId}/monitoring/export/pdf", notifH.ExportMonitoringPDF)
+		})
+	})
+
+	// ── Community Module (Beranda, Kegiatan, Pengumuman, Banner) ─────────
+	communityRepo := community.NewRepository(pool)
+	communitySvc := community.NewService(communityRepo, store)
+	communitySvc.WithActivityNotifier(activityNotifierAdapter{svc: notifSvc})
+	securityRepo := security.NewRepository(pool)
+	securitySvc := security.NewService(securityRepo)
+	communitySvc.WithOnDutyReader(func(ctx context.Context, rtID string) ([]community.SecurityOfficer, error) {
+		items, err := securitySvc.GetOnDutyOfficers(ctx, rtID)
+		if err != nil || len(items) == 0 {
+			return nil, err
+		}
+		out := make([]community.SecurityOfficer, 0, len(items))
+		for _, item := range items {
+			out = append(out, community.SecurityOfficer{
+				UserID:      item.UserID,
+				FullName:    item.FullName,
+				ShiftName:   item.ShiftName,
+				ShiftStart:  item.ShiftStart,
+				ShiftEnd:    item.ShiftEnd,
+				Status:      item.Status,
+				PhoneNumber:     item.PhoneNumber,
+				AvatarPath:      item.AvatarPath,
+				AvatarThumbPath: item.AvatarThumbPath,
+			})
+		}
+		return out, nil
+	})
+	communityH := community.NewHandlerWithScope(communitySvc, pool, store, *scopingCfg)
+
+	// Public community image streaming. Authorization happens INSIDE the
+	// handler (Bearer JWT for API clients, or short-lived HMAC-signed URLs for
+	// <img> tags): both modes enforce RT prefix ownership and that the key is
+	// referenced by content the caller may see.
+	r.Get("/api/v1/community/images/*", communityH.GetImage)
+
+	// Community read access: all authenticated members within their allowed RT.
+	// Draft content is NOT exposed by these routes — handlers enforce draft
+	// visibility via content-management permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Get("/api/v1/home/dashboard", communityH.GetHomeDashboard)
+		r.Get("/api/v1/activities", communityH.ListActivities)
+		r.Get("/api/v1/activities/{id}", communityH.GetActivity)
+		r.Get("/api/v1/announcements", communityH.ListAnnouncements)
+		r.Get("/api/v1/announcements/{id}", communityH.GetAnnouncement)
+		r.Get("/api/v1/banner-templates", communityH.ListBannerTemplates)
+		r.Get("/api/v1/banner-templates/{id}", communityH.GetBannerTemplate)
+		r.Get("/api/v1/banners", communityH.ListBanners)
+		r.Get("/api/v1/organization-structure", communityH.GetOrganizationStructure)
+		// Short-lived signed URLs for community images (for <img> tags and
+		// clients that cannot send Authorization headers). Issues only after
+		// the same content authorization as the Bearer mode of GetImage.
+		r.Post("/api/v1/community/images/sign", communityH.SignImageURL)
+	})
+
+	// Community write endpoints. Authorization model:
+	//   RequireAccess(nil, AllJabatans) — jabatan-PRESENCE gate only: blocks
+	//   role-only users without any jabatan (e.g. pure warga). It is NOT a
+	//   per-operation permission.
+	//   RequirePermission(code) — per-operation check against
+	//   position_permissions (single source of truth; super admin bypass).
+	// Ketua RT (role=warga + jabatan=ketua) passes both; other jabatan holders
+	// pass the presence gate and are then granted/denied per their seeded
+	// position_permissions rows.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAccess(nil, auth.AllJabatans))
+		// Upload is gated per category inside the handler (activities.create /
+		// announcements.create) so read-only users cannot upload posters/banners.
+		r.Post("/api/v1/community/upload", communityH.UploadImage)
+		r.With(auth.RequirePermission(pool, "activities.create")).Post("/api/v1/activities", communityH.CreateActivity)
+		r.With(auth.RequirePermission(pool, "activities.update")).Put("/api/v1/activities/{id}", communityH.UpdateActivity)
+		r.With(auth.RequirePermission(pool, "activities.publish")).Post("/api/v1/activities/{id}/publish", communityH.PublishActivity)
+		r.With(auth.RequirePermission(pool, "activities.cancel")).Post("/api/v1/activities/{id}/cancel", communityH.CancelActivity)
+		r.With(auth.RequirePermission(pool, "activities.delete")).Delete("/api/v1/activities/{id}", communityH.DeleteActivity)
+		r.With(auth.RequirePermission(pool, "announcements.create")).Post("/api/v1/announcements", communityH.CreateAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.update")).Put("/api/v1/announcements/{id}", communityH.UpdateAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.publish")).Post("/api/v1/announcements/{id}/publish", communityH.PublishAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.archive")).Post("/api/v1/announcements/{id}/archive", communityH.ArchiveAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.delete")).Delete("/api/v1/announcements/{id}", communityH.DeleteAnnouncement)
+	})
+
+	// ── Security Attendance Module (/api/v1/security & /api/v1/security-device) ─
+	securityH := security.NewHandler(securitySvc, pool, func(ctx context.Context, rtID string, evalDate time.Time) (any, error) {
+		return notification.GetMonitoringHouseholds(ctx, pool, rtID, evalDate)
+	}, store)
+
+	posActivateLimiter := auth.NewRateLimiter(15, 5*time.Minute)
+	qrGenerateLimiter := auth.NewRateLimiter(60, 1*time.Minute)
+	qrScanLimiter := auth.NewRateLimiter(30, 1*time.Minute)
+	if appEnv == "development" || appEnv == "test" {
+		posActivateLimiter = auth.NewRateLimiter(1000, 5*time.Minute)
+		qrGenerateLimiter = auth.NewRateLimiter(1000, 1*time.Minute)
+		qrScanLimiter = auth.NewRateLimiter(1000, 1*time.Minute)
+	}
+
+	// Unauthenticated one-time Pos device pairing activation (rate-limited).
+	r.Post("/api/v1/security/devices/activate", posActivateLimiter.LimitFunc(func(r *http.Request) string {
+		return auth.ClientIP(r)
+	})(http.HandlerFunc(securityH.ActivateDevice)).(http.HandlerFunc))
+
+	// Authenticated User endpoints (Ketua RT, Petugas Keamanan, Super Admin).
+	// Strict RT isolation & position-based RBAC enforced via RequireAllowedRT + RequireAccess + Handler permission checks.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua, auth.JabatanKeamanan}))
+
+		r.Get("/api/v1/security/dashboard", securityH.GetDashboard)
+		r.Get("/api/v1/security/officers", securityH.ListOfficers)
+
+		r.Get("/api/v1/security/shifts", securityH.ListShifts)
+		r.Post("/api/v1/security/shifts", securityH.CreateShift)
+		r.Put("/api/v1/security/shifts/{id}", securityH.UpdateShift)
+
+		r.Get("/api/v1/security/schedules", securityH.ListSchedules)
+		r.Get("/api/v1/security/schedules/export", securityH.ExportSchedulesXLSX)
+		r.Get("/api/v1/security/schedules/export/xlsx", securityH.ExportSchedulesXLSX)
+		r.Post("/api/v1/security/schedules/import/preview", securityH.ImportSchedulesPreview)
+		r.Post("/api/v1/security/schedules/import/commit", securityH.ImportSchedulesCommit)
+		r.Get("/api/v1/security/schedules/{id}", securityH.GetSchedule)
+		r.Post("/api/v1/security/schedules", securityH.CreateSchedule)
+		r.Put("/api/v1/security/schedules/{id}", securityH.UpdateSchedule)
+		r.Delete("/api/v1/security/schedules/{id}", securityH.CancelSchedule)
+
+		r.Get("/api/v1/security/swaps", securityH.ListSwaps)
+		r.Post("/api/v1/security/swaps", securityH.CreateSwap)
+		r.Post("/api/v1/security/swaps/{id}/target-respond", securityH.TargetRespondSwap)
+		r.Post("/api/v1/security/swaps/{id}/decide", securityH.DecideSwap)
+
+		r.Get("/api/v1/security/attendance/me", securityH.GetMyAttendanceOverview)
+		r.With(qrScanLimiter.LimitFunc(func(r *http.Request) string {
+			if ac := auth.GetAuthContext(r); ac != nil && ac.UserID != "" {
+				return ac.UserID
+			}
+			return auth.ClientIP(r)
+		})).Post("/api/v1/security/attendance/scan", securityH.ScanAttendanceQR)
+		r.Get("/api/v1/security/attendance", securityH.ListAttendance)
+		r.Get("/api/v1/security/attendance/export", securityH.ExportAttendanceCSV)
+
+		r.Get("/api/v1/security/corrections", securityH.ListCorrections)
+		r.Post("/api/v1/security/corrections", securityH.CreateCorrection)
+		r.Post("/api/v1/security/corrections/{id}/decide", securityH.DecideCorrection)
+
+		r.Get("/api/v1/security/devices", securityH.ListDevices)
+		r.Post("/api/v1/security/devices", securityH.CreateDevice)
+		r.Post("/api/v1/security/devices/{id}/rotate-pairing", securityH.RotateDevicePairing)
+		r.Post("/api/v1/security/devices/{id}/revoke", securityH.RevokeDevice)
+
+		r.Get("/api/v1/security/guest-books", securityH.ListGuestBooksAdmin)
+	})
+
+	// Authenticated Security Pos Device endpoints (scoped to bound RT only, non-user identity).
+	r.Group(func(r chi.Router) {
+		r.Use(security.DeviceAuthMiddleware(securityRepo))
+
+		r.Get("/api/v1/security-device/me", securityH.PosMe)
+		r.With(qrGenerateLimiter.LimitFunc(func(r *http.Request) string {
+			if dc := security.GetDeviceContext(r); dc != nil {
+				return dc.DeviceID
+			}
+			return auth.ClientIP(r)
+		})).Post("/api/v1/security-device/qr", securityH.PosGenerateQR)
+		r.Get("/api/v1/security-device/attendance/today", securityH.PosTodayAttendance)
+
+		r.Get("/api/v1/security-device/guest-books", securityH.PosListGuestBooks)
+		r.Post("/api/v1/security-device/guest-books", securityH.PosCreateGuestBook)
+		r.Post("/api/v1/security-device/guest-books/{id}/checkout", securityH.PosCheckoutGuestBook)
+
+		r.Get("/api/v1/security-device/warga/households", securityH.PosListHouseholds)
+		r.Get("/api/v1/security-device/warga/households/{id}", securityH.PosGetHouseholdDetail)
+		r.Get("/api/v1/security-device/monitoring/sampah", securityH.PosMonitoringSampah)
+		r.Patch("/api/v1/security-device/monitoring/sampah/{householdOccupancyID}/note", securityH.PosUpdateSampahNote)
+		r.Get("/api/v1/security-device/images/*", securityH.PosImage)
 	})
 
 	return r
@@ -903,4 +1339,33 @@ func runDevSeed() error {
 	}
 	fmt.Printf("devseed completed successfully: %+v\n", summary)
 	return nil
+}
+
+type activityNotifierAdapter struct {
+	svc notification.Service
+}
+
+func (a activityNotifierAdapter) NotifyActivityEvent(ctx context.Context, p community.ActivityNotificationPayload, eventType string) error {
+	payload := notification.ActivityPayload{
+		ID:                p.ID,
+		RTID:              p.RTID,
+		Title:             p.Title,
+		Description:       p.Description,
+		Location:          p.Location,
+		Organizer:         p.Organizer,
+		StartsAt:          p.StartsAt,
+		Status:            p.Status,
+		PublicationStatus: p.PublicationStatus,
+		CreatedAt:         p.CreatedAt,
+		UpdatedAt:         p.UpdatedAt,
+	}
+	if p.EndsAt != nil {
+		ends := *p.EndsAt
+		payload.EndsAt = &ends
+	}
+	return a.svc.NotifyActivityEvent(ctx, payload, eventType)
+}
+
+func (a activityNotifierAdapter) CancelActivityPendingSchedules(ctx context.Context, rtID, activityID string) error {
+	return a.svc.CancelActivityPendingSchedules(ctx, rtID, activityID)
 }

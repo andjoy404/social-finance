@@ -21,7 +21,7 @@ import (
 var excelHeaders = []string{
 	"house_number", "head_name", "occupancy_status",
 	"address", "resident_name", "nik", "phone",
-	"email",
+	"email", "move_in_date", "jabatan", "password",
 }
 
 // RequiredColumns are the Excel columns that must be present for import.
@@ -135,15 +135,28 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 		nikRaw = stripNonDigits(nikRaw)
 
 		row := WargaCSVRow{
-			RowNumber:          rowNum,
-			HouseNumber:        getVal(record, "house_number", "nomor_rumah"),
-			HeadName:           getVal(record, "head_name", "nama_kepala_keluarga", "nama_warga"),
-			OccupancyStatus:    normStatus,
-			Address:            getVal(record, "address", "alamat"),
-			ResidentName:       getVal(record, "resident_name", "nama_anggota"),
-			Nik:                nikRaw,
-			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
-			Email:              getVal(record, "email", "resident_email"),
+			RowNumber:       rowNum,
+			HouseNumber:     getVal(record, "house_number", "nomor_rumah"),
+			HeadName:        getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
+			OccupancyStatus: normStatus,
+			Address:         getVal(record, "address", "alamat"),
+			ResidentName:    getVal(record, "resident_name", "nama_anggota"),
+			Nik:             nikRaw,
+			Phone:           getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
+			Email:           getVal(record, "email", "resident_email"),
+			MoveInDate:      getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
+			Jabatan:         getVal(record, "jabatan", "position", "jabatan_warga"),
+			Password:        getVal(record, "password", "kata_sandi"),
+		}
+
+		if strings.EqualFold(row.Jabatan, "kosong") {
+			row.Jabatan = ""
+		}
+		if strings.EqualFold(row.Password, "kosong") {
+			row.Password = ""
+		}
+		if strings.EqualFold(row.MoveInDate, "kosong") {
+			row.MoveInDate = ""
 		}
 
 		// Field-level validation (identical to ParseWargaCSV).
@@ -212,6 +225,46 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 				})
 			} else {
 				row.Email = NormalizeEmail(row.Email)
+			}
+		}
+
+		// Validate move_in_date (optional, YYYY-MM-DD format)
+		if row.MoveInDate != "" {
+			if _, err := parseMoveInDate(row.MoveInDate); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "move_in_date",
+					Code:    "invalid_date_format",
+					Message: "move_in_date must be in YYYY-MM-DD format",
+				})
+			} else {
+				row.MoveInDate = normalizeDate(row.MoveInDate)
+			}
+		}
+
+		// Validate jabatan (optional, must be a recognized position)
+		if row.Jabatan != "" {
+			if err := validateJabatan(row.Jabatan); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "jabatan",
+					Code:    "invalid_jabatan",
+					Message: err.Error(),
+				})
+			} else {
+				row.Jabatan = normalizeJabatan(row.Jabatan)
+			}
+		}
+
+		// Validate password (optional, non-empty passwords must be at least 8 chars)
+		if row.Password != "" {
+			if len(strings.TrimSpace(row.Password)) < 8 {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "password",
+					Code:    "password_too_short",
+					Message: "password must be at least 8 characters",
+				})
 			}
 		}
 
@@ -391,7 +444,7 @@ func HandleWargaExportXLSX(pool *database.Pool) http.HandlerFunc {
 			return
 		}
 
-		f, err := exportWargaToXLSX(r.Context(), pool, targetRT)
+		f, err := exportWargaToXLSX(r.Context(), pool, targetRT, ac)
 		if err != nil {
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
@@ -489,7 +542,7 @@ func HandleWargaImportPreviewXLSX(pool *database.Pool) http.HandlerFunc {
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rows,
+			PreviewData: rowsToPreview(rows),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -559,7 +612,11 @@ func HandleWargaImportCommitXLSX(pool *database.Pool) http.HandlerFunc {
 
 // exportWargaToXLSX queries tenant residents and writes them to a new .xlsx file.
 // If rtID is empty (super_admin export all), it queries all active residents across all RTs.
-func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*excelize.File, error) {
+func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string, acOpt ...*auth.AuthContext) (*excelize.File, error) {
+	var ac *auth.AuthContext
+	if len(acOpt) > 0 {
+		ac = acOpt[0]
+	}
 	db := pool.Raw()
 
 	var rows *sql.Rows
@@ -574,9 +631,14 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email
+			   COALESCE(r.email, '') as email,
+			   COALESCE(rp.start_date::text, '') as move_in_date,
+			   COALESCE(urm.jabatan, '') as jabatan,
+			   '' as password
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+			 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id
+			   AND urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan IS NOT NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 			 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 			 JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
@@ -594,9 +656,14 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email
+			   COALESCE(r.email, '') as email,
+			   COALESCE(rp.start_date::text, '') as move_in_date,
+			   COALESCE(urm.jabatan, '') as jabatan,
+			   '' as password
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+			 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id
+			   AND urm.rt_id = r.rt_id AND urm.is_active = true AND urm.jabatan IS NOT NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 			 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 			 JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
@@ -630,21 +697,39 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 	rowNum := 2
 	for rows.Next() {
 		var houseNum, headName, occStatus, addr, resName, nik, phone, email string
+		var moveInDate, jabatan, password string
 		if err := rows.Scan(
 			&houseNum, &headName, &occStatus, &addr,
 			&resName, &nik, &phone, &email,
+			&moveInDate, &jabatan, &password,
 		); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("scan export row: %w", err)
 		}
 
+		nikVal := nik
+		if !canViewNik(ac, rtID) {
+			nikVal = ""
+		}
+		phoneVal := phone
+		emailVal := email
+		if !canViewContact(ac, rtID) {
+			phoneVal = ""
+			emailVal = ""
+		} else if phoneVal != "" {
+			if norm, err := NormalizePhone(phoneVal); err == nil {
+				phoneVal = norm
+			}
+		}
+
 		var cell string
 		for ci, val := range []string{
 			houseNum, headName, occStatus, addr,
-			resName, nik, phone, email,
+			resName, nikVal, phoneVal, emailVal,
+			moveInDate, jabatan, password,
 		} {
 			cell, _ = excelize.CoordinatesToCellName(ci+1, rowNum)
-			if err := f.SetCellValue("Warga", cell, val); err != nil {
+			if err := f.SetCellStr("Warga", cell, val); err != nil {
 				f.Close()
 				return nil, fmt.Errorf("set export cell %s: %w", cell, err)
 			}
@@ -658,15 +743,97 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 	}
 
 	// Set column widths for readability.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 14, 18, 8}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Warga", col, col, widths[i])
 		}
 	}
 
+	// Add jabatan dropdown to exported data (same range as template).
+	if rowNum > 2 {
+		if err := addJabatanValidation(f, "Warga", 2, rowNum-1); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("add jabatan validation to export: %w", err)
+		}
+	}
+
 	return f, nil
+}
+
+// jabatanDropdownOptions lists the display labels shown in the jabatan dropdown,
+// in the same order as canonical jabatan values.
+var jabatanDropdownOptions = []string{
+	"Ketua",
+	"Wakil Ketua",
+	"Sekretaris",
+	"Bendahara",
+	"Keamanan",
+	"Sosial",
+	"Operasional",
+	"Kebersihan",
+	"Anggota",
+}
+
+// addJabatanValidation adds an Excel data-validation dropdown to column J (jabatan)
+// for rows startRow..endRow (inclusive) on the given sheet. Options come from a
+// hidden worksheet called "_jabatan_options" referenced through a named range
+// "JabatanList" to avoid Excel formula-length limits and ensure compatibility
+// with Excel and LibreOffice.
+func addJabatanValidation(f *excelize.File, sheetName string, startRow, endRow int) error {
+	if endRow < startRow {
+		return nil // no rows to apply
+	}
+
+	optsSheet := "_jabatan_options"
+
+	// Create hidden sheet if it doesn't already exist.
+	existingSheets := f.GetSheetList()
+	found := false
+	for _, s := range existingSheets {
+		if s == optsSheet {
+			found = true
+			break
+		}
+	}
+	if !found {
+		if _, err := f.NewSheet(optsSheet); err != nil {
+			return fmt.Errorf("create hidden jabatan sheet: %w", err)
+		}
+	}
+	// Always ensure hidden.
+	if err := f.SetSheetVisible(optsSheet, false); err != nil {
+		return fmt.Errorf("hide jabatan sheet: %w", err)
+	}
+
+	// Write jabatan labels into the hidden sheet starting at A1.
+	for i, label := range jabatanDropdownOptions {
+		cell, _ := excelize.CoordinatesToCellName(1, i+1)
+		if err := f.SetCellValue(optsSheet, cell, label); err != nil {
+			return fmt.Errorf("set jabatan label: %w", err)
+		}
+	}
+
+	// Apply data validation to column J cells using a direct cell reference
+	// to the hidden options sheet. Using a direct reference (rather than a
+	// named range) maximizes compatibility with Excel, LibreOffice and
+	// ONLYOFFICE.
+	jCol, _ := excelize.CoordinatesToCellName(10, startRow) // column J
+	jColEnd, _ := excelize.CoordinatesToCellName(10, endRow)
+	optsRangeEnd, _ := excelize.CoordinatesToCellName(1, len(jabatanDropdownOptions))
+
+	dv := excelize.NewDataValidation(false)
+	dv.Sqref = fmt.Sprintf("%s:%s", jCol, jColEnd)
+	dv.ShowDropDown = false
+	dv.Type = "list"
+	dv.Formula1 = fmt.Sprintf("'%s'!$A$1:%s", optsSheet, optsRangeEnd)
+	dv.AllowBlank = true
+	if err := f.AddDataValidation(sheetName, dv); err != nil {
+		return fmt.Errorf("add data validation: %w", err)
+	}
+
+	return nil
 }
 
 // buildTemplateXLSX creates a blank Excel file with the canonical warga headers.
@@ -689,12 +856,18 @@ func buildTemplateXLSX() (*excelize.File, error) {
 	}
 
 	// Set column widths matching export.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 14, 18, 8}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Template", col, col, widths[i])
 		}
+	}
+
+	// Add jabatan dropdown to column J for rows 2..1000 (reasonable default range).
+	if err := addJabatanValidation(f, "Template", 2, 1000); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("add jabatan validation to template: %w", err)
 	}
 
 	return f, nil

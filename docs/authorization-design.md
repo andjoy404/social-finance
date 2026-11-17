@@ -385,7 +385,7 @@ in the permission matrix above:
      ADD COLUMN jabatan TEXT NULL
      CHECK (jabatan IN (
         'ketua', 'wakil_ketua', 'sekretaris', 'bendahara',
-        'keamanan', 'sosial', 'kebersihan_pembangunan', 'anggota'
+        'keamanan', 'sosial', 'operasional', 'kebersihan', 'anggota'
      ));
    ```
 

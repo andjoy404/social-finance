@@ -1,6 +1,6 @@
 const rtPositions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
-  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['kebersihan_pembangunan', 'Operasional'],
+  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['operasional', 'Operasional'], ['kebersihan', 'Kebersihan'],
 ]
 
 const rwPositions = [
@@ -23,6 +23,8 @@ export function positionVariant(value?: string | null): BadgeVariant {
     case 'bendahara': return 'amber'
     case 'keamanan': return 'red'
     case 'sosial': return 'gray'
+    case 'operasional': return 'blue'
+    case 'kebersihan': return 'green'
     default: return 'default'
   }
 }

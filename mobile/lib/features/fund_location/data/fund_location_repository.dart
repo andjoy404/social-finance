@@ -151,6 +151,13 @@ final fundLocationsProvider = FutureProvider.autoDispose<List<FundLocation>>((re
   return repo.fetchLocations();
 });
 
+/// Public rekening list (balance-free), meant for all RT members.
+final publicRekeningProvider =
+    FutureProvider.autoDispose<List<PublicRekening>>((ref) async {
+  final client = ref.watch(fundLocationApiClientProvider);
+  return client.listPublicRekening();
+});
+
 final fundTransfersProvider = FutureProvider.autoDispose<PaginatedResponse<FundTransfer>>((ref) async {
   final repo = ref.watch(fundLocationRepositoryProvider);
   return repo.fetchTransfers(page: 1, pageSize: 50);

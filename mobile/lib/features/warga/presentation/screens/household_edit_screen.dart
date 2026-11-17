@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
@@ -31,6 +34,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  String? _residentId;
+  String? _residentName;
+  String? _avatarPath;
 
   String _occupancyStatus = 'OWNER';
   bool _isActive = true;
@@ -100,6 +106,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       }
 
       setState(() {
+        _residentId = resident.id;
+        _residentName = resident.name;
+        _avatarPath = resident.avatarPath;
         _houseNumberCtrl.text = resident.houseNumber;
         _headNameCtrl.text = resident.name;
         _occupancyStatus = resident.occupancyStatus == 'Pemilik'
@@ -139,24 +148,22 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       errors.add('Nomor rumah harus diisi.');
     }
     if (_headNameCtrl.text.trim().isEmpty) {
-      errors.add('Nama kepala keluarga harus diisi.');
+      errors.add('Nama lengkap warga harus diisi.');
     }
-    if (_nikCtrl.text.trim().isEmpty) {
-      errors.add('NIK harus diisi.');
-    } else if (!RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
+    if (_nikCtrl.text.trim().isNotEmpty &&
+        !RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
       errors.add('NIK harus berupa 16 digit angka.');
     }
-    if (_phoneCtrl.text.trim().isEmpty) {
-      errors.add('Nomor telepon harus diisi.');
-    }
-    if (_emailCtrl.text.trim().isEmpty) {
-      errors.add('Email harus diisi.');
-    } else if (!RegExp(
-      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-    ).hasMatch(_emailCtrl.text.trim())) {
+    if (_emailCtrl.text.trim().isNotEmpty &&
+        !RegExp(
+          r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+        ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
-    if (_endDate != null && _endDate!.isNotEmpty && _startDate != null && _startDate!.isNotEmpty) {
+    if (_endDate != null &&
+        _endDate!.isNotEmpty &&
+        _startDate != null &&
+        _startDate!.isNotEmpty) {
       final start = DateTime.tryParse(_startDate!);
       final end = DateTime.tryParse(_endDate!);
       if (start != null && end != null && !end.isAfter(start)) {
@@ -193,7 +200,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         occupancyStatus: _occupancyStatus.isEmpty ? null : _occupancyStatus,
         startDate: _startDate,
         endDate: _endDate,
-        password: _passwordCtrl.text.trim().isEmpty ? null : _passwordCtrl.text.trim(),
+        password: _passwordCtrl.text.trim().isEmpty
+            ? null
+            : _passwordCtrl.text.trim(),
         address: _addressCtrl.text.trim().isEmpty
             ? null
             : _addressCtrl.text.trim(),
@@ -203,8 +212,11 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       final repo = ref.read(wargaRepositoryProvider);
       await repo.updateHousehold(widget.householdId, request: request);
 
-      // Refresh warga list
+      // Refresh warga list & home dashboard organization chart
       await ref.read(wargaListProvider.notifier).refresh();
+      ref.invalidate(homeDashboardFutureProvider);
+
+      // if (mounted) ref.read(overdueWarningSummaryProvider.notifier).refresh();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -213,7 +225,15 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        context.pop();
+        // Successful save — allow the subsequent pop through the route guard.
+        final routePath = GoRouterState.of(context).uri.path;
+        KasFormNavigationGuard.allowExitFor(routePath);
+        try {
+          context.pop();
+        } catch (_) {
+          KasFormNavigationGuard.revokeExitFor(routePath);
+          rethrow;
+        }
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -225,73 +245,6 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     }
   }
 
-  /// Show confirmation dialog before canceling the form.
-  Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -299,18 +252,14 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Warga')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Warga')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -340,17 +289,57 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _confirmCancel();
+        await KasFormNavigationGuard.requestFormCancel(context);
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
+        appBar: AppBar(title: const Text('Ubah Warga')),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final gap = AppSpacing.md;
+                final buttonWidth = (availableWidth - 32 - gap) / 2;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildSimpanButton(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildBatalButton(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
         body: Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.base),
             children: [
+              if (_residentId != null) ...[
+                Center(
+                  child: ResidentPhotoManage(
+                    residentId: _residentId!,
+                    fullName: _residentName ?? _headNameCtrl.text,
+                    avatarPath: _avatarPath,
+                    onChanged: (newPath) =>
+                        setState(() => _avatarPath = newPath),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               // Error message
               if (_error != null)
                 Container(
@@ -484,10 +473,10 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Nama Kepala Keluarga
+              // Nama Lengkap Warga
               AppTextField(
                 controller: _headNameCtrl,
-                label: 'Nama Kepala Keluarga',
+                label: 'Nama Lengkap Warga',
                 hintText: 'Nama lengkap',
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -545,18 +534,23 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                   InkWell(
                     onTap: () async {
                       final now = DateTime.now();
-                      final initial = _startDate != null && _startDate!.isNotEmpty
+                      final initial =
+                          _startDate != null && _startDate!.isNotEmpty
                           ? (DateTime.tryParse(_startDate!) ?? now)
                           : now;
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: initial,
                         firstDate: DateTime(2000),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 10),
+                        ),
                       );
                       if (picked != null) {
                         setState(() {
-                          _startDate = picked.toLocal().toString().split(' ')[0];
+                          _startDate = picked.toLocal().toString().split(
+                            ' ',
+                          )[0];
                         });
                       }
                     },
@@ -613,7 +607,13 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                       if (_endDate != null && _endDate!.isNotEmpty)
                         TextButton(
                           onPressed: () => setState(() => _endDate = null),
-                          child: const Text('Hapus', style: TextStyle(color: AppColors.danger, fontSize: 12)),
+                          child: const Text(
+                            'Hapus',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -624,13 +624,15 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                       final initial = _endDate != null && _endDate!.isNotEmpty
                           ? (DateTime.tryParse(_endDate!) ?? now)
                           : (_startDate != null && _startDate!.isNotEmpty
-                              ? (DateTime.tryParse(_startDate!) ?? now)
-                              : now);
+                                ? (DateTime.tryParse(_startDate!) ?? now)
+                                : now);
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: initial,
                         firstDate: DateTime(2000),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 10),
+                        ),
                       );
                       if (picked != null) {
                         setState(() {
@@ -661,7 +663,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                                 : _endDate!,
                             style: theme.textTheme.bodyLarge?.copyWith(
                               color: (_endDate == null || _endDate!.isEmpty)
-                                  ? (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted)
+                                  ? (isDark
+                                        ? AppColors.darkTextMuted
+                                        : AppColors.lightTextMuted)
                                   : null,
                             ),
                           ),
@@ -691,7 +695,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                     color: AppColors.accent,
                     size: 20,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -741,107 +746,76 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.xxl),
 
-              // Horizontal buttons: Simpan + Batal
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _save,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.accent),
-                            foregroundColor: AppColors.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: _saving
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.accent,
-                                    ),
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.save_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        'Simpan Perubahan',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.danger.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _confirmCancel,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: AppColors.danger),
-                            foregroundColor: AppColors.danger,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.close, size: 18),
-                              SizedBox(width: 6),
-                              Text('Batal'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.base),
+              const SizedBox.shrink(),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildSimpanButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      onPressed: _saving ? null : _save,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: _saving
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save_outlined, size: 18),
+                SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Simpan Perubahan',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
+
+  Widget _buildBatalButton() => SizedBox(
+    height: 48,
+    child: OutlinedButton(
+      onPressed: _saving
+          ? null
+          : () => KasFormNavigationGuard.requestFormCancel(context),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.danger),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.close, size: 18),
+          SizedBox(width: 6),
+          Text('Batal'),
+        ],
+      ),
+    ),
+  );
 }

@@ -9,8 +9,10 @@ import {
   apiCommitWargaImportXLSX,
   type ApiWargaImportPreviewResponse,
   type ApiWargaImportCommitResponse,
+  type ApiWargaImportObligationWarning,
   ApiError,
 } from '@/app/api'
+import { ImportObligationWarningsPopup } from './ImportObligationWarningsPopup'
 import {
   FileExcelOutlined,
   DownloadOutlined,
@@ -30,6 +32,15 @@ export interface WargaImportModalProps {
 }
 
 type Step = 'upload' | 'preview' | 'success'
+
+// Resolve an RT UUID (or super-admin chosen RT id) to a human-readable label.
+function resolveRtLabel(rtId: string | undefined, rtCode?: string | null): string {
+  if (!rtId) return ''
+  // Prefer the RT code from auth context; otherwise fall back to a
+  // truncated UUID for readability. No hardcoded RT list exists anymore.
+  if (rtCode) return `RT ${rtCode}`
+  return `RT ${rtId.slice(0, 8)}`
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
@@ -52,6 +63,8 @@ export function WargaImportModal({
   const [error, setError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ApiWargaImportPreviewResponse | null>(null)
   const [commitResult, setCommitResult] = useState<ApiWargaImportCommitResponse | null>(null)
+  const [obligationWarnings, setObligationWarnings] = useState<ApiWargaImportObligationWarning[]>([])
+  const [showObligationPopup, setShowObligationPopup] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   // Track which RT the preview was taken against — prevents preview/commit RT mismatch
   const [previewRtId, setPreviewRtId] = useState<string | null>(null)
@@ -63,6 +76,8 @@ export function WargaImportModal({
     setSelectedFile(null)
     setPreviewResult(null)
     setCommitResult(null)
+    setObligationWarnings([])
+    setShowObligationPopup(false)
     setError(null)
     setIsDragOver(false)
     setPreviewRtId(null)
@@ -216,7 +231,15 @@ export function WargaImportModal({
       const rtId = isSuperAdmin ? targetRtId : undefined
       const res = await apiCommitWargaImportXLSX(pair.accessToken, selectedFile, rtId)
       setCommitResult(res)
+      const warnings = res.obligation_warnings ?? []
+      setObligationWarnings(warnings)
+      setShowObligationPopup(warnings.length > 0)
       setStep('success')
+      // Notify any mounted Warga table to refetch immediately so the updated
+      // Tanggal Mulai is reflected without waiting for the user to click "Selesai".
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('warga:refresh'))
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message)
@@ -229,6 +252,12 @@ export function WargaImportModal({
   }
 
   return (
+    <>
+    <ImportObligationWarningsPopup
+      open={showObligationPopup}
+      onClose={() => setShowObligationPopup(false)}
+      warnings={obligationWarnings}
+    />
     <Modal open={open} onClose={handleClose} width={700}>
       <ModalHeader
         title="Import Data Warga"
@@ -324,7 +353,13 @@ export function WargaImportModal({
                   <strong>Kolom Wajib:</strong> <code>house_number</code>, <code>head_name</code>, <code>occupancy_status</code> (OWNER/TENANT), <code>resident_name</code>
                 </li>
                 <li>
-                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>
+                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>, <code>move_in_date</code> (YYYY-MM-DD), <code>jabatan</code>, <code>password</code>
+                </li>
+                <li>
+                  <strong>Kolom Password:</strong> Kosong = tidak mengubah password lama. Isi (minimal 8 karakter) = mengubah password.
+                </li>
+                <li>
+                  <strong>Kolom Jabatan:</strong> Nilai valid: ketua, wakil_ketua, sekretaris, bendahara, keamanan, sosial, operasional, kebersihan, anggota. Alias "Seksi Keamanan" tetap diterima.
                 </li>
                 <li>
                   Beberapa baris dengan <code>house_number</code> yang sama akan dikelompokkan ke dalam satu Rumah Tangga.
@@ -393,7 +428,7 @@ export function WargaImportModal({
                 }}
               >
                 <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
-                <span>RT dipilih: <strong style={{ color: 'var(--sf-text)' }}>{targetRtId}</strong></span>
+                <span>RT dipilih: <strong style={{ color: 'var(--sf-text)' }}>{resolveRtLabel(targetRtId, user?.rtCode)}</strong></span>
               </div>
             )}
 
@@ -550,14 +585,14 @@ export function WargaImportModal({
                 {previewResult.preview_data && previewResult.preview_data.length > 0 && (
                   <div
                     style={{
-                      maxHeight: 220,
+                      maxHeight: 400,
                       overflowY: 'auto',
                       border: '1px solid var(--sf-border)',
                       borderRadius: '8px',
                     }}
                   >
-                    <table className="sf-table" style={{ width: '100%', fontSize: 12 }}>
-                      <thead>
+                    <table className="sf-table" style={{ width: '100%', fontSize: 12, tableLayout: 'fixed' }}>
+                      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf-bg-surface, var(--sf-bg))', zIndex: 1 }}>
                         <tr>
                           <th style={{ width: 80 }}>No. Rumah</th>
                           <th>Nama</th>
@@ -566,7 +601,7 @@ export function WargaImportModal({
                         </tr>
                       </thead>
                       <tbody>
-                        {previewResult.preview_data.slice(0, 10).map((row, idx) => (
+                        {previewResult.preview_data.map((row, idx) => (
                           <tr key={idx}>
                             <td style={{ fontFamily: 'monospace' }}>{row.house_number}</td>
                             <td>{row.resident_name}</td>
@@ -580,11 +615,6 @@ export function WargaImportModal({
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                )}
-                {previewResult.preview_data && previewResult.preview_data.length > 10 && (
-                  <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textAlign: 'center' }}>
-                    Menampilkan 10 dari {previewResult.preview_data.length} baris pratinjau
                   </div>
                 )}
               </div>
@@ -614,7 +644,7 @@ export function WargaImportModal({
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
               Import Data Berhasil!
             </div>
-            <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 420 }}>
+            <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 440 }}>
               {commitResult ? (
                 <>
                   Berhasil menambahkan{' '}
@@ -631,6 +661,30 @@ export function WargaImportModal({
                 'Data warga berhasil diimpor ke sistem.'
               )}
             </div>
+
+            {obligationWarnings.length > 0 && (
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                data-testid="obligation-warnings-trigger"
+                onClick={() => setShowObligationPopup(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  border: '1px solid var(--sf-warning, #ff9830)',
+                  background: 'var(--sf-warning-soft, rgba(255, 152, 48, 0.10))',
+                  color: 'var(--sf-text)',
+                  fontWeight: 600,
+                  marginTop: 4,
+                }}
+              >
+                <ExclamationCircleOutlined />
+                {obligationWarnings.length === 1
+                  ? '1 warga mengalami perubahan kewajiban iuran — lihat rincian'
+                  : `${obligationWarnings.length} warga mengalami perubahan kewajiban iuran — lihat rincian`}
+              </button>
+            )}
           </div>
         )}
       </ModalBody>
@@ -706,5 +760,6 @@ export function WargaImportModal({
         )}
       </ModalFooter>
     </Modal>
+    </>
   )
 }

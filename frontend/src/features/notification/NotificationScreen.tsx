@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   BellOutlined,
   PlusOutlined,
@@ -14,6 +14,7 @@ import {
   ExperimentOutlined,
   PictureOutlined,
   EyeOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons'
 import { useAuth, isSuperAdminUser, canAccessNotificationAdmin } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
@@ -27,23 +28,72 @@ import {
   apiToggleNotificationTemplateActive,
   apiDeleteNotificationTemplate,
   apiGetNotificationLogs,
+  apiGetNotificationManagementHistory,
   apiUploadNotificationImage,
   apiTriggerManualPush,
   apiTestPush,
   apiMarkNotificationAsRead,
   apiMarkAllNotificationsAsRead,
   apiGetNotificationUnreadCount,
+  apiGetNotificationSchedules,
+  apiCreateNotificationSchedule,
+  apiUpdateNotificationSchedule,
+  apiToggleNotificationScheduleActive,
+  apiDeleteNotificationSchedule,
   type ApiSystemNotificationType,
   type ApiNotificationTemplate,
   type ApiNotificationLog,
+  type ApiNotificationSchedule,
+  type ApiCreateNotificationScheduleBody,
+  type CommunityActivity,
+  apiListActivities,
 } from '@/app/api'
+import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { renderNotificationBody } from './notificationUrl'
+import {
+  isBySystemTriggerEvent,
+  getNotificationBadgeVariant,
+  sortSystemTypesLast,
+} from './notificationSeverity'
+import { SystemEventSelect } from './SystemEventSelect'
+import { TriggerCategoryBadge } from './TriggerCategoryBadge'
+
+function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = false) {
+  // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
+  // Admin/Ketua RT: show detailed status from the ledger.
+  if (!isAdmin) {
+    return { label: 'TERKIRIM', variant: 'green' as const }
+  }
+  const normalized = status?.trim().toUpperCase() || 'UNKNOWN'
+  switch (normalized) {
+    case 'SENT':
+      return { label: 'TERKIRIM', variant: 'green' as const }
+    case 'FAILED':
+      return { label: 'GAGAL', variant: 'red' as const }
+    case 'PARTIAL':
+      return { label: 'SEBAGIAN GAGAL', variant: 'amber' as const }
+    case 'APPROVED':
+      return { label: 'DISETUJUI', variant: 'green' as const }
+    case 'REJECTED':
+      return { label: 'DITOLAK', variant: 'red' as const }
+    case 'RECORDED':
+      return { label: 'TERCATAT', variant: 'green' as const }
+    case 'NO_DEVICE':
+      return { label: 'PERANGKAT TIDAK TERSEDIA', variant: 'amber' as const }
+    case 'UNKNOWN':
+    case 'PENDING':
+      return { label: 'TIDAK DIKETAHUI', variant: 'amber' as const }
+    default:
+      return { label: 'TIDAK DIKETAHUI', variant: 'amber' as const }
+  }
+}
 
 export function NotificationScreen() {
   const { user } = useAuth()
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
 
-  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs'>(isAdmin ? 'system' : 'logs')
+  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'mine' | 'schedules'>(isAdmin ? 'system' : 'logs')
 
   // Keep activeTab synced if role resolves
   useEffect(() => {
@@ -62,6 +112,30 @@ export function NotificationScreen() {
   const [logsEventType, setLogsEventType] = useState('')
   const [logsStatusFilter, setLogsStatusFilter] = useState<'all' | 'unread' | 'read'>('all')
   const [unreadCount, setUnreadCount] = useState(0)
+
+  // Schedule states
+  const [schedules, setSchedules] = useState<ApiNotificationSchedule[]>([])
+  const [schedulesLoading, setSchedulesLoading] = useState(false)
+  const [schedulesError, setSchedulesError] = useState<string | null>(null)
+
+  // Schedule form states
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<ApiNotificationSchedule | null>(null)
+  const [scheduleForm, setScheduleForm] = useState({
+    name: '',
+    event_type: '',
+    template_id: '',
+    send_days: [] as number[],
+    send_hour: 8,
+    send_minute: 0,
+    timezone: 'Asia/Jakarta',
+    is_active: true,
+    activity_id: '',
+    execution_at: '', // datetime-local (YYYY-MM-DDTHH:mm)
+  })
+  const [activities, setActivities] = useState<CommunityActivity[]>([])
+  const [scheduleFormSubmitting, setScheduleFormSubmitting] = useState(false)
+  const [scheduleFormError, setScheduleFormError] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -89,10 +163,14 @@ export function NotificationScreen() {
     title: string
     body: string
     eventName: string
+    eventType?: string | null
+    dedupKey?: string | null
     imageUrl?: string | null
   } | null>(null)
 
   const [uploadingImage, setUploadingImage] = useState(false)
+  const createImageInputRef = useRef<HTMLInputElement>(null)
+  const editImageInputRef = useRef<HTMLInputElement>(null)
   const [testPushSubmitting, setTestPushSubmitting] = useState(false)
   const [broadcastSubmitting, setBroadcastSubmitting] = useState(false)
   const [confirmBroadcastItem, setConfirmBroadcastItem] = useState<{
@@ -105,13 +183,45 @@ export function NotificationScreen() {
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const knownEventNames: Record<string, string> = {
+  // Convert ISO 8601 datetime to a local "YYYY-MM-DDTHH:mm" string usable by <input type="datetime-local" />.
+function toLocalDateTimeInput(d?: string | null): string {
+  if (!d) return ''
+  const t = new Date(d)
+  if (Number.isNaN(t.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`
+}
+
+const knownEventNames: Record<string, string> = {
     iuran_bill_created: 'Tagihan Iuran Baru',
+    iuran_payment_reminder: 'Pengingat Pembayaran Iuran',
+    iuran_upcoming_due_3_months: 'Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)',
+    iuran_overdue_3_months: 'Pengingat Tunggakan Iuran (3 Bulan+)',
     payment_verified: 'Pembayaran Diverifikasi',
     payment_rejected: 'Pembayaran Ditolak',
     manual_push: 'Pengumuman Pengurus',
     waste_truck_arrival: 'Truk Sampah Tiba',
   }
+
+  const customizableSystemTypes = useMemo(
+    () => systemTypes.filter((st) => !isBySystemTriggerEvent(st.event_type)),
+    [systemTypes]
+  )
+  const schedulableSystemTypes = useMemo(
+    () => systemTypes.filter((st) => !isBySystemTriggerEvent(st.event_type)),
+    [systemTypes]
+  )
+
+  // Notifikasi Sistem list ordering: By-System events placed at the very bottom,
+  // preserving the relative order of the rest (previous ordering requirement).
+  const orderedSystemTypes = useMemo(
+    () => sortSystemTypesLast(systemTypes),
+    [systemTypes]
+  )
+  const customTemplates = useMemo(
+    () => templates.filter((t) => !isBySystemTriggerEvent(t.event_type)),
+    [templates]
+  )
 
   // Load Data
   const loadData = useCallback(async () => {
@@ -137,17 +247,18 @@ export function NotificationScreen() {
       }
 
       // Also load logs and unread count
+      const historyCategory = activeTab === 'mine' ? 'mine' : 'system'
+      const historyPromise = isAdmin
+        ? apiGetNotificationManagementHistory(token, historyCategory, logsPage, logsPageSize)
+        : apiGetNotificationLogs(
+            token,
+            logsPage,
+            logsPageSize,
+            logsEventType || undefined,
+            logsStatusFilter !== 'all' ? logsStatusFilter : undefined,
+          )
       const [logsResp, unreadResp] = await Promise.all([
-        apiGetNotificationLogs(
-          token,
-          logsPage,
-          logsPageSize,
-          logsEventType || undefined,
-          logsStatusFilter !== 'all' ? logsStatusFilter : undefined,
-        ).catch(() => ({
-          data: [],
-          pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 },
-        })),
+        historyPromise,
         apiGetNotificationUnreadCount(token).catch(() => ({ unread_count: 0 })),
       ])
       setLogs(logsResp.data || [])
@@ -158,7 +269,154 @@ export function NotificationScreen() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, logsPage, logsPageSize, logsEventType, logsStatusFilter])
+  }, [isAdmin, activeTab, logsPage, logsPageSize, logsEventType, logsStatusFilter])
+
+  // ── Schedules ───────────────────────────────────────────────────────────
+  const loadSchedules = useCallback(async () => {
+    setSchedulesLoading(true)
+    setSchedulesError(null)
+    const token = getSessionPair()?.accessToken
+    if (!token) {
+      setSchedulesLoading(false)
+      return
+    }
+    try {
+      const data = await apiGetNotificationSchedules(token).catch(() => ({ data: [], pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 } }))
+      setSchedules(data.data || [])
+    } catch (err: any) {
+      setSchedulesError(err?.message || 'Gagal memuat jadwal notifikasi')
+    } finally {
+      setSchedulesLoading(false)
+    }
+  }, [])
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setScheduleFormError(null)
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    if (!scheduleForm.name.trim()) {
+      setScheduleFormError('Nama jadwal wajib diisi')
+      return
+    }
+    if (!scheduleForm.event_type) {
+      setScheduleFormError('Jenis notifikasi wajib dipilih')
+      return
+    }
+    if (!scheduleForm.template_id) {
+      setScheduleFormError('Template wajib dipilih')
+      return
+    }
+    const isActivityReminder = scheduleForm.event_type === 'activity_reminder'
+    if (isActivityReminder) {
+      if (!scheduleForm.activity_id) {
+        setScheduleFormError('Pilih kegiatan yang valid untuk pengingat ini')
+        return
+      }
+      if (!scheduleForm.execution_at) {
+        setScheduleFormError('Pilih waktu pengiriman pengingat')
+        return
+      }
+      const ts = new Date(scheduleForm.execution_at).getTime()
+      if (!Number.isFinite(ts) || ts <= Date.now()) {
+        setScheduleFormError('Waktu pengiriman harus di masa depan')
+        return
+      }
+    } else if (scheduleForm.send_days.length === 0) {
+      setScheduleFormError('Pilih minimal satu tanggal pengiriman')
+      return
+    }
+
+    setScheduleFormSubmitting(true)
+    try {
+      const isActivityReminder = scheduleForm.event_type === 'activity_reminder'
+      const activityId = isActivityReminder ? (scheduleForm.activity_id || null) : null
+      const executionAt = isActivityReminder && scheduleForm.execution_at
+        ? new Date(scheduleForm.execution_at).toISOString()
+        : null
+      const sendDays = isActivityReminder ? [] : scheduleForm.send_days
+      const body: ApiCreateNotificationScheduleBody = {
+        event_type: scheduleForm.event_type,
+        template_id: scheduleForm.template_id,
+        name: scheduleForm.name.trim(),
+        send_days: sendDays,
+        send_hour: scheduleForm.send_hour,
+        send_minute: scheduleForm.send_minute,
+        timezone: scheduleForm.timezone || 'Asia/Jakarta',
+        activity_id: activityId,
+        execution_at: executionAt,
+      }
+      if (editingSchedule) {
+        await apiUpdateNotificationSchedule(token, editingSchedule.id, {
+          name: scheduleForm.name.trim(),
+          is_active: scheduleForm.is_active,
+          send_days: sendDays,
+          send_hour: scheduleForm.send_hour,
+          send_minute: scheduleForm.send_minute,
+          timezone: scheduleForm.timezone || 'Asia/Jakarta',
+          activity_id: activityId,
+          execution_at: executionAt,
+        })
+      } else {
+        await apiCreateNotificationSchedule(token, body)
+      }
+      setShowScheduleModal(false)
+      setEditingSchedule(null)
+      setScheduleForm({
+        name: '',
+        event_type: '',
+        template_id: '',
+        send_days: [],
+        send_hour: 8,
+        send_minute: 0,
+        timezone: 'Asia/Jakarta',
+        is_active: true,
+        activity_id: '',
+        execution_at: '',
+      })
+      await loadSchedules()
+      setSuccessMsg(`Jadwal ${editingSchedule ? 'diperbarui' : 'dibuat'} berhasil`)
+    } catch (err: any) {
+      setScheduleFormError(err?.message || 'Gagal menyimpan jadwal notifikasi')
+    } finally {
+      setScheduleFormSubmitting(false)
+    }
+  }
+
+  const handleToggleSchedule = async (s: ApiNotificationSchedule) => {
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    const confirm = window.confirm(
+      s.is_active
+        ? `Apakah Anda yakin ingin menonaktifkan jadwal "${s.name}"?`
+        : `Apakah Anda yakin ingin mengaktifkan jadwal "${s.name}"?`,
+    )
+    if (!confirm) return
+    try {
+      await apiToggleNotificationScheduleActive(token, s.id)
+      setSchedules((prev) =>
+        prev.map((x) => (x.id === s.id ? { ...x, is_active: !x.is_active } : x)),
+      )
+      setSuccessMsg(`Jadwal "${s.name}" ${s.is_active ? 'dinonaktifkan' : 'diaktifkan'}`)
+    } catch (err: any) {
+      setError(err?.message || 'Gagal mengubah status jadwal')
+    }
+  }
+
+  const handleDeleteSchedule = async (id: string) => {
+    const confirm = window.confirm('Apakah Anda yakin ingin menghapus jadwal ini?')
+    if (!confirm) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    try {
+      await apiDeleteNotificationSchedule(token, id)
+      setSchedules((prev) => prev.filter((x) => x.id !== id))
+      setSuccessMsg('Jadwal berhasil dihapus')
+    } catch (err: any) {
+      setError(err?.message || 'Gagal menghapus jadwal')
+    }
+  }
 
   const handleMarkAsRead = async (log: ApiNotificationLog) => {
     if (log.is_read) return
@@ -199,14 +457,17 @@ export function NotificationScreen() {
       title: log.title,
       body: log.body,
       eventName,
+      eventType: log.event_type,
+      dedupKey: log.dedup_key,
       imageUrl: log.image_url,
     })
-    handleMarkAsRead(log)
+    if (!isAdmin) handleMarkAsRead(log)
   }
 
   useEffect(() => {
     loadData()
-  }, [loadData])
+    if (isAdmin) loadSchedules()
+  }, [loadData, isAdmin, loadSchedules])
 
   // Clear toast after 4s
   useEffect(() => {
@@ -219,7 +480,7 @@ export function NotificationScreen() {
   // Open Create Modal
   const handleOpenCreate = (presetEventType?: string) => {
     setFormError(null)
-    const ev = presetEventType || systemTypes[0]?.event_type || 'iuran_bill_created'
+    const ev = presetEventType || customizableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
     const found = systemTypes.find((t) => t.event_type === ev)
     setCreateForm({
       name: found ? `Template ${found.name}` : '',
@@ -229,6 +490,45 @@ export function NotificationScreen() {
       image_url: '',
     })
     setShowCreateModal(true)
+  }
+
+  // Open Schedule Create Modal
+  // Load upcoming/ongoing published activities when the modal opens or the user switches to activity_reminder.
+  useEffect(() => {
+    if (!showScheduleModal) return
+    const ev = scheduleForm.event_type
+    if (ev !== 'activity_reminder') return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    let cancelled = false
+    apiListActivities(token, { status: 'upcoming', publication_status: 'published', page_size: 100 })
+      .then((res) => {
+        if (cancelled) return
+        const sorted = [...res.data].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
+        setActivities(sorted)
+      })
+      .catch(() => setActivities([]))
+    return () => { cancelled = true }
+    // intentionally depend on modal visibility + event type to avoid over-fetching
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScheduleModal, scheduleForm.event_type])
+
+  const handleOpenScheduleCreate = () => {
+    setEditingSchedule(null)
+    const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
+    setScheduleForm({
+      name: '',
+      event_type: defaultEv,
+      template_id: '',
+      send_days: [],
+      send_hour: 8,
+      send_minute: 0,
+      timezone: 'Asia/Jakarta',
+      is_active: true,
+      activity_id: '',
+      execution_at: '',
+    })
+    setShowScheduleModal(true)
   }
 
   // Handle Create Submit
@@ -328,6 +628,12 @@ export function NotificationScreen() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetForm: 'create' | 'edit') => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadingImage(false)
+      setFormError('Gambar maksimal 5 MB')
+      e.target.value = ''
+      return
+    }
     const token = getSessionPair()?.accessToken
     if (!token) return
 
@@ -469,15 +775,6 @@ export function NotificationScreen() {
           >
             <ReloadOutlined style={{ marginRight: 6 }} /> Segarkan
           </button>
-          {isAdmin && (
-            <button
-              type="button"
-              className="sf-btn-primary"
-              onClick={() => handleOpenCreate()}
-            >
-              <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
-            </button>
-          )}
         </div>
       </div>
 
@@ -495,64 +792,71 @@ export function NotificationScreen() {
 
       {/* Tabs (Rendered for Admins only) */}
       {isAdmin ? (
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('system')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'system' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'system' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'system' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <AppstoreOutlined /> Notifikasi Sistem ({systemTypes.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('templates')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'templates' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'templates' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'templates' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <BellOutlined /> Template Kustom ({templates.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('logs')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'logs' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'logs' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'logs' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <HistoryOutlined /> Riwayat Pengiriman ({logsTotal})
-          </button>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)' }}>
+            {[
+              { key: 'templates', label: 'Template', icon: <BellOutlined /> },
+              { key: 'logs', label: 'Riwayat Sistem', icon: <HistoryOutlined /> },
+              { key: 'mine', label: 'Riwayat Saya', icon: <HistoryOutlined /> },
+            ].map((tab) => {
+              const selected = tab.key === 'templates'
+                ? activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules'
+                : activeTab === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    if (tab.key === 'logs' || tab.key === 'mine') setLogsPage(1)
+                    setActiveTab(tab.key as typeof activeTab)
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    border: 'none',
+                    background: 'none',
+                    fontWeight: selected ? 600 : 400,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              )
+            })}
+          </div>
+          {(activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules') && (
+            <div style={{ display: 'flex', gap: 16, padding: '8px 12px', borderBottom: '1px solid var(--sf-border)' }}>
+              {[
+                { key: 'system', label: `Notifikasi Sistem (${systemTypes.length})`, icon: <AppstoreOutlined /> },
+                { key: 'templates', label: `Template Kustom (${customTemplates.length})`, icon: <BellOutlined /> },
+                { key: 'schedules', label: `Penjadwalan (${schedules.length})`, icon: <ScheduleOutlined /> },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                  style={{
+                    padding: '6px 4px',
+                    border: 'none',
+                    background: 'none',
+                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    fontWeight: activeTab === tab.key ? 600 : 400,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12, marginBottom: 16 }}>
@@ -577,7 +881,7 @@ export function NotificationScreen() {
           {activeTab === 'system' && (
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-                {systemTypes.map((st) => (
+                {orderedSystemTypes.map((st) => (
                   <div
                     key={st.event_type}
                     style={{
@@ -595,7 +899,10 @@ export function NotificationScreen() {
                         <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
                           {st.name}
                         </div>
-                        <Badge variant="blue">FCM PUSH</Badge>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                          <Badge variant="blue">FCM PUSH</Badge>
+                          <TriggerCategoryBadge eventType={st.event_type} />
+                        </div>
                       </div>
 
                       <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 12 }}>
@@ -609,7 +916,9 @@ export function NotificationScreen() {
 
                       <div style={{ fontSize: 12, borderLeft: '3px solid var(--sf-accent)', paddingLeft: 8, marginBottom: 12 }}>
                         <div style={{ fontWeight: 600, color: 'var(--sf-text)' }}>{st.default_title}</div>
-                        <div style={{ color: 'var(--sf-text-muted)' }}>{st.default_body}</div>
+                        <div style={{ color: 'var(--sf-text-muted)' }}>
+                          {renderNotificationBody(st.default_body, st.event_type)}
+                        </div>
                       </div>
 
                       {st.allowed_variables.length > 0 && (
@@ -627,20 +936,33 @@ export function NotificationScreen() {
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button
                           type="button"
-                          className="sf-btn-outline"
-                          style={{ flex: 1 }}
-                          onClick={() => setPreviewItem({ title: st.default_title, body: st.default_body, eventName: st.name })}
+                          style={{
+                            flex: 1,
+                            padding: '8px 20px',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: 'inherit',
+                            color: '#fff',
+                            background: '#3b82f6',
+                            border: 'none',
+                            borderRadius: 'var(--sf-radius-sm)',
+                            cursor: 'pointer',
+                            transition: 'background 150ms ease',
+                          }}
+                          onClick={() => setPreviewItem({ title: st.default_title, body: st.default_body, eventName: st.name, eventType: st.event_type })}
                         >
                           Preview Banner
                         </button>
-                        <button
-                          type="button"
-                          className="sf-btn-primary"
-                          style={{ flex: 1 }}
-                          onClick={() => handleOpenCreate(st.event_type)}
-                        >
-                          Kustomisasi
-                        </button>
+                        {!isBySystemTriggerEvent(st.event_type) && (
+                          <button
+                            type="button"
+                            className="sf-btn-primary"
+                            style={{ flex: 1 }}
+                            onClick={() => handleOpenCreate(st.event_type)}
+                          >
+                            Kustomisasi
+                          </button>
+                        )}
                       </div>
                       {(st.event_type === 'waste_truck_arrival' || st.event_type === 'manual_push') && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -678,7 +1000,26 @@ export function NotificationScreen() {
           {/* TAB 2: TEMPLATE KUSTOM */}
           {activeTab === 'templates' && (
             <div>
-              {templates.length === 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
+                    Template Notifikasi ({customTemplates.length})
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                    Kelola template pesan kustom untuk notifikasi push RT.
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={() => handleOpenCreate()}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
+                  </button>
+                )}
+              </div>
+              {customTemplates.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--sf-card-bg)', border: '1px dashed var(--sf-border)', borderRadius: 8 }}>
                   <BellOutlined style={{ fontSize: 36, color: 'var(--sf-text-muted)', marginBottom: 12 }} />
                   <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)', marginBottom: 4 }}>
@@ -708,13 +1049,13 @@ export function NotificationScreen() {
                       </tr>
                     </thead>
                     <tbody>
-                      {templates.map((t) => (
+                      {customTemplates.map((t) => (
                         <tr key={t.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
                           <td style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>
                             {t.name}
                           </td>
                           <td style={{ padding: '14px 16px' }}>
-                            <Badge variant="blue">
+                            <Badge variant={getNotificationBadgeVariant(t.event_type)}>
                               {systemTypes.find((st) => st.event_type === t.event_type)?.name || t.event_type}
                             </Badge>
                           </td>
@@ -724,7 +1065,7 @@ export function NotificationScreen() {
                               {t.image_url && <PictureOutlined style={{ color: 'var(--sf-accent)', fontSize: 13 }} title="Memiliki lampiran gambar" />}
                             </div>
                             <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {t.body}
+                              {renderNotificationBody(t.body, t.event_type)}
                             </div>
                           </td>
                           <td style={{ padding: '14px 16px' }}>
@@ -740,7 +1081,7 @@ export function NotificationScreen() {
                                 type="button"
                                 className="sf-btn-outline"
                                 style={{ padding: '4px 8px', fontSize: 12 }}
-                                onClick={() => setPreviewItem({ title: t.title, body: t.body, eventName: t.name, imageUrl: t.image_url })}
+                                onClick={() => setPreviewItem({ title: t.title, body: t.body, eventName: t.name, eventType: t.event_type, imageUrl: t.image_url })}
                                 title="Lihat Tampilan Banner"
                               >
                                 <MobileOutlined />
@@ -807,12 +1148,287 @@ export function NotificationScreen() {
             </div>
           )}
 
+          {/* TAB 4: PENJADWALAN NOTIFIKASI */}
+          {activeTab === 'schedules' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
+                    Jadwal Notifikasi ({schedules.length})
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                    Atur jadwal pengiriman notifikasi pengingat secara otomatis.
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={handleOpenScheduleCreate}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Tambah Jadwal
+                  </button>
+                )}
+              </div>
+              {schedulesLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-text-muted)' }}>
+                  Memuat jadwal notifikasi...
+                </div>
+              ) : schedulesError ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-danger)' }}>
+                  {schedulesError}
+                  <button
+                    type="button"
+                    onClick={loadSchedules}
+                    style={{ marginTop: 12, padding: '6px 12px', background: 'var(--sf-accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Coba Lagi
+                  </button>
+                </div>
+              ) : schedules.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--sf-card-bg)', border: '1px dashed var(--sf-border)', borderRadius: 8 }}>
+                  <ScheduleOutlined style={{ fontSize: 36, color: 'var(--sf-text-muted)', marginBottom: 12 }} />
+                  <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)', marginBottom: 4 }}>
+                    Belum Ada Jadwal Notifikasi
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 16, maxWidth: 440, margin: '0 auto 16px' }}>
+                    Buat jadwal untuk mengirim notifikasi otomatis (misal pengingat pembayaran iuran) sesuai tanggal dan jam yang ditentukan.
+                  </div>
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={() => {
+                      setEditingSchedule(null)
+                      const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
+                      setScheduleForm({
+                        name: '',
+                        event_type: defaultEv,
+                        template_id: '',
+                        send_days: [],
+                        send_hour: 8,
+                        send_minute: 0,
+                        timezone: 'Asia/Jakarta',
+                        is_active: true,
+                        activity_id: '',
+                        execution_at: '',
+                      })
+                      setShowScheduleModal(true)
+                    }}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Buat Jadwal Pertama
+                  </button>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto', background: 'var(--sf-card-bg)', border: '1px solid var(--sf-border)', borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Nama Jadwal</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Jenis Notifikasi</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Template</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Tanggal Pengiriman</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Jam</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Timezone</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'right' }}>Terakhir Dieksekusi</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'right' }}>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {schedules.map((s) => {
+                        const eventName =
+                          systemTypes.find((st) => st.event_type === s.event_type)?.name ||
+                          knownEventNames[s.event_type] ||
+                          s.event_type
+                        const templateName = templates.find((t) => t.id === s.template_id)?.name || s.template_id
+                        const days = s.send_days.join(', ')
+                        const timeStr = `${s.send_hour.toString().padStart(2, '0')}:${s.send_minute.toString().padStart(2, '0')}`
+                        return (
+                          <tr key={s.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
+                            <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>{s.name}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                                <Badge variant={getNotificationBadgeVariant(s.event_type)}>{eventName}</Badge>
+                                <TriggerCategoryBadge eventType={s.event_type} />
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>{templateName}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{days}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{timeStr}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{s.timezone}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              {s.is_active ? <Badge variant="green">Aktif</Badge> : <Badge variant="gray">Nonaktif</Badge>}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                              {!s.last_executed_at && !s.last_executed_status ? (
+                                <span>-</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span>
+                                      {formatJakartaDateTime(s.last_executed_at)}
+                                    </span>
+                                    {s.last_executed_status && (
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 600,
+                                          padding: '1px 6px',
+                                          borderRadius: 4,
+                                          background:
+                                            s.last_executed_status === 'success'
+                                              ? 'rgba(34, 197, 94, 0.12)'
+                                              : s.last_executed_status === 'partial'
+                                              ? 'rgba(234, 179, 8, 0.15)'
+                                              : s.last_executed_status === 'no_device'
+                                              ? 'rgba(59, 130, 246, 0.12)'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'rgba(107, 114, 128, 0.12)'
+                                              : 'rgba(239, 68, 68, 0.12)',
+                                          color:
+                                            s.last_executed_status === 'success'
+                                              ? 'var(--sf-success)'
+                                              : s.last_executed_status === 'partial'
+                                              ? '#d97706'
+                                              : s.last_executed_status === 'no_device'
+                                              ? '#2563eb'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'var(--sf-text-muted)'
+                                              : 'var(--sf-danger)',
+                                          border: `1px solid ${
+                                            s.last_executed_status === 'success'
+                                              ? 'rgba(34, 197, 94, 0.25)'
+                                              : s.last_executed_status === 'partial'
+                                              ? 'rgba(234, 179, 8, 0.3)'
+                                              : s.last_executed_status === 'no_device'
+                                              ? 'rgba(59, 130, 246, 0.25)'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'rgba(107, 114, 128, 0.25)'
+                                              : 'rgba(239, 68, 68, 0.25)'
+                                          }`,
+                                          textTransform: 'uppercase',
+                                        }}
+                                        title={s.last_executed_error || undefined}
+                                      >
+                                        {s.last_executed_status === 'success'
+                                          ? 'BERHASIL'
+                                          : s.last_executed_status === 'partial'
+                                          ? 'SEBAGIAN'
+                                          : s.last_executed_status === 'no_device'
+                                          ? 'IN-APP'
+                                          : s.last_executed_status === 'no_recipients'
+                                          ? 'NIHIL'
+                                          : 'GAGAL'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {s.last_executed_summary && (
+                                    <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>
+                                      {s.last_executed_status === 'no_recipients'
+                                        ? 'Tidak ada penerima memenuhi kriteria'
+                                        : s.last_executed_status === 'no_device'
+                                        ? `${s.last_executed_summary.no_device_count} warga (tanpa perangkat)`
+                                        : `${s.last_executed_summary.sent_count} terkirim${
+                                            s.last_executed_summary.failed_count > 0 ? `, ${s.last_executed_summary.failed_count} gagal` : ''
+                                          }${s.last_executed_summary.no_device_count > 0 ? `, ${s.last_executed_summary.no_device_count} tanpa perangkat` : ''}`}
+                                    </span>
+                                  )}
+                                  {s.last_executed_error && !s.last_executed_summary && (
+                                    <span style={{ fontSize: 11, color: 'var(--sf-danger)' }} title={s.last_executed_error}>
+                                      {s.last_executed_error}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                {s.template_id && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    style={{ padding: '4px 8px', fontSize: 12 }}
+                                    onClick={() => {
+                                      const template = templates.find((t) => t.id === s.template_id)
+                                      if (template) {
+                                        setPreviewItem({
+                                          title: template.title,
+                                          body: template.body,
+                                          eventName: s.name,
+                                          eventType: s.event_type,
+                                          dedupKey: `schedule:${s.id}`,
+                                          imageUrl: template.image_url,
+                                        })
+                                      }
+                                    }}
+                                    title="Lihat Tampilan Banner"
+                                  >
+                                    <MobileOutlined />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12 }}
+                                  onClick={() => {
+                                    setEditingSchedule(s)
+                                    setScheduleForm({
+                                      name: s.name,
+                                      event_type: s.event_type,
+                                      template_id: s.template_id ?? '',
+                                      send_days: s.send_days,
+                                      send_hour: s.send_hour,
+                                      send_minute: s.send_minute,
+                                      timezone: s.timezone,
+                                      is_active: s.is_active,
+                                      activity_id: s.activity_id ?? '',
+                                      execution_at: toLocalDateTimeInput(s.execution_at),
+                                    })
+                                    setShowScheduleModal(true)
+                                  }}
+                                  title="Edit jadwal"
+                                >
+                                  <EditOutlined />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12 }}
+                                  onClick={() => handleToggleSchedule(s)}
+                                  title={s.is_active ? 'Nonaktifkan jadwal' : 'Aktifkan jadwal'}
+                                >
+                                  {s.is_active ? <StopOutlined style={{ color: 'var(--sf-warning)' }} /> : <CheckCircleOutlined style={{ color: 'var(--sf-success)' }} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-danger)' }}
+                                  onClick={() => handleDeleteSchedule(s.id)}
+                                  title="Hapus jadwal"
+                                >
+                                  <DeleteOutlined />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
           {/* TAB 3: RIWAYAT PENGIRIMAN */}
-          {activeTab === 'logs' && (
+          {(activeTab === 'logs' || activeTab === 'mine') && (
             <div>
               {/* Filter bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {!isAdmin && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>Filter Jenis:</span>
                     <select
@@ -867,10 +1483,16 @@ export function NotificationScreen() {
                       <option value="read">Sudah Dibaca</option>
                     </select>
                   </div>
-                </div>
+                  </div>
+                )}
 
+                {isAdmin && (
+                  <h3 style={{ margin: 0, fontSize: 16 }}>
+                    {activeTab === 'mine' ? 'Riwayat Saya' : 'Riwayat Sistem'}
+                  </h3>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <button
+                  {!isAdmin && <button
                     type="button"
                     className="sf-btn-outline"
                     onClick={handleMarkAllAsRead}
@@ -886,7 +1508,7 @@ export function NotificationScreen() {
                     title="Tandai semua notifikasi sebagai sudah dibaca"
                   >
                     <CheckCircleOutlined /> Tandai Semua Dibaca
-                  </button>
+                  </button>}
                   <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
                     Total riwayat tersimpan: {logsTotal}
                   </div>
@@ -912,35 +1534,36 @@ export function NotificationScreen() {
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Event</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul & Pesan</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Kirim</th>
-                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Baca</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>
+                          {isAdmin ? 'Hasil Pengiriman' : 'Status Baca'}
+                        </th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {logs.map((l) => (
-                        <tr
-                          key={l.id}
-                          onClick={() => handleOpenLogPreview(l)}
-                          style={{
-                            borderBottom: '1px solid var(--sf-border)',
-                            cursor: 'pointer',
-                            background: !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
-                          }}
-                        >
+                      {logs.map((l) => {
+                        const statusDisplay = getDeliveryStatusDisplay(l.status, isAdmin)
+                        return (
+                          <tr
+                            key={l.id}
+                            onClick={() => handleOpenLogPreview(l)}
+                            style={{
+                              borderBottom: '1px solid var(--sf-border)',
+                              cursor: 'pointer',
+                              background: !isAdmin && !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
+                            }}
+                          >
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--sf-text-muted)', fontSize: 12 }}>
-                            {new Date(l.created_at).toLocaleString('id-ID', {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            })}
+                            {formatJakartaDateTime(l.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant="gray">
+                            <Badge variant={getNotificationBadgeVariant(l.event_type)}>
                               {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
                             </Badge>
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                              {!l.is_read && (
+                              {!isAdmin && !l.is_read && (
                                 <span
                                   style={{
                                     width: 8,
@@ -953,19 +1576,26 @@ export function NotificationScreen() {
                                   title="Belum dibaca"
                                 />
                               )}
-                              <span style={{ fontWeight: l.is_read ? 500 : 700, color: 'var(--sf-text)' }}>
+                              <span style={{ fontWeight: !isAdmin && !l.is_read ? 700 : 500, color: 'var(--sf-text)' }}>
                                 {l.title}
                               </span>
+                              {l.activity_relation === 'sent_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Dikirim oleh Saya</span>}
+                              {l.activity_relation === 'received_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Diterima oleh Saya</span>}
+                              {l.activity_relation === 'performed_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Tindakan Saya</span>}
                             </div>
                             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 460 }}>
-                              {l.body}
+                              {renderNotificationBody(l.body, l.event_type, l.dedup_key)}
                             </div>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant="green">TERKIRIM</Badge>
+                            <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            {l.is_read ? (
+                            {isAdmin ? (
+                              l.delivery_counts_available
+                                ? `${l.sent_count ?? 0} / ${l.recipients_count ?? 0}`
+                                : 'Tidak dicatat'
+                            ) : l.is_read ? (
                               <Badge variant="gray">Sudah Dibaca</Badge>
                             ) : (
                               <Badge variant="blue">Belum Dibaca</Badge>
@@ -984,8 +1614,9 @@ export function NotificationScreen() {
                               <EyeOutlined style={{ marginRight: 4 }} /> Detail
                             </button>
                           </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
 
@@ -1020,8 +1651,6 @@ export function NotificationScreen() {
               )}
             </div>
           )}
-        </>
-      )}
 
       {/* MODAL: Tambah Template */}
       {showCreateModal && (
@@ -1039,10 +1668,11 @@ export function NotificationScreen() {
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                   Jenis Event Notifikasi
                 </label>
-                <select
+                <SystemEventSelect
+                  id="create-template-event-select"
                   value={createForm.event_type}
-                  onChange={(e) => {
-                    const ev = e.target.value
+                  options={customizableSystemTypes}
+                  onChange={(ev) => {
                     const found = systemTypes.find((t) => t.event_type === ev)
                     setCreateForm((prev) => ({
                       ...prev,
@@ -1051,14 +1681,8 @@ export function NotificationScreen() {
                       body: found?.default_body || prev.body,
                     }))
                   }}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
-                >
-                  {systemTypes.map((st) => (
-                    <option key={st.event_type} value={st.event_type}>
-                      {st.name} ({st.event_type})
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Jenis Event Notifikasi"
+                />
               </div>
 
               <div style={{ marginBottom: 14 }}>
@@ -1105,16 +1729,24 @@ export function NotificationScreen() {
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                     Gambar Notifikasi (Opsional - JPEG, PNG, WebP)
                   </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => handleFileUpload(e, 'create')}
-                      disabled={uploadingImage}
-                      style={{ fontSize: 12 }}
-                    />
-                    {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>Mengunggah...</span>}
-                  </div>
+                  <input
+                    ref={createImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileUpload(e, 'create')}
+                    disabled={uploadingImage}
+                    hidden
+                  />
+                  <button
+                    type="button"
+                    className="sf-btn-outline"
+                    onClick={() => createImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    style={{ fontSize: 13 }}
+                  >
+                    {uploadingImage ? 'Mengunggah...' : 'Pilih gambar'}
+                  </button>
+                  {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {createForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
                       <img
@@ -1176,7 +1808,8 @@ export function NotificationScreen() {
             <ModalFooter>
               <button
                 type="button"
-                className="sf-btn-outline"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
                 onClick={() => setShowCreateModal(false)}
                 disabled={formSubmitting}
               >
@@ -1197,7 +1830,7 @@ export function NotificationScreen() {
       {/* MODAL: Edit Template */}
       {editingTemplate && (
         <Modal open={!!editingTemplate} onClose={() => setEditingTemplate(null)}>
-          <ModalHeader title={`Edit Template: ${editingTemplate.name}`} onClose={() => setEditingTemplate(null)} />
+          <ModalHeader title={`Ubah Template: ${editingTemplate.name}`} onClose={() => setEditingTemplate(null)} />
           <form onSubmit={handleEditSubmit}>
             <ModalBody>
               {formError && (
@@ -1247,16 +1880,24 @@ export function NotificationScreen() {
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                     Gambar Notifikasi (Opsional - JPEG, PNG, WebP)
                   </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => handleFileUpload(e, 'edit')}
-                      disabled={uploadingImage}
-                      style={{ fontSize: 12 }}
-                    />
-                    {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>Mengunggah...</span>}
-                  </div>
+                  <input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileUpload(e, 'edit')}
+                    disabled={uploadingImage}
+                    hidden
+                  />
+                  <button
+                    type="button"
+                    className="sf-btn-outline"
+                    onClick={() => editImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    style={{ fontSize: 13 }}
+                  >
+                    {uploadingImage ? 'Mengunggah...' : 'Pilih gambar'}
+                  </button>
+                  {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {editForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
                       <img
@@ -1330,7 +1971,8 @@ export function NotificationScreen() {
             <ModalFooter>
               <button
                 type="button"
-                className="sf-btn-outline"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
                 onClick={() => setEditingTemplate(null)}
                 disabled={formSubmitting}
               >
@@ -1421,7 +2063,9 @@ export function NotificationScreen() {
             </div>
             <div style={{ background: 'var(--sf-card-bg)', border: '1px solid var(--sf-border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{confirmBroadcastItem.title}</div>
-              <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>{confirmBroadcastItem.body}</div>
+              <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                {renderNotificationBody(confirmBroadcastItem.body, confirmBroadcastItem.event_type)}
+              </div>
               {confirmBroadcastItem.image_url && (
                 <div style={{ marginTop: 8 }}>
                   <img src={confirmBroadcastItem.image_url} alt="Lampiran" style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }} />
@@ -1494,7 +2138,7 @@ export function NotificationScreen() {
                   {previewItem.title}
                 </div>
                 <div style={{ fontSize: 13, color: '#CBD5E1', lineHeight: 1.4 }}>
-                  {previewItem.body}
+                  {renderNotificationBody(previewItem.body, previewItem.eventType, previewItem.dedupKey)}
                 </div>
                 {previewItem.imageUrl && (
                   <div style={{ marginTop: 10 }}>
@@ -1517,6 +2161,246 @@ export function NotificationScreen() {
               Tutup Preview
             </button>
           </ModalFooter>
+        </Modal>
+      )}
+
+      {/* MODAL: Tambah/Edit Jadwal */}
+      {showScheduleModal && (
+        <Modal open={showScheduleModal} onClose={() => setShowScheduleModal(false)}>
+          <ModalHeader
+            title={editingSchedule ? `Edit Jadwal: ${editingSchedule.name}` : 'Buat Jadwal Baru'}
+            onClose={() => setShowScheduleModal(false)}
+          />
+          <form onSubmit={handleSaveSchedule}>
+            <ModalBody>
+              {scheduleFormError && (
+                <div style={{ padding: 10, background: 'rgba(242, 73, 92, 0.1)', color: 'var(--sf-danger)', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>
+                  {scheduleFormError}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Nama Jadwal
+                </label>
+                <input
+                  type="text"
+                  value={scheduleForm.name}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, name: e.target.value })}
+                  placeholder="Misal: Pengingat Iuran Bulanan"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Jenis Notifikasi
+                </label>
+                <SystemEventSelect
+                  id="create-schedule-event-select"
+                  value={scheduleForm.event_type}
+                  options={schedulableSystemTypes}
+                  onChange={(ev) => {
+                    const found = systemTypes.find((t) => t.event_type === ev)
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      event_type: ev,
+                      template_id: (found ? templates.find((t) => t.event_type === ev && t.is_active)?.id : '') || '',
+                    }))
+                  }}
+                  ariaLabel="Jenis Notifikasi"
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Template Pesan
+                </label>
+                <select
+                  value={scheduleForm.template_id}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, template_id: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                >
+                  {templates
+                    .filter((t) => t.event_type === scheduleForm.event_type && t.is_active)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  {templates.filter((t) => t.event_type === scheduleForm.event_type && t.is_active).length === 0 && (
+                    <option value="" disabled>
+                      Tidak ada template aktif untuk jenis notifikasi ini
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              {scheduleForm.event_type === 'activity_reminder' ? (
+                <>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                      Kegiatan yang Diingatkan
+                    </label>
+                    <select
+                      value={scheduleForm.activity_id}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, activity_id: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                    >
+                      <option value="">{activities.length === 0 ? 'Tidak ada kegiatan terbit — buat kegiatan dahulu' : '-- Pilih kegiatan --'}</option>
+                      {activities.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.title} — {new Date(a.starts_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                      Hanya kegiatan yang sudah diterbitkan (publikasi) yang dapat dipakai untuk pengingat.
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                      Waktu Pengiriman Pengingat
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={scheduleForm.execution_at}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, execution_at: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                      Pengingat akan dikirim otomatis pada waktu ini — satu kali saja. Setelah kegiatan selesai atau dibatalkan, jadwal ini otomatis nonaktif.
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {scheduleForm.event_type === 'activity_reminder' ? null : (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Tanggal Pengiriman (1-31)
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[...Array(31)].map((_, i) => {
+                    const day = i + 1
+                    const selected = scheduleForm.send_days.includes(day)
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          const next = selected
+                            ? scheduleForm.send_days.filter((d) => d !== day)
+                            : [...scheduleForm.send_days, day]
+                          setScheduleForm({ ...scheduleForm, send_days: next })
+                        }}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          border: selected ? '1px solid var(--sf-accent)' : '1px solid var(--sf-border)',
+                          background: selected ? 'var(--sf-accent)' : 'var(--sf-bg)',
+                          color: selected ? '#fff' : 'var(--sf-text)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+                {scheduleForm.send_days.length === 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--sf-danger)', marginTop: 4 }}>
+                    Pilih minimal satu tanggal
+                  </div>
+                )}
+              </div>
+              )}
+
+              {scheduleForm.event_type === 'activity_reminder' ? null : (
+              <>
+              <div style={{ marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    Jam
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="23"
+                    value={scheduleForm.send_hour}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(23, parseInt(e.target.value) || 0))
+                      setScheduleForm({ ...scheduleForm, send_hour: v })
+                    }}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    Menit
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={scheduleForm.send_minute}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0))
+                      setScheduleForm({ ...scheduleForm, send_minute: v })
+                    }}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Timezone
+                </label>
+                <input
+                  type="text"
+                  value={scheduleForm.timezone}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, timezone: e.target.value })}
+                  placeholder="Asia/Jakarta"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                />
+              </div>
+              </>
+              )}
+
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  id="scheduleIsActive"
+                  checked={editingSchedule ? editingSchedule.is_active : scheduleForm.is_active}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, is_active: e.target.checked })}
+                />
+                <label htmlFor="scheduleIsActive" style={{ fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  Aktifkan jadwal ini
+                </label>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <button
+                type="button"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
+                onClick={() => setShowScheduleModal(false)}
+                disabled={scheduleFormSubmitting}
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="sf-btn-primary"
+                disabled={scheduleFormSubmitting}
+              >
+                {scheduleFormSubmitting ? 'Menyimpan...' : editingSchedule ? 'Simpan Perubahan' : 'Buat Jadwal'}
+              </button>
+            </ModalFooter>
+          </form>
         </Modal>
       )}
     </div>

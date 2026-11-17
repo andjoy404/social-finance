@@ -14,6 +14,8 @@ import { hasWargaWriteAccess, hasWargaImportAccess, hasWargaExportAccess } from 
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
+import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
@@ -91,21 +93,35 @@ function formatOccupancyStatus(status: 'OWNER' | 'TENANT' | null | undefined): {
 
 function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'default' {
   if (!jabatan || jabatan.trim() === '') return 'default'
-  switch (jabatan) {
+  const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
+  switch (key) {
     case 'ketua':
+    case 'ketua_rt':
       return 'violet'
     case 'wakil_ketua':
+    case 'wakil_ketua_rt':
       return 'blue'
     case 'sekretaris':
+    case 'sekretaris_rt':
       return 'green'
     case 'bendahara':
+    case 'bendahara_rt':
       return 'amber'
     case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
       return 'gray'
     case 'keamanan':
+    case 'keamanan_rt':
+    case 'seksi_keamanan':
+    case 'seksi_keamanan_rt':
       return 'red'
-    case 'kebersihan_pembangunan':
+    case 'operasional':
+    case 'operasional_rt':
       return 'blue'
+    case 'kebersihan':
+    case 'kebersihan_rt':
+      return 'green'
     default:
       return 'default'
   }
@@ -113,21 +129,35 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
 
 function getJabatanLabel(jabatan: string | null | undefined): string {
   if (!jabatan || jabatan.trim() === '') return '\u2014'
-  switch (jabatan) {
+  const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
+  switch (key) {
     case 'ketua':
+    case 'ketua_rt':
       return 'Ketua RT'
     case 'wakil_ketua':
-      return 'Wakil Ketua RT'
+    case 'wakil_ketua_rt':
+      return 'Wakil Ketua'
     case 'sekretaris':
-      return 'Sekretaris RT'
+    case 'sekretaris_rt':
+      return 'Sekretaris'
     case 'bendahara':
-      return 'Bendahara RT'
+    case 'bendahara_rt':
+      return 'Bendahara'
     case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
       return 'Seksi Sosial'
     case 'keamanan':
-      return 'Seksi Keamanan'
-    case 'kebersihan_pembangunan':
+    case 'keamanan_rt':
+    case 'seksi_keamanan':
+    case 'seksi_keamanan_rt':
+      return 'Keamanan'
+    case 'operasional':
+    case 'operasional_rt':
       return 'Operasional'
+    case 'kebersihan':
+    case 'kebersihan_rt':
+      return 'Kebersihan'
     default:
       return jabatan
   }
@@ -156,27 +186,49 @@ export function ResidentList() {
   if (!user) return null
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
-  const isPengurus = user.role === 'pengurus'
+  const isKetua = (user.jabatan ?? '').trim().toLowerCase() === 'ketua' || (user.jabatan ?? '').trim().toLowerCase() === 'ketua_rt'
   const canWrite = hasWargaWriteAccess(user)
   const canImport = hasWargaImportAccess(user)
   const canExport = hasWargaExportAccess(user)
-  const showNik = isPengurus || isSuperAdmin
+  // Sensitive resident data (NIK, phone, email) is strictly viewable by Ketua RT only.
+  const showNik = isKetua
+  const canSeePhone = isKetua
+  const canSeeEmail = isKetua
 
   const [choiceOpen, setChoiceOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
-  // RT selection state for super_admin import/export.
+  // RT selection state for super_admin.
   // Non-super-admin users (Ketua RT, Pengurus, Bendahara) operate within their
-  // own RT only — default importRtId to the user's RT so the preview/commit
-  // button can enable after a valid file is selected. Super Admin must
-  // explicitly select an RT (remains undefined until chosen); never auto-select
-  // the first RT.
-  const [importRtId, setImportRtId] = useState<string | undefined>(() => {
-    if (isSuperAdmin) return undefined
+  // own RT only. Super Admin must select an RT to view and manage residents.
+  const [selectedRtId, setSelectedRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
     return user.rt?.id ?? undefined
   })
-  const [exportRtId, setExportRtId] = useState<string | undefined>()
+  const [importRtId, setImportRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
+    return user.rt?.id ?? undefined
+  })
+  const [exportRtId, setExportRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
+    return user.rt?.id ?? undefined
+  })
   const [importRtList, setImportRtList] = useState<ApiRT[]>([])
   const [exportRtList, setExportRtList] = useState<ApiRT[]>([])
   const [rtFetchError, setRtFetchError] = useState<string | null>(null)
@@ -285,6 +337,18 @@ export function ResidentList() {
     prevImportRtIdRef.current = importRtId
   }, [importOpen, importRtId, resetImportPreview])
 
+  const handleRtChange = useCallback((val: string | undefined) => {
+    setSelectedRtId(val)
+    setExportRtId(val)
+    setImportRtId(val)
+    if (val && typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.setItem('sf_active_rt_id', val) } catch { /* ignore */ }
+    } else if (typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.removeItem('sf_active_rt_id') } catch { /* ignore */ }
+    }
+    setPage(1)
+  }, [])
+
   const fetchResidents = useCallback(async (p: number, size: number) => {
     // Abort any in-flight request before starting a new one
     abortRef.current?.abort()
@@ -305,6 +369,10 @@ export function ResidentList() {
         page: p,
         page_size: size,
         signal: controller.signal,
+      }
+
+      if (isSuperAdmin && selectedRtId) {
+        params.rt_id = selectedRtId
       }
 
       if (filterType === 'status' && statusValue === 'aktif') params.is_active = true
@@ -338,7 +406,11 @@ export function ResidentList() {
         setLoading(false)
       }
     }
-  }, [filterType, statusValue, search])
+  }, [filterType, statusValue, search, isSuperAdmin, selectedRtId])
+
+  const reloadResidents = useCallback(() => {
+    void fetchResidents(page, pageSize)
+  }, [fetchResidents, page, pageSize])
 
   useEffect(() => {
     void fetchResidents(page, pageSize)
@@ -359,6 +431,20 @@ export function ResidentList() {
     }
     window.addEventListener('warga:refresh', handleRefresh)
     return () => window.removeEventListener('warga:refresh', handleRefresh)
+  }, [fetchResidents, page, pageSize])
+
+  // Refetch when user returns to the tab (e.g. after Android changes data in
+  // another window/tab). Throttled to avoid excessive refetches.
+  const focusAtRef = useRef(0)
+  useEffect(() => {
+    const handleFocus = () => {
+      const now = Date.now()
+      if (now - focusAtRef.current < 2000) return
+      focusAtRef.current = now
+      void fetchResidents(page, pageSize)
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
   }, [fetchResidents, page, pageSize])
 
   const handleFilter = (filter: FilterType) => {
@@ -412,8 +498,13 @@ export function ResidentList() {
   }, [residentList, occupancyFilter])
 
   const handleDetail = useCallback((id: string) => {
+    const selected = residentList.find((item) => item.id === id)
+    if (selected?.jabatan && !selected.household_id) {
+      navigate(`/warga/special/${id}`)
+      return
+    }
     navigate(`/warga/${id}`)
-  }, [navigate])
+  }, [navigate, residentList])
 
   const handleEdit = useCallback((id: string) => {
     navigate(`/warga/${id}/edit`)
@@ -464,7 +555,7 @@ export function ResidentList() {
           <div className="sf-page-header-copy">
             <div className="sf-page-header-title-text">Daftar Warga</div>
             <div className="sf-page-header-subtitle">
-              {user.rt?.name ? `Manajemen warga dan kepala keluarga \u2014 ${user.rt.name}` : 'Manajemen warga dan kepala keluarga'}
+              {user.rt?.name ? `Manajemen data warga \u2014 ${user.rt.name}` : 'Manajemen data warga'}
             </div>
           </div>
         </div>
@@ -488,7 +579,7 @@ export function ResidentList() {
               value={search}
               onChange={(v) => setSearch(v)}
               onSearch={handleSearch}
-              placeholder="Cari nama warga/NIK..."
+              placeholder={showNik ? "Cari nama warga/NIK..." : "Cari nama warga..."}
               statusControl={
                 filterType === 'status' ? (
                   <div className="sf-status-selector">
@@ -591,16 +682,15 @@ export function ResidentList() {
 
           {/* Action buttons — hidden for unauthorized users */}
           <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Super Admin: RT selector for import/export */}
+            {/* Super Admin: RT selector */}
             {isSuperAdmin && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--sf-text-muted)' }}>
                 <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
                 <select
-                  value={exportRtId || ''}
+                  value={selectedRtId || ''}
                   onChange={(e) => {
                     const val = e.target.value || undefined
-                    setExportRtId(val)
-                    setImportRtId(val)
+                    handleRtChange(val)
                   }}
                   style={{
                     padding: '4px 8px',
@@ -608,7 +698,7 @@ export function ResidentList() {
                     borderRadius: 'var(--sf-radius-sm)',
                     border: '1px solid var(--sf-border)',
                     background: 'var(--sf-bg)',
-                    color: exportRtId ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                    color: selectedRtId ? 'var(--sf-text)' : 'var(--sf-text-muted)',
                     cursor: 'pointer',
                     minWidth: 140,
                   }}
@@ -733,6 +823,9 @@ export function ResidentList() {
                     onDetail={handleDetail}
                     onEdit={handleEdit}
                     onEditSpecial={handleEditSpecial}
+                    canSeePhone={canSeePhone}
+                    canSeeEmail={canSeeEmail}
+                    onRefresh={reloadResidents}
                   />
                 ))}
               </tbody>
@@ -764,9 +857,12 @@ interface ResidentRowProps {
   onDetail: (id: string) => void
   onEdit: (id: string) => void
   onEditSpecial: (id: string) => void
+  canSeePhone: boolean
+  canSeeEmail: boolean
+  onRefresh: () => void
 }
 
-function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, onRefresh }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -815,7 +911,31 @@ function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
 
       {/* 4. NAMA */}
       <td className="col-name" style={{ ...colStyles.name, fontWeight: 600 }}>
-        {resident.full_name}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <ResidentAvatar
+              name={resident.full_name}
+              avatarPath={resident.avatar_path ?? null}
+              avatarThumbPath={resident.avatar_thumb_path ?? null}
+              size={32}
+            />
+          </span>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span>{resident.full_name}</span>
+            <ResidentPhotoManage
+              residentId={resident.id}
+              fullName={resident.full_name}
+              avatarPath={resident.avatar_path ?? null}
+              onChanged={() => {
+                void onRefresh()
+              }}
+              compact
+            />
+          </span>
+        </div>
       </td>
 
       {/* 5. NIK */}
@@ -827,12 +947,12 @@ function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
 
       {/* 6. TELEPON */}
       <td className="col-phone" style={colStyles.phone}>
-        {formatPhoneDisplay(resident.phone)}
+        {canSeePhone ? formatPhoneDisplay(resident.phone) : '\u2014'}
       </td>
 
       {/* 7. EMAIL */}
       <td className="col-email" style={colStyles.email}>
-        {formatNull(resident.email ?? null)}
+        {canSeeEmail ? formatNull(resident.email ?? null) : '\u2014'}
       </td>
 
       {/* 8. STATUS HUNIAN */}

@@ -40,7 +40,7 @@ type LoginResponse struct {
 // refreshRequest is the body of a refresh POST request.
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
-	DeviceID   string `json:"device_id,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
 }
 
 // logoutRequest is the body of a logout POST request.
@@ -177,19 +177,23 @@ func (h *Handler) handleResetPasswordWithCode(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	// Normalize identifier: lower for email or normalized phone
+	// Normalize identifier: lower for email or normalized phone (supports local 08... and legacy +62...)
 	lowerEmail := strings.ToLower(identifier)
-	canonPhone := ""
-	if cp, err := NormalizePhone(identifier); err == nil {
-		canonPhone = cp
+	phoneLocal := ""
+	phoneCanon := ""
+	if cp, err := NormalizePhone(identifier); err == nil && cp != "" {
+		phoneLocal = cp
+		if strings.HasPrefix(cp, "0") {
+			phoneCanon = "+62" + cp[1:]
+		}
 	}
 
 	var userID string
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM users
-		WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+		WHERE (lower(email) = $1 OR ($2 != '' AND (phone = $2 OR phone = $3))) AND is_active = true
 		LIMIT 1
-	`, lowerEmail, canonPhone).Scan(&userID)
+	`, lowerEmail, phoneLocal, phoneCanon).Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_identity", "identitas akun atau kode tidak cocok")
 		return
@@ -364,16 +368,20 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 			trimmedPass := strings.TrimSpace(req.Password)
 			if len(trimmedPass) == 4 && regexp.MustCompile(`^[0-9]{4}$`).MatchString(trimmedPass) {
 				lowerIdent := strings.ToLower(strings.TrimSpace(identifier))
-				canonPhone := ""
-				if cp, err := NormalizePhone(identifier); err == nil {
-					canonPhone = cp
+				phoneLocal := ""
+				phoneCanon := ""
+				if cp, err := NormalizePhone(identifier); err == nil && cp != "" {
+					phoneLocal = cp
+					if strings.HasPrefix(cp, "0") {
+						phoneCanon = "+62" + cp[1:]
+					}
 				}
 				var uID string
 				_ = tx.QueryRowContext(ctx, `
 					SELECT id FROM users
-					WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+					WHERE (lower(email) = $1 OR ($2 != '' AND (phone = $2 OR phone = $3))) AND is_active = true
 					LIMIT 1
-				`, lowerIdent, canonPhone).Scan(&uID)
+				`, lowerIdent, phoneLocal, phoneCanon).Scan(&uID)
 				if uID != "" {
 					var cHash string
 					var expAt time.Time
@@ -579,16 +587,19 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err {
 		case ErrNotAuthorized:
+			slog.Error("handleMe: profile not authorized", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "user profile not found")
 		case ErrUserNotFound:
+			slog.Error("handleMe: profile user not found", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "user profile not found")
 		default:
+			slog.Error("handleMe: get profile failed", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile")
 		}
 		return
 	}
 
-	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	profile.EffectivePermissions, err = effectivePermissions(ctx, tx, h.p, ac)
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
@@ -758,7 +769,7 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	profile.EffectivePermissions, err = effectivePermissions(ctx, tx, h.p, ac)
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
@@ -889,8 +900,8 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {
-	permissions := make([]string, 0, 4)
+func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {
+	permissions := make([]string, 0, 5)
 	roleAllowsRead := ac.TenantRole == RoleWarga ||
 		ac.TenantRole == RoleBendahara ||
 		ac.TenantRole == RolePengurus
@@ -909,17 +920,56 @@ func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.P
 		{code: "finance.create", roleAllows: roleAllowsManagement},
 		{code: "finance.update", roleAllows: roleAllowsManagement},
 		{code: "finance.approve", roleAllows: roleAllowsManagement},
+		{code: "notification.manage", roleAllows: false},
+		{code: "notification.read", roleAllows: false},
+		{code: "activities.read", roleAllows: roleAllowsRead},
+		{code: "activities.create", roleAllows: false},
+		{code: "activities.update", roleAllows: false},
+		{code: "activities.publish", roleAllows: false},
+		{code: "activities.cancel", roleAllows: false},
+		{code: "activities.delete", roleAllows: false},
+		{code: "announcements.read", roleAllows: roleAllowsRead},
+		{code: "announcements.create", roleAllows: false},
+		{code: "announcements.update", roleAllows: false},
+		{code: "announcements.publish", roleAllows: false},
+		{code: "announcements.archive", roleAllows: false},
+		{code: "announcements.delete", roleAllows: false},
+		{code: "banner_templates.read", roleAllows: roleAllowsRead},
+		{code: "banner_templates.manage", roleAllows: false},
+		{code: "organization.read", roleAllows: roleAllowsRead},
+		{code: "organization.contact.read", roleAllows: false},
+		{code: "rw.monitoring.read", roleAllows: false},
+		{code: "rw.monitoring.notes.write", roleAllows: false},
+		{code: "rw.monitoring.export", roleAllows: false},
+		{code: "security.attendance", roleAllows: false},
+		{code: "security.schedule.read", roleAllows: false},
+		{code: "security.schedule.write", roleAllows: false},
+		{code: "security.device.manage", roleAllows: false},
+		{code: "security.correction", roleAllows: false},
+		{code: "security.guest_book", roleAllows: false},
+		{code: "resident.profile_photo.manage", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)
 	for _, check := range checks {
-		// Jabatan-based users always go through the PermissionResolver to verify
-		// explicit position_permissions grants. Role-based users without jabatan
-		// are gated by roleAllows and then pass through the resolver (which
-		// returns true for role-based users without jabatan).
-		if ac.SystemRole != SystemRoleSuperAdmin && !check.roleAllows && ac.Jabatan == "" {
+		// System-level super_admin gets all permissions without DB query.
+		if ac.SystemRole == SystemRoleSuperAdmin {
+			permissions = append(permissions, check.code)
 			continue
 		}
+		// Users without an explicit jabatan (role-based users: warga, pengurus,
+		// bendahara) are gated by roleAllows. When roleAllows is true, the
+		// permission is granted based on TenantRole alone without consulting
+		// position_permissions. When roleAllows is false, the permission is
+		// denied for users without jabatan.
+		if ac.Jabatan == "" {
+			if check.roleAllows {
+				permissions = append(permissions, check.code)
+			}
+			continue
+		}
+		// Jabatan-based users always go through the PermissionResolver to verify
+		// explicit position_permissions grants.
 		allowed, err := resolver.HasPermission(ctx, tx, ac, check.code)
 		if err != nil {
 			return nil, fmt.Errorf("resolve effective permission %s: %w", check.code, err)

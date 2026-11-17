@@ -20,7 +20,7 @@ import { RtFormFields, type RtFormState } from './RtCreate'
 
 const positions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
-  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['kebersihan_pembangunan', 'Operasional'],
+  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['operasional', 'Operasional'], ['kebersihan', 'Kebersihan'],
 ]
 const label = rtPositionLabel
 const emptyRtForm: RtFormState = { name: '', rw_id: '', rw: '', rt: '', address: '', head_name: '' }
@@ -166,7 +166,11 @@ export function RtDetailModal({
     if (!rtForm.name.trim()) validationErrors.push('Nama RT harus diisi.')
     if (!rtForm.rw || !/^\d+$/.test(rtForm.rw)) validationErrors.push('RW harus angka yang valid.')
     if (rtForm.rw && /^\d+$/.test(rtForm.rw) && Number(rtForm.rw) < 0) validationErrors.push('RW tidak boleh negatif.')
-    if (!rtForm.rt.trim()) validationErrors.push('Kode RT harus diisi.')
+    if (!rtForm.rt.trim()) {
+      validationErrors.push('Kode RT harus diisi.')
+    } else if (!/^[0-9]{3}$/.test(rtForm.rt.trim())) {
+      validationErrors.push('Nomor RT harus tepat 3 digit angka (contoh: 002).')
+    }
     if (validationErrors.length > 0) {
       setEditValidationErrors(validationErrors)
       return
@@ -209,7 +213,6 @@ export function RtDetailModal({
   }
 
   const filteredMembers = members.filter((m) => {
-    if (m.jabatan) return false
     if (!selectorSearch.trim()) return true
     const q = selectorSearch.toLowerCase()
     return (
@@ -336,7 +339,7 @@ export function RtDetailModal({
         </div>
         {activeTab === 'ubah' ? (
           <form onSubmit={handleUpdateRt}>
-            <div id="rt-panel-ubah" role="tabpanel" aria-labelledby="rt-tab-ubah" tabIndex={0}>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
             <ModalBody>
               {editLoading && <div className="sf-loading" role="status">Memuat pilihan RW...</div>}
               {editError && (
@@ -388,7 +391,7 @@ export function RtDetailModal({
           </form>
         ) : (
           <>
-        <div id="rt-panel-jabatan" role="tabpanel" aria-labelledby="rt-tab-jabatan" tabIndex={0}>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         <ModalBody>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
@@ -513,6 +516,7 @@ export function RtDetailModal({
               <input
                 type="text"
                 className="sf-form-input"
+                role="button"
                 readOnly
                 value={selectedMember ? selectedMember.full_name || selectedMember.user_id : 'Pilih Warga...'}
                 onClick={() => {

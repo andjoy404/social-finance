@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { apiLogin, ApiError } from '@/app/api'
+import {
+  apiGetWasteTruckHistory,
+  apiGetWasteTruckTemplate,
+  apiLogin,
+  apiTriggerWasteTruckArrival,
+  apiUploadWasteTruckImage,
+  ApiError,
+} from '@/app/api'
 
 const win = globalThis as unknown as { fetch: typeof fetch }
 
@@ -387,5 +394,69 @@ describe('Authenticated API — 401 retry preserves cache headers', () => {
     const callArgs = (win.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit
     expect(callArgs.signal).toBe(controller.signal)
     expect(callArgs.cache).toBe('no-store')
+  })
+})
+
+describe('Security waste-truck APIs', () => {
+  const originalFetch = win.fetch
+
+  afterEach(() => {
+    win.fetch = originalFetch
+  })
+
+  it('uploads only the fixed waste-truck event with the authenticated request', async () => {
+    win.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: 'uploaded', image_url: '/images/truck.jpg', key: 'truck.jpg' }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    const file = new File(['image'], 'truck.jpg', { type: 'image/jpeg' })
+
+    await apiUploadWasteTruckImage('security-token', 'waste_truck_arrival', file)
+
+    const [url, init] = (win.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/notifications/waste-truck/upload-image')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer security-token')
+    expect((init.body as FormData).get('event_type')).toBe('waste_truck_arrival')
+    expect((init.body as FormData).get('file')).toMatchObject({ name: 'truck.jpg' })
+  })
+
+  it('sends and reads only the dedicated waste-truck notification resources', async () => {
+    const responses = [
+      { data: { id: 'template-1', event_type: 'waste_truck_arrival', name: 'Arrival', title: 'Truck', body: 'Arrived' } },
+      { status: 'accepted', message: 'Dispatch accepted' },
+      {
+        data: [{
+          id: 'dispatch-1',
+          event_type: 'waste_truck_arrival',
+          title: 'Truck',
+          body: 'Arrival message',
+          status: 'SENT',
+          created_at: '2026-11-06T01:00:00Z',
+        }],
+        pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+      },
+    ]
+    win.fetch = vi.fn().mockImplementation(async () => new Response(
+      JSON.stringify(responses.shift()),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+
+    const template = await apiGetWasteTruckTemplate('security-token')
+    const dispatch = await apiTriggerWasteTruckArrival('security-token', 'Additional note', '/images/truck.jpg')
+    const history = await apiGetWasteTruckHistory('security-token')
+
+    expect(template.event_type).toBe('waste_truck_arrival')
+    expect(dispatch.status).toBe('accepted')
+    expect(history.pagination.total).toBe(1)
+    expect(history.data[0].body).toBe('Arrival message')
+    const calls = (win.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const dispatchBody = JSON.parse((calls[1][1] as RequestInit).body as string)
+    expect(calls[1][0]).toContain('/notifications/waste-truck')
+    expect(dispatchBody).toEqual({ message: 'Additional note', image_url: '/images/truck.jpg' })
+    expect(dispatchBody).not.toHaveProperty('sender_user_id')
+    expect(dispatchBody).not.toHaveProperty('rt_id')
+    expect(calls[2][0]).toContain('/notifications/waste-truck/history?page=1&per_page=20')
   })
 })

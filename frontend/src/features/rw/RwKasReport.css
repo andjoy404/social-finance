@@ -1,0 +1,90 @@
+/* Laporan KAS RW — versi cetak (print-only), dirender melalui portal ke
+   document.body, DI LUAR #root. Terlihat hanya pada mode print.
+
+   Latar belakang: bundle produksi memberi `#root{display:none !important}`
+   pada `@media print` (dari MonitoringScreen). Konsekuensinya, seluruh
+   laporan yang hidup di dalam #root — termasuk Laporan KAS RW — tidak pernah
+   ikut tercetak. Dokumen cetak resmi karena itu dirender ke portal di luar
+   #root, pola yang sama yang dipakai halaman Monitoring. */
+
+.sf-kas-print-report {
+  display: none;
+}
+
+@media print {
+  #root {
+    display: none !important;
+  }
+
+  .sf-kas-print-report {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    color: #111;
+    background: #ffffff;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  .sf-kas-print-report,
+  .sf-kas-print-report * {
+    visibility: visible !important;
+  }
+
+  /* Identik dengan .sf-kas-doc on-screen, namun dipaksa mengisi halaman
+     tanpa ukuran pabrik dan tanpa tepi kartu. */
+  .sf-kas-print-report .sf-kas-doc {
+    max-width: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+    background: #ffffff;
+    color: #000;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-scroll {
+    overflow: visible;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-table {
+    font-size: 12px;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-table thead {
+    display: table-header-group;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-empty {
+    padding: 12px;
+    text-align: center;
+    font-size: 13px;
+    color: #444;
+  }
+
+  .sf-kas-print-report .sf-kas-doc-foot {
+    margin-top: 10px;
+    font-size: 10px;
+    color: #444;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+}

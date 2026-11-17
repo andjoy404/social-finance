@@ -155,36 +155,25 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
 
   Widget _buildFab(BuildContext context) {
     final accentSoft = AppColors.accentSoftColor(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: accentSoft,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
+    return SizedBox(
+      height: 48,
+      child: OutlinedButton(
+        onPressed: () => context.push('/home/iuran/form'),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: accentSoft,
+          side: const BorderSide(color: AppColors.accent, width: 1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.base),
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.none,
-        child: InkWell(
-          onTap: () => context.push('/home/iuran/form'),
-          borderRadius: BorderRadius.circular(24),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add, size: 20, color: AppColors.accent),
-                SizedBox(width: 4),
-                Icon(Icons.receipt_long, size: 18, color: AppColors.accent),
-              ],
-            ),
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add, size: 20, color: AppColors.accent),
+            SizedBox(width: 4),
+            Icon(Icons.receipt_long, size: 18, color: AppColors.accent),
+          ],
         ),
       ),
     );

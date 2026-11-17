@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,18 +16,22 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
+	"social-finance/internal/notification"
 	httpx "social-finance/internal/http"
 )
 
+var threeDigitRegex = regexp.MustCompile(`^[0-9]{3}$`)
+
 // Handler handles RT HTTP endpoints.
 type Handler struct {
-	svc *RTManager
-	p   *database.Pool
+	svc      *RTManager
+	p        *database.Pool
+	notifSvc notification.Service
 }
 
 // NewHandler creates a new RT handler.
-func NewHandler(svc *RTManager, pool *database.Pool) *Handler {
-	return &Handler{svc: svc, p: pool}
+func NewHandler(svc *RTManager, pool *database.Pool, notifSvc notification.Service) *Handler {
+	return &Handler{svc: svc, p: pool, notifSvc: notifSvc}
 }
 
 // CreateRequest is the body of a Create RT POST request.
@@ -50,19 +57,21 @@ type UpdateRequest struct {
 
 // CreateRWRequest is the body of a Create RW POST request.
 type CreateRWRequest struct {
-	RWNumber int     `json:"rw_number"`
-	Name     string  `json:"name"`
-	HeadName *string `json:"head_name,omitempty"`
-	Address  *string `json:"address,omitempty"`
+	RawRWNumber json.RawMessage `json:"rw_number"`
+	RWNumber    int             `json:"-"`
+	Name        string          `json:"name"`
+	HeadName    *string         `json:"head_name,omitempty"`
+	Address     *string         `json:"address,omitempty"`
 }
 
 // UpdateRWRequest is the body of an Update RW PATCH request.
 type UpdateRWRequest struct {
-	RWNumber *int    `json:"rw_number,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	HeadName *string `json:"head_name,omitempty"`
-	Address  *string `json:"address,omitempty"`
-	IsActive *bool   `json:"is_active,omitempty"`
+	RawRWNumber *json.RawMessage `json:"rw_number,omitempty"`
+	RWNumber    *int             `json:"-"`
+	Name        *string          `json:"name,omitempty"`
+	HeadName    *string          `json:"head_name,omitempty"`
+	Address     *string          `json:"address,omitempty"`
+	IsActive    *bool            `json:"is_active,omitempty"`
 }
 
 type setJabatanRequest struct {
@@ -379,10 +388,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, "rw must be >= 0", nil)
 		return
 	}
-	if strings.TrimSpace(req.RT) == "" {
-		httpx.WriteValidationError(w, "rt name is required", nil)
+	trimmedRT := strings.TrimSpace(req.RT)
+	if !threeDigitRegex.MatchString(trimmedRT) {
+		httpx.WriteValidationError(w, "nomor rt harus tepat 3 digit angka (contoh: 002)", nil)
 		return
 	}
+	req.RT = trimmedRT
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -420,6 +431,18 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create RT")
 		return
+	}
+
+	// Seed default notification templates and schedules for the new RT.
+	// Executed AFTER commit so the RT is guaranteed to exist across connections.
+	if h.notifSvc != nil {
+		if err := seedDefaultNotificationForRT(ctx, h.notifSvc, result.ID); err != nil {
+			slog.Error("failed to seed default notification for newly created RT",
+				"rt_id", result.ID,
+				"error", err,
+			)
+			// Non-fatal: RT and audit log are already committed; return 201 Created to prevent client retry storms.
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -575,6 +598,15 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.RT != nil {
+		trimmedRT := strings.TrimSpace(*req.RT)
+		if !threeDigitRegex.MatchString(trimmedRT) {
+			httpx.WriteValidationError(w, "nomor rt harus tepat 3 digit angka (contoh: 002)", nil)
+			return
+		}
+		req.RT = &trimmedRT
+	}
+
 	updateInput := &UpdateRTInput{
 		Name:     req.Name,
 		RWID:     req.RWID,
@@ -680,6 +712,13 @@ func (h *Handler) CreateRW(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
+	rawStr := strings.Trim(strings.TrimSpace(string(req.RawRWNumber)), "\"")
+	if !threeDigitRegex.MatchString(rawStr) {
+		httpx.WriteValidationError(w, "nomor rw harus tepat 3 digit angka (contoh: 016)", nil)
+		return
+	}
+	num, _ := strconv.Atoi(rawStr)
+	req.RWNumber = num
 	if req.RWNumber <= 0 {
 		httpx.WriteValidationError(w, "rw_number must be > 0", nil)
 		return
@@ -838,6 +877,15 @@ func (h *Handler) UpdateRW(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
+	if req.RawRWNumber != nil {
+		rawStr := strings.Trim(strings.TrimSpace(string(*req.RawRWNumber)), "\"")
+		if !threeDigitRegex.MatchString(rawStr) {
+			httpx.WriteValidationError(w, "nomor rw harus tepat 3 digit angka (contoh: 016)", nil)
+			return
+		}
+		num, _ := strconv.Atoi(rawStr)
+		req.RWNumber = &num
+	}
 	if req.RWNumber != nil && *req.RWNumber <= 0 {
 		httpx.WriteValidationError(w, "rw_number must be > 0", nil)
 		return
@@ -918,4 +966,141 @@ func (h *Handler) DeactivateRW(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// seedDefaultNotificationForRT creates the default iuran payment reminder
+// template and schedule for a newly created RT. It is idempotent: existing
+// templates or schedules for the same event type are left untouched so a
+// Ketua RT's customisation is never overwritten.
+func seedDefaultNotificationForRT(ctx context.Context, notifSvc notification.Service, rtID string) error {
+	// 1. Create default template if none exists for this event type.
+	existingTemplates, err := notifSvc.ListTemplates(ctx, rtID, "iuran_payment_reminder", nil)
+	if err != nil {
+		return fmt.Errorf("list templates: %w", err)
+	}
+	var templateID string
+	if len(existingTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Pembayaran Iuran",
+			EventType: "iuran_payment_reminder",
+			Channel:   "push",
+			Title:     "Pengingat Pembayaran Iuran",
+			Body:      "Anda masih memiliki tagihan iuran yang belum lunas. Segera lakukan pembayaran sebelum jatuh tempo.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default template: %w", err)
+		}
+		templateID = tmpl.ID
+	} else {
+		templateID = existingTemplates[0].ID
+	}
+
+	// 2. Create default schedule if none exists for this RT + event type.
+	existingSchedules, err := notifSvc.ListSchedules(ctx, rtID, "iuran_payment_reminder", nil)
+	if err != nil {
+		return fmt.Errorf("list schedules: %w", err)
+	}
+	if len(existingSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  "iuran_payment_reminder",
+			TemplateID: templateID,
+			Name:       "Pengingat Pembayaran Iuran Bulanan",
+			SendDays:   []int{2, 25},
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default schedule: %w", err)
+		}
+	}
+
+	allDays := make([]int, 31)
+	for i := 0; i < 31; i++ {
+		allDays[i] = i + 1
+	}
+
+	// 3. Seed default template + schedule for iuran_upcoming_due_3_months.
+	upcomingTemplates, err := notifSvc.ListTemplates(ctx, rtID, notification.EventUpcomingDue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list upcoming due templates: %w", err)
+	}
+	var upcomingTemplateID string
+	if len(upcomingTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)",
+			EventType: notification.EventUpcomingDue3Months,
+			Channel:   "push",
+			Title:     "Pengingat Pembayaran Iuran",
+			Body:      "Halo {{nama}}, kami mengingatkan bahwa tagihan iuran Anda akan jatuh tempo dalam waktu 3 bulan. Silakan periksa tagihan Anda dan lakukan pembayaran sesuai ketentuan. Terima kasih.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default upcoming due template: %w", err)
+		}
+		upcomingTemplateID = tmpl.ID
+	} else {
+		upcomingTemplateID = upcomingTemplates[0].ID
+	}
+
+	upcomingSchedules, err := notifSvc.ListSchedules(ctx, rtID, notification.EventUpcomingDue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list upcoming due schedules: %w", err)
+	}
+	if len(upcomingSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  notification.EventUpcomingDue3Months,
+			TemplateID: upcomingTemplateID,
+			Name:       "Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)",
+			SendDays:   allDays,
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default upcoming due schedule: %w", err)
+		}
+	}
+
+	// 4. Seed default template + schedule for iuran_overdue_3_months.
+	overdueTemplates, err := notifSvc.ListTemplates(ctx, rtID, notification.EventOverdue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list overdue templates: %w", err)
+	}
+	var overdueTemplateID string
+	if len(overdueTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Tunggakan Iuran (3 Bulan+)",
+			EventType: notification.EventOverdue3Months,
+			Channel:   "push",
+			Title:     "Pengingat Tunggakan Iuran",
+			Body:      "Halo {{nama}}, terdapat tagihan iuran Anda yang telah menunggak selama 3 bulan atau lebih. Mohon segera lakukan pembayaran untuk menyelesaikan kewajiban iuran Anda. Terima kasih.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default overdue template: %w", err)
+		}
+		overdueTemplateID = tmpl.ID
+	} else {
+		overdueTemplateID = overdueTemplates[0].ID
+	}
+
+	overdueSchedules, err := notifSvc.ListSchedules(ctx, rtID, notification.EventOverdue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list overdue schedules: %w", err)
+	}
+	if len(overdueSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  notification.EventOverdue3Months,
+			TemplateID: overdueTemplateID,
+			Name:       "Pengingat Tunggakan Iuran Bulanan (3 Bulan+)",
+			SendDays:   allDays,
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default overdue schedule: %w", err)
+		}
+	}
+
+	return nil
 }

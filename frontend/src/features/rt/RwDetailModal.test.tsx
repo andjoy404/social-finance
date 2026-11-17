@@ -113,7 +113,7 @@ describe('RwDetailModal', () => {
     expect(await screen.findByText('Tetapkan Jabatan RW')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'UBAH' }))
-    fireEvent.change(screen.getByLabelText('Nomor RW *'), { target: { value: '17' } })
+    fireEvent.change(screen.getByLabelText('Nomor RW *'), { target: { value: '017' } })
     fireEvent.change(screen.getByLabelText('Nama RW'), { target: { value: 'RW Melati' } })
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }))
 
@@ -123,7 +123,7 @@ describe('RwDetailModal', () => {
     expect(updateInit).toEqual(expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({
-        rw_number: 17,
+        rw_number: '017',
         name: 'RW Melati',
         head_name: 'Ketua RW',
         address: 'Jl. Melati',
@@ -258,12 +258,7 @@ describe('RwDetailModal', () => {
           },
         ],
       })
-      if (input.includes('/rws/rw-1/memberships')) return okResponse({
-        data: [
-          { ...mockMembers[0], jabatan: 'ketua', rt_name: 'RT 001', rt_id: 'rt-1' },
-          ...mockMembers.slice(1),
-        ],
-      })
+      if (input.includes('/rws/rw-1/memberships')) return okResponse({ data: mockMembers })
       if (input.includes('/rts?')) return okResponse({ data: mockRts, pagination: { total: 2, total_pages: 1 } })
       return okResponse({})
     })
@@ -310,6 +305,9 @@ describe('RwDetailModal', () => {
 
     // Click Budi Santoso in the member selector
     const memberModal = screen.getByText('Pilih Warga').closest('.sf-modal') as HTMLElement
+    await waitFor(() => {
+      expect(memberModal.querySelector('div[style*="cursor: pointer"]')).not.toBeNull()
+    })
     const memberItem = memberModal.querySelector('div[style*="cursor: pointer"]') as HTMLElement
     memberItem.click()
 

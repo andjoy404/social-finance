@@ -9,14 +9,17 @@ import (
 
 	chi "github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
+	"social-finance/internal/notification"
 )
 
 func TestRWJabatanNilAuthGuard(t *testing.T) {
 	// Build a router with RW membership routes (no DB pool needed for nil guard)
 	r := chi.NewRouter()
-	r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", NewHandler(nil, nil).SetRWJabatan)
-	r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", NewHandler(nil, nil).RemoveRWJabatan)
-	r.Get("/api/v1/rws/{id}/memberships", NewHandler(nil, nil).ListRWMemberships)
+	var notifSvc notification.Service
+	h := NewHandler(nil, nil, notifSvc)
+	r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", h.SetRWJabatan)
+	r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", h.RemoveRWJabatan)
+	r.Get("/api/v1/rws/{id}/memberships", h.ListRWMemberships)
 
 	cases := []struct {
 		method string

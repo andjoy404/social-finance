@@ -29,6 +29,7 @@ class _SpecialResidentCreateScreenState
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
   String _jabatan = 'keamanan';
   bool _isActive = true;
@@ -67,12 +68,12 @@ class _SpecialResidentCreateScreenState
     setState(() => _rtLoading = true);
     try {
       final repo = ref.read(wargaRepositoryProvider);
+      // No client-side RT whitelist: the backend enforces active+scoped
+      // access (super-admin fail-closed on SCOPED_RT_IDS). Show all RTs;
+      // out-of-scope picks will be rejected server-side.
       final rts = await repo.fetchRts();
-      final filteredRts = rts
-          .where((r) => ['002', '003'].contains(r['rt'] as String?))
-          .toList();
       if (mounted) {
-        setState(() => _rtOptions = filteredRts);
+        setState(() => _rtOptions = rts);
       }
     } catch (e) {
       // Silently fail
@@ -112,6 +113,13 @@ class _SpecialResidentCreateScreenState
       errors.add('RT Tujuan harus dipilih.');
     }
 
+    final pwd = _passwordCtrl.text.trim();
+    if (pwd.isEmpty) {
+      errors.add('Kata sandi harus diisi.');
+    } else if (pwd.length < 8) {
+      errors.add('Kata sandi minimal 8 karakter.');
+    }
+
     setState(() => _validationErrors = errors);
     return errors.isEmpty;
   }
@@ -132,6 +140,7 @@ class _SpecialResidentCreateScreenState
         nik: _nikCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
+        password: _passwordCtrl.text.trim(),
         isActive: _isActive,
       );
 
@@ -175,11 +184,11 @@ class _SpecialResidentCreateScreenState
             alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: OutlinedButton(
+              child: ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
@@ -191,33 +200,18 @@ class _SpecialResidentCreateScreenState
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
                 ),
+                child: const Text('Ya, Batalkan'),
               ),
             ),
           ),
@@ -242,8 +236,36 @@ class _SpecialResidentCreateScreenState
         await _confirmCancel();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Tambah Petugas'),
+        appBar: AppBar(title: const Text('Tambah Petugas')),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final gap = AppSpacing.md;
+                final buttonWidth = (availableWidth - 32 - gap) / 2;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildSimpanButton(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildBatalButton(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
         body: Form(
           key: _formKey,
@@ -339,8 +361,12 @@ class _SpecialResidentCreateScreenState
                         child: Text('Keamanan'),
                       ),
                       DropdownMenuItem(
-                        value: 'kebersihan_pembangunan',
+                        value: 'operasional',
                         child: Text('Operasional'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'kebersihan',
+                        child: Text('Kebersihan'),
                       ),
                     ],
                     onChanged: widget.isSuperAdmin
@@ -395,6 +421,15 @@ class _SpecialResidentCreateScreenState
                 label: 'Email',
                 hintText: 'nama@email.com',
                 keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Kata Sandi
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Kata Sandi',
+                hintText: 'Minimal 8 karakter',
+                obscureText: true,
               ),
               const SizedBox(height: AppSpacing.lg),
 
@@ -506,101 +541,67 @@ class _SpecialResidentCreateScreenState
                 const SizedBox(height: AppSpacing.lg),
               ],
 
-              // Horizontal buttons: Simpan + Batal
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _save,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.accent),
-                            foregroundColor: AppColors.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: _saving
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.accent,
-                                    ),
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.save_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Text('Simpan'),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.danger.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _confirmCancel,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: AppColors.danger),
-                            foregroundColor: AppColors.danger,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.close, size: 18),
-                              SizedBox(width: 6),
-                              Text('Batal'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.base),
+              const SizedBox.shrink(),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildSimpanButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      onPressed: _saving ? null : _save,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: _saving
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save_outlined, size: 18),
+                SizedBox(width: 6),
+                Text('Simpan'),
+              ],
+            ),
+    ),
+  );
+
+  Widget _buildBatalButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      onPressed: _saving ? null : _confirmCancel,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.close, size: 18),
+          SizedBox(width: 6),
+          Text('Batal'),
+        ],
+      ),
+    ),
+  );
 }

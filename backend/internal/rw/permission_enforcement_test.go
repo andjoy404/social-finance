@@ -335,21 +335,19 @@ func TestServiceCheckRWPermission_Direct(t *testing.T) {
 		require.NoError(t, svc.checkRWPermission(ac, rwID, "finance.approve"))
 	})
 
-	t.Run("wakil_ketua lacks update", func(t *testing.T) {
+	t.Run("wakil_ketua is read-only (lacks write operations)", func(t *testing.T) {
 		ac := &auth.AuthContext{
 			UserID: "test-wakil",
 			RWMemberships: []auth.RWMembership{
-				{RWID: rwID, Jabatan: "wakil_ketua"},
+				{RWID: rwID, Jabatan: "wakil_ketua", Source: auth.RWMembershipSourceExplicit},
 			},
 		}
 
 		require.NoError(t, svc.checkRWPermission(ac, rwID, "finance.read"))
-		require.NoError(t, svc.checkRWPermission(ac, rwID, "finance.create"))
-		require.NoError(t, svc.checkRWPermission(ac, rwID, "finance.approve"))
-
-		err := svc.checkRWPermission(ac, rwID, "finance.update")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "finance.update")
+		require.Error(t, svc.checkRWPermission(ac, rwID, "finance.create"))
+		require.Error(t, svc.checkRWPermission(ac, rwID, "finance.update"))
+		require.Error(t, svc.checkRWPermission(ac, rwID, "finance.approve"))
+		require.Error(t, svc.checkRWPermission(ac, rwID, "notification.manage"))
 	})
 
 	t.Run("sekretaris has only read", func(t *testing.T) {

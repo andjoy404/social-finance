@@ -12,8 +12,8 @@ const mockUser = {
   name: 'Test User',
   email: 'test@example.com',
   systemRole: null,
-  role: 'warga',
-  jabatan: null,
+  role: 'pengurus',
+  jabatan: 'ketua',
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -105,7 +105,7 @@ describe('W4.2C — HouseholdDetail rendering', () => {
       expect(screen.getByText('081234567890')).toBeInTheDocument()
     })
     await waitFor(() => {
-      const label = screen.getByText('Kepala Keluarga')
+      const label = screen.getByText('Penanggung Jawab')
       const container = label.parentElement
       expect(container?.querySelector('div:nth-child(2)')?.textContent).toBe('Budi Santoso')
     })

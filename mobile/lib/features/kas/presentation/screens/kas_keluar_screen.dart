@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -90,6 +91,14 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     _loadCategories();
   }
 
+  @override
+  void dispose() {
+    _tanggalCtrl.dispose();
+    _nominalCtrl.dispose();
+    _keteranganCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadCategories() async {
     try {
       final repo = ref.read(kasRepositoryProvider);
@@ -129,14 +138,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _tanggalCtrl.dispose();
-    _nominalCtrl.dispose();
-    _keteranganCtrl.dispose();
-    super.dispose();
-  }
-
   bool _validate() {
     final errors = <String>[];
 
@@ -150,15 +151,20 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       if (parsed == null || parsed <= 0) {
         errors.add('Nominal harus berupa angka yang lebih besar dari 0.');
       } else if (_selectedLocationId != null) {
-        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        final loc = _locations
+            .where((l) => l.id == _selectedLocationId)
+            .firstOrNull;
         if (loc != null && parsed > loc.balanceRupiah) {
-          errors.add('Nominal melebihi saldo lokasi dana (${RupiahFormatter.format(loc.balanceRupiah)}).');
+          errors.add(
+            'Nominal melebihi saldo lokasi dana (${RupiahFormatter.format(loc.balanceRupiah)}).',
+          );
         }
       }
     }
     if (_selectedExpenseCategory == null || _selectedExpenseCategory!.isEmpty) {
       errors.add('Kategori harus dipilih.');
-    } else if (_selectedExpenseCategory == 'Lain-lain' && _keteranganCtrl.text.trim().isEmpty) {
+    } else if (_selectedExpenseCategory == 'Lain-lain' &&
+        _keteranganCtrl.text.trim().isEmpty) {
       errors.add('Keterangan wajib diisi untuk kategori Lain-lain.');
     }
     if (_keteranganCtrl.text.trim().isEmpty) {
@@ -188,10 +194,13 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       }
 
       if (_selectedLocationId != null) {
-        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        final loc = _locations
+            .where((l) => l.id == _selectedLocationId)
+            .firstOrNull;
         if (loc != null && nominalInt > loc.balanceRupiah) {
           setState(() {
-            _error = 'Saldo lokasi dana tidak mencukupi. Saldo saat ini: ${RupiahFormatter.format(loc.balanceRupiah)}.';
+            _error =
+                'Saldo lokasi dana tidak mencukupi. Saldo saat ini: ${RupiahFormatter.format(loc.balanceRupiah)}.';
             _saving = false;
           });
           return;
@@ -203,16 +212,22 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
       final desc = _keteranganCtrl.text.trim();
 
-      final cat = _expenseCategories
-          .where((c) =>
-              c.name.toLowerCase() == _selectedExpenseCategory?.toLowerCase())
-          .firstOrNull ??
+      final cat =
+          _expenseCategories
+              .where(
+                (c) =>
+                    c.name.toLowerCase() ==
+                    _selectedExpenseCategory?.toLowerCase(),
+              )
+              .firstOrNull ??
           _expenseCategories.firstOrNull;
       final categoryId = _selectedCategoryId ?? cat?.id ?? '';
 
       String method = _paymentMethod;
       if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
-        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        final loc = _locations
+            .where((l) => l.id == _selectedLocationId)
+            .firstOrNull;
         if (loc != null) {
           final catName = loc.category.name.toLowerCase();
           if (catName == 'rekening') {
@@ -243,7 +258,14 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
           ),
         );
         // Refresh parent KAS list by popping with success
-        context.pop(true);
+        final routePath = GoRouterState.of(context).uri.path;
+        KasFormNavigationGuard.allowExitFor(routePath);
+        try {
+          context.pop(true);
+        } catch (_) {
+          KasFormNavigationGuard.revokeExitFor(routePath);
+          rethrow;
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -266,6 +288,19 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         imageQuality: 85,
       );
       if (picked != null && mounted) {
+        final file = File(picked.path);
+        final size = await file.length();
+        if (size > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ukuran berkas bukti maksimal 5 MB.'),
+                backgroundColor: AppColors.danger,
+              ),
+            );
+          }
+          return;
+        }
         setState(() {
           _proofFile = picked;
           _proofPreviewPath = picked.path;
@@ -283,72 +318,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     }
   }
 
-  Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -358,12 +327,42 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _confirmCancel();
+        await KasFormNavigationGuard.requestFormCancel(context);
       },
       child: Scaffold(
         appBar: AppBar(
           centerTitle: false,
           title: const Text('Tambah Kas Keluar'),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final gap = AppSpacing.md;
+                final buttonWidth = (availableWidth - 32 - gap) / 2;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildSimpanButton(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildBatalButton(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
         body: Form(
           key: _formKey,
@@ -508,10 +507,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   ),
                 ),
                 items: KasKeluarScreen.kExpenseCategories.map((cat) {
-                  return DropdownMenuItem<String>(
-                    value: cat,
-                    child: Text(cat),
-                  );
+                  return DropdownMenuItem<String>(value: cat, child: Text(cat));
                 }).toList(),
                 onChanged: (val) {
                   setState(() {
@@ -530,8 +526,12 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   hintText: 'Pilih lokasi pengambilan dana',
                   helperText: () {
                     if (_selectedLocationId == null) return null;
-                    final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
-                    return loc != null ? 'Saldo tersedia: ${RupiahFormatter.format(loc.balanceRupiah)}' : null;
+                    final loc = _locations
+                        .where((l) => l.id == _selectedLocationId)
+                        .firstOrNull;
+                    return loc != null
+                        ? 'Saldo tersedia: ${RupiahFormatter.format(loc.balanceRupiah)}'
+                        : null;
                   }(),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
@@ -545,7 +545,9 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   ..._locations.map((loc) {
                     return DropdownMenuItem<String?>(
                       value: loc.id,
-                      child: Text('${loc.name} (${RupiahFormatter.format(loc.balanceRupiah)})'),
+                      child: Text(
+                        '${loc.name} (${RupiahFormatter.format(loc.balanceRupiah)})',
+                      ),
                     );
                   }),
                 ],
@@ -553,7 +555,9 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   setState(() {
                     _selectedLocationId = val;
                     if (val != null) {
-                      final loc = _locations.where((l) => l.id == val).firstOrNull;
+                      final loc = _locations
+                          .where((l) => l.id == val)
+                          .firstOrNull;
                       if (loc != null) {
                         final cat = loc.category.name.toLowerCase();
                         if (cat == 'rekening') {
@@ -614,7 +618,10 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                             visualDensity: VisualDensity.compact,
                             foregroundColor: AppColors.danger,
                           ),
-                          child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                          child: const Text(
+                            'Hapus',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                     ],
                   ),
@@ -651,7 +658,10 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                 }
                               },
                         icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                        label: const Text(
+                          'Ganti Foto',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                     ),
                   ] else ...[
@@ -677,7 +687,10 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                     }
                                   },
                             icon: const Icon(Icons.camera_alt, size: 16),
-                            label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Kamera',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -701,81 +714,15 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                     }
                                   },
                             icon: const Icon(Icons.photo_library, size: 16),
-                            label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Galeri',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ],
-                ],
-              ),
-
-              // Horizontal buttons: Simpan + Batal
-              Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _save,
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: AppColors.accentSoftColor(context),
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: _saving
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  backgroundColor: Colors.transparent,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppColors.accent,
-                                  ),
-                                ),
-                              )
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.save_outlined, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Simpan'),
-                                ],
-                              ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _confirmCancel,
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              Theme.of(context).brightness == Brightness.dark
-                              ? AppColors.darkDangerSoft
-                              : AppColors.danger.withValues(alpha: 0.20),
-                          side: const BorderSide(color: AppColors.danger),
-                          foregroundColor: AppColors.danger,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.close, size: 18),
-                            SizedBox(width: 6),
-                            Text('Batal'),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ],
@@ -784,4 +731,64 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       ),
     );
   }
+
+  Widget _buildSimpanButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      key: const ValueKey('kas-keluar-save-button'),
+      onPressed: _saving ? null : _save,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: _saving
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save_outlined, size: 18),
+                SizedBox(width: 6),
+                Text('Simpan'),
+              ],
+            ),
+    ),
+  );
+
+  Widget _buildBatalButton() => SizedBox(
+    height: 48,
+    child: OutlinedButton(
+      onPressed: _saving
+          ? null
+          : () => KasFormNavigationGuard.requestFormCancel(context),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.danger),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.close, size: 18),
+          SizedBox(width: 6),
+          Text('Batal'),
+        ],
+      ),
+    ),
+  );
 }

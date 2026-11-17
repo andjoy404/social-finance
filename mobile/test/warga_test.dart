@@ -27,12 +27,18 @@ Widget _createWargaTestApp({
   String initialQuery = '',
   Map<String, dynamic>? currentUser,
 }) {
+  final effectiveUser = currentUser ?? {
+    'id': 'test-pengurus',
+    'email': 'pengurus@test.local',
+    'role': AppRole.pengurus,
+    'system_role': null,
+    'jabatan': 'ketua',
+  };
   return ProviderScope(
     overrides: [
       wargaListProvider.overrideWith(() => _TestNotifier(residents)),
       wargaSearchQueryProvider.overrideWith((_) => initialQuery),
-      if (currentUser != null)
-        authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(currentUser)),
+      authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(effectiveUser)),
     ],
     child: const MaterialApp(home: WargaScreen()),
   );

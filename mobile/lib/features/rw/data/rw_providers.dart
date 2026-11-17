@@ -4,6 +4,7 @@ import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_repository.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Provider untuk RwApiClient (PR 4 — RW API operasional agregat).
 final rwApiClientProvider = Provider<RwApiClient>((ref) {
@@ -40,3 +41,20 @@ class RwListNotifier extends AutoDisposeAsyncNotifier<List<RwModel>> {
     await _fetch();
   }
 }
+
+/// RW notification logs (paginated). Family key: (rwId, page).
+/// Watches auth state so logout/account switch in the same app scope cannot reuse
+/// a previous account's RW notification cache for the same rwId.
+final rwNotificationLogsProvider = FutureProvider.autoDispose
+    .family<RwNotificationLogsPage, ({String rwId, int page, String? eventType})>((ref, arg) async {
+  ref.watch(authRepositoryProvider); // invalidate cache on auth/session change
+  final client = ref.watch(rwApiClientProvider);
+  return client.getNotifications(arg.rwId, page: arg.page, eventType: arg.eventType);
+});
+
+final rwNotificationTemplatesProvider = FutureProvider.autoDispose
+    .family<List<RwNotificationTemplate>, String>((ref, rwId) async {
+  ref.watch(authRepositoryProvider); // invalidate cache on auth/session change
+  final client = ref.watch(rwApiClientProvider);
+  return client.listNotificationTemplates(rwId);
+});

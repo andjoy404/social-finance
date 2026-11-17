@@ -33,8 +33,11 @@ func TestHouseholdDatesAndResidentPassword(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	testEmail := fmt.Sprintf("budi-%d@example.com", suffix)
+	// Phone generated from nanosecond modulo 1e6 is not unique enough in the
+	// shared test database (100k values shared with other suite rows).
+	// Use 1e9 for a far larger collision domain.
 	testNik := fmt.Sprintf("320101%010d", suffix%10000000000)
-	testPhone := fmt.Sprintf("081234569%05d", suffix%100000)
+	testPhone := fmt.Sprintf("08123459%09d", suffix%1000000000)
 
 	// 1. Validation: end_date before start_date fails
 	bodyInvalid := map[string]interface{}{
@@ -153,7 +156,7 @@ func TestSyncResidentUserAccountEmailConflict(t *testing.T) {
 
 	suffix := time.Now().UnixNano()
 	testEmail := fmt.Sprintf("conflict-%d@example.com", suffix)
-	testPhone := fmt.Sprintf("081234568%05d", suffix%100000)
+	testPhone := fmt.Sprintf("08123458%09d", suffix%1000000000)
 	testNik := fmt.Sprintf("320102%010d", suffix%10000000000)
 
 	// Create first household
@@ -182,7 +185,7 @@ func TestSyncResidentUserAccountEmailConflict(t *testing.T) {
 		"house_number":     "C-2",
 		"head_name":        "Resident Two",
 		"nik":              testNik2,
-		"phone":            fmt.Sprintf("081234568%05d", (suffix+1)%100000),
+		"phone":            fmt.Sprintf("08123458%09d", (suffix+1)%1000000000),
 		"email":            testEmail,
 		"occupancy_status": "TENANT",
 		"start_date":       "2026-01-01",

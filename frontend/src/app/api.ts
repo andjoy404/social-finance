@@ -15,6 +15,8 @@ export interface ApiUser {
   role: string
   jabatan?: string | null
   effective_permissions?: string[]
+  avatar_path?: string | null
+  avatar_thumb_path?: string | null
   rt: { id: string; name: string } | null
   rt_id?: string
   rt_name?: string
@@ -22,11 +24,13 @@ export interface ApiUser {
   rt_rt?: string
   rw_id?: string
   rw_name?: string
+  rw_number?: number
   rw_memberships?: Array<{
     rw_id: string
     rw_name: string
     rw_number?: number
     jabatan: string
+    source?: string
   }>
 }
 
@@ -322,7 +326,7 @@ async function performRefresh(): Promise<void> {
   }
 }
 
-async function authenticatedApiRequest(
+export async function authenticatedApiRequest(
   url: string,
   opts: RequestInit,
 ): Promise<Response> {
@@ -421,14 +425,14 @@ export async function apiListRTs(
 }
 
 export interface ApiCreateRWBody {
-  rw_number: number
+  rw_number: number | string
   name?: string
   address?: string | null
   head_name?: string | null
 }
 
 export interface ApiUpdateRWBody {
-  rw_number?: number
+  rw_number?: number | string
   name?: string
   address?: string | null
   head_name?: string | null
@@ -738,7 +742,7 @@ export interface ApiListHouseholdsParams {
 export async function listHouseholds(token: string, params: ApiListHouseholdsParams): Promise<ApiPaginated<ApiHousehold>> {
   const q = new URLSearchParams()
   if (params.page != null) q.set('page', String(params.page))
-  if (params.page_size != null) q.set('per_page', String(params.page_size))
+  if (params.page_size != null) q.set('page_size', String(params.page_size))
   if (params.is_active != null) q.set('is_active', String(params.is_active))
   if (params.search != null) q.set('search', params.search)
   const res = await authenticatedApiRequest(BASE + '/households?' + q.toString(), {
@@ -784,6 +788,7 @@ export async function updateHousehold(token: string, id: string, body: ApiUpdate
   })
   const data = await json<ApiHousehold>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -833,10 +838,13 @@ export interface ApiResident {
   jabatan?: string | null
   occupancy_status?: 'OWNER' | 'TENANT' | null
   house_number?: string | null
+  avatar_path?: string | null
+  avatar_thumb_path?: string | null
 }
 
 export interface ApiCreateResidentBody {
-  household_id: string
+  household_id?: string
+  rt_id?: string
   full_name: string
   nik: string
   phone?: string | null
@@ -868,7 +876,45 @@ export interface ApiListResidentsParams {
   is_active?: boolean
   search?: string
   household_id?: string
+  rt_id?: string
   signal?: AbortSignal
+}
+
+// Upload (or replace) a resident's profile photo.
+// Requires the resident.profile_photo.manage permission (ketua only for now).
+export async function apiUploadResidentPhoto(
+  token: string,
+  residentId: string,
+  file: File,
+): Promise<{ status: string; avatar_path: string; avatar_thumb_path?: string; key: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await authenticatedApiRequest(BASE + `/residents/${residentId}/photo`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(30_000) } : {}),
+  })
+  const data = await json<{ status: string; avatar_path: string; avatar_thumb_path?: string; key: string }>(res)
+  if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to upload resident photo')
+  apiInvalidateCommunityImageSignCache()
+  return data
+}
+
+// Clear a resident's profile photo. Requires the resident.profile_photo.manage permission.
+export async function apiDeleteResidentPhoto(
+  token: string,
+  residentId: string,
+): Promise<{ status: string }> {
+  const res = await authenticatedApiRequest(BASE + `/residents/${residentId}/photo`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(10_000) } : {}),
+  })
+  const data = await json<{ status: string }>(res)
+  if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to delete resident photo')
+  apiInvalidateCommunityImageSignCache()
+  return data
 }
 
 export async function listResidents(token: string, params: ApiListResidentsParams): Promise<ApiPaginated<ApiResident>> {
@@ -878,9 +924,13 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   if (params.is_active != null) q.set('is_active', String(params.is_active))
   if (params.search != null) q.set('search', params.search)
   if (params.household_id != null) q.set('household_id', params.household_id)
+  if (params.rt_id != null) q.set('rt_id', params.rt_id)
   const res = await authenticatedApiRequest(BASE + '/residents?' + q.toString(), {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(params.rt_id ? { 'X-RT-ID': params.rt_id } : {}),
+    },
     signal: params.signal ?? (typeof AbortSignal !== 'undefined' ? AbortSignal.timeout(TIMEOUT_MS) : undefined),
   })
   const data = await json<ApiPaginated<ApiResident>>(res)
@@ -902,7 +952,11 @@ export async function getResident(token: string, id: string): Promise<ApiResiden
 export async function createResident(token: string, body: ApiCreateResidentBody): Promise<ApiResident | void> {
   const res = await authenticatedApiRequest(BASE + '/residents', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(body.rt_id ? { 'X-RT-ID': body.rt_id } : {}),
+    },
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -953,11 +1007,13 @@ export async function moveResident(token: string, id: string, body: ApiMoveResid
 
 export interface ApiSpecialResidentCreateBody {
   rt_id: string
-  jabatan: 'keamanan' | 'kebersihan_pembangunan'
+  jabatan: 'keamanan' | 'operasional' | 'kebersihan'
   full_name: string
   nik: string
   phone: string
   email: string
+  password?: string
+  is_active?: boolean
 }
 
 export interface ApiSpecialResidentUpdateBody {
@@ -965,8 +1021,9 @@ export interface ApiSpecialResidentUpdateBody {
   nik?: string
   phone?: string
   email?: string
-  jabatan?: 'keamanan' | 'kebersihan_pembangunan'
+  jabatan?: 'keamanan' | 'operasional' | 'kebersihan'
   is_active?: boolean
+  password?: string
 }
 
 export async function createSpecialResident(
@@ -1153,6 +1210,59 @@ export async function apiUpdateDuePeriodStatus(
   return jsonResp?.data ?? []
 }
 
+export const IURAN_DATA_UPDATED_EVENT = 'sf:iuran-updated'
+
+export function notifyIuranDataUpdated(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(IURAN_DATA_UPDATED_EVENT))
+  }
+}
+
+export interface ApiOverdueWarningSummary {
+  has_overdue_3_months: boolean
+  total_outstanding: number
+  overdue_bill_count: number
+}
+
+export async function apiGetOverdueWarningSummary(
+  token: string,
+): Promise<ApiOverdueWarningSummary> {
+  const res = await authenticatedApiRequest(BASE + '/bills/overdue-summary', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<Record<string, unknown>>(res)
+  if (!res.ok || !data || typeof data !== 'object') {
+    const bodyErr = data && typeof data === 'object' && 'error' in data
+      ? (data as { error?: ApiError }).error
+      : undefined
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
+    }
+    throw new ApiError('unexpected', 'Failed to fetch overdue summary')
+  }
+  const rawTotal = data.total_outstanding
+  let totalOutstanding = 0
+  if (typeof rawTotal === 'number' && Number.isFinite(rawTotal)) {
+    totalOutstanding = Math.max(0, Math.trunc(rawTotal))
+  } else if (typeof rawTotal === 'string') {
+    const parsed = Math.trunc(Number(rawTotal))
+    if (Number.isFinite(parsed) && parsed > 0) {
+      totalOutstanding = parsed
+    }
+  }
+  const rawCount = data.overdue_bill_count
+  const billCount = typeof rawCount === 'number' && Number.isFinite(rawCount)
+    ? Math.max(0, Math.trunc(rawCount))
+    : 0
+  return {
+    has_overdue_3_months: Boolean(data.has_overdue_3_months) && billCount > 0 && totalOutstanding > 0,
+    total_outstanding: totalOutstanding,
+    overdue_bill_count: billCount,
+  }
+}
+
 export async function apiUpdateBillStatus(
   token: string,
   billId: string,
@@ -1166,6 +1276,7 @@ export async function apiUpdateBillStatus(
   })
   const data = await json<ApiBill>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1203,6 +1314,7 @@ export async function apiGenerateBills(
   if (!Array.isArray(data.bills) || data.generated_count !== data.bills.length) {
     throw new ApiError('malformed_response', 'Respons pembuatan tagihan tidak valid.')
   }
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1425,6 +1537,7 @@ export async function apiCreatePayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data as ApiPayment
 }
 
@@ -1511,6 +1624,7 @@ export async function apiCreateMultiPeriodPayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data as ApiMultiPeriodPaymentResult
 }
 
@@ -1596,6 +1710,7 @@ export async function apiVerifyPayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1621,6 +1736,7 @@ export async function apiReversePayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1674,6 +1790,7 @@ export async function apiUnregisterDevice(token: string, fcmToken: string): Prom
 export async function apiTriggerWasteTruckArrival(
   token: string,
   message?: string,
+  imageUrl?: string,
 ): Promise<{ status: string; message: string }> {
   const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck', {
     method: 'POST',
@@ -1683,6 +1800,7 @@ export async function apiTriggerWasteTruckArrival(
     },
     body: JSON.stringify({
       ...(message ? { message } : {}),
+      ...(imageUrl ? { image_url: imageUrl } : {}),
     }),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -1699,6 +1817,8 @@ export async function apiTriggerWasteTruckArrival(
 
 // --- Notification Management API ---
 
+export type NotificationTriggerCategory = 'by_system' | 'terjadwal' | 'manual_trigger'
+
 export interface ApiSystemNotificationType {
   event_type: string
   name: string
@@ -1711,6 +1831,7 @@ export interface ApiSystemNotificationType {
   is_configurable: boolean
   supports_image?: boolean
   supports_test?: boolean
+  trigger_category?: NotificationTriggerCategory
 }
 
 export interface ApiNotificationTemplate {
@@ -1758,6 +1879,12 @@ export interface ApiNotificationLog {
   created_at: string
   is_read?: boolean
   read_at?: string | null
+  history_category?: 'system' | 'mine'
+  activity_relation?: 'system' | 'sent_by_me' | 'received_by_me' | 'performed_by_me'
+  recipients_count?: number
+  sent_count?: number
+  failed_count?: number
+  delivery_counts_available?: boolean
 }
 
 export async function apiGetNotificationSystemTypes(token: string): Promise<ApiSystemNotificationType[]> {
@@ -1909,6 +2036,30 @@ export async function apiGetNotificationLogs(
   return body
 }
 
+export async function apiGetNotificationManagementHistory(
+  token: string,
+  category: 'system' | 'mine',
+  page = 1,
+  pageSize = 20,
+): Promise<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
+  const params = new URLSearchParams({
+    category,
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const res = await authenticatedApiRequest(BASE + `/notifications/management-history?${params.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load management notification history')
+  }
+  return body
+}
+
 export async function apiMarkNotificationAsRead(token: string, id: string): Promise<void> {
   const res = await authenticatedApiRequest(BASE + `/notifications/logs/${id}/read`, {
     method: 'POST',
@@ -1972,6 +2123,100 @@ export async function apiUploadNotificationImage(
     throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah gambar notifikasi')
   }
   return body
+}
+
+export async function apiUploadWasteTruckImage(
+  token: string,
+  eventType: 'waste_truck_arrival',
+  file: File,
+): Promise<{ status: string; image_url: string; key: string }> {
+  const formData = new FormData()
+  formData.append('event_type', eventType)
+  formData.append('file', file)
+
+  const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck/upload-image', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  const body = await json<{ status: string; image_url: string; key: string }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah foto truk sampah')
+  }
+  return body
+}
+
+export interface ApiWasteTruckTemplate {
+  id: string
+  event_type: 'waste_truck_arrival'
+  name: string
+  title: string
+  body: string
+  image_url?: string | null
+}
+
+export async function apiGetWasteTruckTemplate(
+  token: string,
+): Promise<ApiWasteTruckTemplate> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck/template', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const response = await json<{ data: ApiWasteTruckTemplate }>(res)
+  if (!res.ok || !response?.data) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat template truk sampah')
+  }
+  return response.data
+}
+
+export interface ApiWasteTruckDispatch {
+  id: string
+  event_type: 'waste_truck_arrival'
+  title: string
+  body: string
+  image_url?: string | null
+  status: string
+  failure_reason?: string | null
+  created_at: string
+}
+
+export interface ApiWasteTruckDispatchHistory {
+  data: ApiWasteTruckDispatch[]
+  pagination: {
+    page: number
+    per_page: number
+    total: number
+    total_pages: number
+  }
+}
+
+export async function apiGetWasteTruckHistory(
+  token: string,
+  page = 1,
+  perPage = 20,
+): Promise<ApiWasteTruckDispatchHistory> {
+  const query = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+  })
+  const res = await authenticatedApiRequest(
+    BASE + '/notifications/waste-truck/history?' + query.toString(),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    },
+  )
+  const response = await json<ApiWasteTruckDispatchHistory>(res)
+  if (!res.ok || !response || !Array.isArray(response.data)) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat riwayat pengiriman')
+  }
+  return response
 }
 
 export async function apiTriggerManualPush(
@@ -2302,10 +2547,24 @@ export interface ApiWargaImportPreviewResponse {
   preview_data: ApiWargaImportRowData[]
 }
 
+// Obligation warnings returned by the XLSX import commit: when Tanggal Mulai
+// is moved backwards (or an occupancy's obligation window grows), the backend
+// reports the actual months that became wajib (Belum Bayar) after full
+// transactional billing sync. Never estimated by the frontend.
+export interface ApiWargaImportObligationWarning {
+  household_occupancy_id: string
+  house_number?: string
+  resident_names: string[]
+  activated_periods: string[] // "YYYY-MM"
+  activated_bill_count: number
+  total_activated_amount: string // NUMERIC(15,2) as string, e.g. "700000.00"
+}
+
 export interface ApiWargaImportCommitResponse {
   status: string
   imported_households: number
   imported_residents: number
+  obligation_warnings?: ApiWargaImportObligationWarning[]
 }
 
 export async function apiDownloadWargaTemplate(token: string): Promise<Blob> {
@@ -2426,6 +2685,8 @@ export async function apiCommitWargaImportXLSX(
     throw new ApiError(errCode, errMsg, details)
   }
 
+  // Refresh every iuran/peringatan surface (same mechanism as menu Warga edits).
+  notifyIuranDataUpdated()
   return body as ApiWargaImportCommitResponse
 }
 
@@ -2729,4 +2990,825 @@ export async function apiGetFundLocationReconciliation(token: string): Promise<R
   })
   const resData = await json<any>(res)
   return unpackReconciliation(resData)
+}
+
+// ── Notification Schedules ──────────────────────────────────────────────
+
+export interface ApiScheduleExecutionSummary {
+  total_recipients: number
+  sent_count: number
+  failed_count: number
+  no_device_count: number
+  failure_reason?: string
+}
+
+export interface ApiNotificationSchedule {
+  id: string
+  rt_id: string
+  event_type: string
+  template_id: string
+  name: string
+  is_active: boolean
+  send_days: number[]
+  send_hour: number
+  send_minute: number
+  timezone: string
+  activity_id?: string | null
+  execution_at?: string | null
+  last_executed_at?: string | null
+  last_executed_status?: string | null
+  last_executed_error?: string | null
+  last_executed_summary?: ApiScheduleExecutionSummary | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiCreateNotificationScheduleBody {
+  event_type: string
+  template_id: string
+  name: string
+  send_days: number[]
+  send_hour: number
+  send_minute: number
+  timezone?: string
+  activity_id?: string | null
+  execution_at?: string | null
+}
+
+export interface ApiUpdateNotificationScheduleBody {
+  name?: string
+  is_active?: boolean
+  send_days?: number[]
+  send_hour?: number
+  send_minute?: number
+  timezone?: string
+  activity_id?: string | null
+  execution_at?: string | null
+}
+
+export interface ApiPaginatedSchedules {
+  data: ApiNotificationSchedule[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}
+
+export async function apiGetNotificationSchedules(
+  token: string,
+  params?: { page?: number; page_size?: number; event_type?: string; is_active?: boolean },
+): Promise<ApiPaginatedSchedules> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.event_type) q.set('event_type', params.event_type)
+  if (params?.is_active != null) q.set('is_active', String(params.is_active))
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPaginatedSchedules>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetNotificationSchedule(token: string, id: string): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiNotificationSchedule>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateNotificationSchedule(
+  token: string,
+  body: ApiCreateNotificationScheduleBody,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiUpdateNotificationSchedule(
+  token: string,
+  id: string,
+  body: ApiUpdateNotificationScheduleBody,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiToggleNotificationScheduleActive(
+  token: string,
+  id: string,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id) + '/toggle-active', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiDeleteNotificationSchedule(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (res.status !== 204 && !res.ok) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(bodyErr?.code ?? 'unexpected', bodyErr?.message ?? 'Gagal menghapus jadwal notifikasi.')
+  }
+}
+
+// --- Notification Scheduler History (aggregated per execution) ---
+
+export interface ApiSchedulerHistoryEntry {
+  schedule_id: string
+  schedule_name: string
+  event_type: string
+  exec_date: string
+  total_recipients: number
+  sent_count: number
+  failed_count: number
+  execution_time?: string | null
+  config_hash?: string | null
+}
+
+export interface ApiSchedulerHistoryResponse {
+  data: ApiSchedulerHistoryEntry[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}
+
+export interface ApiSchedulerRecipientDetail {
+  user_id: string
+  status: string
+  title: string
+  created_at: string
+}
+
+export async function apiGetNotificationSchedulerHistory(
+  token: string,
+  params?: { page?: number; page_size?: number },
+): Promise<ApiSchedulerHistoryResponse> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/history?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiSchedulerHistoryResponse>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetNotificationSchedulerRecipientDetail(
+  token: string,
+  scheduleId: string,
+  execDate: string,
+  configHash?: string,
+): Promise<ApiSchedulerRecipientDetail[]> {
+  const q = new URLSearchParams({ exec_date: execDate })
+  if (configHash) q.set('config_hash', configHash)
+  const res = await authenticatedApiRequest(
+    BASE + '/notifications/schedules/' + encodeURIComponent(scheduleId) + '/recipients?' + q.toString(),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    },
+  )
+  const data = await json<{ data: ApiSchedulerRecipientDetail[] }>(res)
+  if (!data || !Array.isArray(data.data)) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+
+export async function apiGetMonitoringHouseholds(
+  token: string,
+  rtId: string,
+): Promise<ApiMonitoringListResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const response = await json<{
+    data?: ApiMonitoringHousehold[]
+    households?: ApiMonitoringHousehold[]
+    total?: number
+    eval_date?: string
+  }>(res)
+  return normalizeMonitoringResponse(response)
+}
+
+export async function apiCreateMonitoringNote(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+  note: string,
+): Promise<ApiMonitoringNoteResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ note }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiGetMonitoringNotes(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+): Promise<ApiMonitoringNoteResponse[]> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse[] }>(res)
+  if (!data || !Array.isArray(data.data)) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiUpdateMonitoringNote(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+  note: string,
+): Promise<ApiMonitoringNoteResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ note }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiExportMonitoringExcel(
+  token: string,
+  rtId: string,
+): Promise<Blob> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/export/excel', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to export monitoring Excel')
+  }
+  return res.blob()
+}
+
+export async function apiExportMonitoringPDF(
+  token: string,
+  rtId: string,
+): Promise<Blob> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/export/pdf', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to export monitoring PDF')
+  }
+  return res.blob()
+}
+
+// ── Monitoring Types ---
+export interface ApiMonitoringHousehold {
+  household_occupancy_id: string
+  house_number: string
+  note?: string | null
+  note_created_at?: string | null
+  note_created_by?: string | null
+  note_updated_at?: string | null
+}
+
+export interface ApiMonitoringListResponse {
+  households: ApiMonitoringHousehold[]
+  total: number
+  eval_date?: string
+}
+
+export function normalizeMonitoringResponse(response: {
+  data?: ApiMonitoringHousehold[]
+  households?: ApiMonitoringHousehold[]
+  total?: number
+  eval_date?: string
+} | null): ApiMonitoringListResponse {
+  const households = response?.data ?? response?.households
+  if (!Array.isArray(households)) throw new ApiError('unexpected', 'Monitoring list missing from response')
+  return {
+    households,
+    total: typeof response?.total === 'number' ? response.total : households.length,
+    eval_date: response?.eval_date,
+  }
+}
+
+export interface ApiMonitoringNoteRequest {
+  note: string
+}
+
+export interface ApiMonitoringNoteResponse {
+  household_occupancy_id: string
+  house_number: string
+  note: string
+  created_by?: string | null
+  updated_by?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+// =============================================================================
+// COMMUNITY MODULE (Beranda, Kegiatan, Pengumuman, Banner)
+// =============================================================================
+
+export interface CommunityActivity {
+  id: string
+  rt_id: string
+  title: string
+  description?: string | null
+  poster_url?: string | null
+  starts_at: string
+  ends_at?: string | null
+  location?: string | null
+  organizer?: string | null
+  status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
+  publication_status: 'draft' | 'published'
+  show_on_banner: boolean
+  created_by?: string | null
+  updated_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CommunityAnnouncement {
+  id: string
+  rt_id: string
+  title: string
+  body: string
+  image_url?: string | null
+  deep_link?: string | null
+  template_id?: string | null
+  scheduled_start?: string | null
+  scheduled_end?: string | null
+  priority: number
+  display_order: number
+  status: 'draft' | 'scheduled' | 'active' | 'expired' | 'archived'
+  is_permanent?: boolean
+  published_at?: string | null
+  created_by?: string | null
+  updated_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BannerTemplate {
+  id: string
+  rt_id?: string | null
+  name: string
+  category: string
+  title_template: string
+  body_template: string
+  image_url?: string | null
+  default_priority: number
+  is_system: boolean
+  is_active: boolean
+}
+
+export interface CommunityBanner {
+  id: string
+  rt_id: string
+  source_type: 'announcement' | 'activity' | 'iuran_reminder' | 'custom'
+  source_id?: string | null
+  template_id?: string | null
+  title: string
+  body?: string | null
+  image_url?: string | null
+  deep_link?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  priority: number
+  display_order: number
+  is_pinned: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface OrgMember {
+  user_id: string
+  membership_id: string
+  full_name: string
+  jabatan: string
+  phone?: string | null
+  avatar_url?: string | null
+}
+
+export interface OrgNode {
+  position: string
+  position_label: string
+  level: number
+  parent_position?: string
+  members: OrgMember[]
+}
+
+export interface OrganizationStructure {
+  rt_id: string
+  rt_name: string
+  rt_number: string
+  rw_number: string
+  nodes: OrgNode[]
+}
+
+export interface SecurityOfficer {
+  user_id: string
+  membership_id?: string
+  rt_id?: string
+  resident_id?: string
+  full_name: string
+  shift_name: string
+  shift_start: string
+  shift_end: string
+  status: string
+  phone_number?: string | null
+  email?: string | null
+  is_active?: boolean
+  avatar_path?: string | null
+  avatar_thumb_path?: string | null
+}
+
+export interface SecurityOnDutyInfo {
+  is_available: boolean
+  message: string
+  officers: SecurityOfficer[]
+}
+
+export interface HomeDashboardData {
+  greeting: string
+  user_full_name: string
+  user_role: string
+  user_jabatan: string
+  rt_name: string
+  rt_number: string
+  rw_number: string
+  banners: CommunityBanner[]
+  upcoming_activities: CommunityActivity[]
+  organization: OrganizationStructure
+  security_on_duty: SecurityOnDutyInfo
+}
+
+export async function apiGetHomeDashboard(token: string): Promise<HomeDashboardData> {
+  const res = await authenticatedApiRequest(BASE + '/home/dashboard', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<HomeDashboardData>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export type CommunityPagination = { page: number; per_page: number; total: number; total_pages: number }
+
+export async function apiListActivities(
+  token: string,
+  params?: { status?: string; publication_status?: string; page?: number; page_size?: number }
+): Promise<{ data: CommunityActivity[]; pagination: CommunityPagination }> {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.publication_status) q.set('publication_status', params.publication_status)
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.page_size) q.set('page_size', String(params.page_size))
+  const qs = q.toString() ? `?${q.toString()}` : ''
+
+  const res = await authenticatedApiRequest(BASE + '/activities' + qs, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: CommunityActivity[]; pagination: CommunityPagination }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetActivity(token: string, id: string): Promise<CommunityActivity> {
+  const res = await authenticatedApiRequest(BASE + `/activities/${id}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityActivity>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateActivity(token: string, payload: any): Promise<CommunityActivity> {
+  const res = await authenticatedApiRequest(BASE + '/activities', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityActivity>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateActivity(token: string, id: string, payload: any): Promise<CommunityActivity> {
+  const res = await authenticatedApiRequest(BASE + `/activities/${id}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityActivity>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiPublishActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/publish`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiCancelActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/cancel`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiDeleteActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiListAnnouncements(
+  token: string,
+  params?: { status?: string; page?: number; page_size?: number }
+): Promise<{ data: CommunityAnnouncement[]; pagination: CommunityPagination }> {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.page_size) q.set('page_size', String(params.page_size))
+  const qs = q.toString() ? `?${q.toString()}` : ''
+
+  const res = await authenticatedApiRequest(BASE + '/announcements' + qs, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: CommunityAnnouncement[]; pagination: CommunityPagination }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetAnnouncement(token: string, id: string): Promise<CommunityAnnouncement> {
+  const res = await authenticatedApiRequest(BASE + `/announcements/${id}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityAnnouncement>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateAnnouncement(token: string, payload: any): Promise<CommunityAnnouncement> {
+  const res = await authenticatedApiRequest(BASE + '/announcements', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityAnnouncement>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateAnnouncement(token: string, id: string, payload: any): Promise<CommunityAnnouncement> {
+  const res = await authenticatedApiRequest(BASE + `/announcements/${id}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<CommunityAnnouncement>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiPublishAnnouncement(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/announcements/${id}/publish`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiArchiveAnnouncement(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/announcements/${id}/archive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiDeleteAnnouncement(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/announcements/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiListBannerTemplates(token: string): Promise<BannerTemplate[]> {
+  const res = await authenticatedApiRequest(BASE + '/banner-templates', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: BannerTemplate[] }>(res)
+  return data?.data || []
+}
+
+export async function apiListBanners(token: string): Promise<CommunityBanner[]> {
+  const res = await authenticatedApiRequest(BASE + '/banners', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: CommunityBanner[] }>(res)
+  return data?.data || []
+}
+
+// Extract the storage key form (community/<rt>/<category>/<file>) from a
+// stored image reference, which may be the full API path or the raw key.
+export function communityImageKey(ref: string): string {
+  const marker = '/api/v1/community/images/'
+  const idx = ref.indexOf(marker)
+  const raw = idx >= 0 ? ref.slice(idx + marker.length) : ref
+  return raw.replace(/^\/+/, '')
+}
+
+// Fetch a community image with a Bearer token (content managers viewing
+// draft/archived content). Images the caller may not see return an error.
+export async function apiGetCommunityImageBlob(
+  token: string,
+  ref: string,
+): Promise<{ blob: Blob; contentType: string }> {
+  const key = communityImageKey(ref)
+  const res = await authenticatedApiRequest(BASE + '/community/images/' + key, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(bodyErr?.code || 'unexpected', bodyErr?.message || 'Failed to fetch image')
+  }
+  const blob = await res.blob()
+  const contentType = res.headers.get('content-type') || 'image/jpeg'
+  return { blob, contentType }
+}
+
+const communityImageSignCache = new Map<string, { url: string; expires_at: number }>()
+const inFlightCommunityImageSigns = new Map<string, Promise<{ url: string; expires_at: number }>>()
+
+export function apiInvalidateCommunityImageSignCache(key?: string): void {
+  if (key) {
+    const k = communityImageKey(key)
+    communityImageSignCache.delete(k)
+    inFlightCommunityImageSigns.delete(k)
+  } else {
+    communityImageSignCache.clear()
+    inFlightCommunityImageSigns.clear()
+  }
+}
+
+// Request a short-lived signed URL for a community image. The backend only
+// issues a signature after the caller passes the same content authorization
+// as the Bearer mode of the image endpoint. Used for <img> rendering.
+// Responses are cached in-memory and deduplicated in-flight to prevent redundant signing requests.
+export async function apiSignCommunityImage(token: string, key: string): Promise<{ url: string; expires_at: number }> {
+  const normKey = communityImageKey(key)
+  const cached = communityImageSignCache.get(normKey)
+  if (cached && Date.now() < cached.expires_at * 1000 - 30_000) {
+    return cached
+  }
+  const inFlight = inFlightCommunityImageSigns.get(normKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const signPromise = (async () => {
+    try {
+      const res = await authenticatedApiRequest(BASE + '/community/images/sign', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: normKey }),
+        ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+      })
+      const data = await json<{ url: string; expires_at: number }>(res)
+      if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to authorize image')
+      communityImageSignCache.set(normKey, data)
+      return data
+    } finally {
+      inFlightCommunityImageSigns.delete(normKey)
+    }
+  })()
+
+  inFlightCommunityImageSigns.set(normKey, signPromise)
+  return signPromise
+}
+
+export async function apiGetOrganizationStructure(token: string): Promise<OrganizationStructure> {
+  const res = await authenticatedApiRequest(BASE + '/organization-structure', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<OrganizationStructure>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUploadCommunityImage(
+  token: string,
+  file: File,
+  category?: string
+): Promise<{ status: string; image_url: string; key: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (category) {
+    formData.append('category', category)
+  }
+
+  const res = await authenticatedApiRequest(BASE + '/community/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ status: string; image_url: string; key: string }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
 }

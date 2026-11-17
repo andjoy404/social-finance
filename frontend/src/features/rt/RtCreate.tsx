@@ -241,7 +241,11 @@ export function RtCreate({
     if (!form.name.trim()) errs.push('Nama RT harus diisi.')
     if (!form.rw || !/^\d+$/.test(form.rw)) errs.push('RW harus angka yang valid.')
     if (form.rw && /^\d+$/.test(form.rw) && Number(form.rw) < 0) errs.push('RW tidak boleh negatif.')
-    if (!form.rt.trim()) errs.push('Kode RT harus diisi.')
+    if (!form.rt.trim()) {
+      errs.push('Kode RT harus diisi.')
+    } else if (!/^[0-9]{3}$/.test(form.rt.trim())) {
+      errs.push('Nomor RT harus tepat 3 digit angka (contoh: 002).')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }
@@ -407,7 +411,11 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     if (!form.name.trim()) errs.push('Nama RT harus diisi.')
     if (!form.rw || !/^\d+$/.test(form.rw)) errs.push('RW harus angka yang valid.')
     if (form.rw && /^\d+$/.test(form.rw) && Number(form.rw) < 0) errs.push('RW tidak boleh negatif.')
-    if (!form.rt.trim()) errs.push('Kode RT harus diisi.')
+    if (!form.rt.trim()) {
+      errs.push('Kode RT harus diisi.')
+    } else if (!/^[0-9]{3}$/.test(form.rt.trim())) {
+      errs.push('Nomor RT harus tepat 3 digit angka (contoh: 002).')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }

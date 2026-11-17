@@ -166,7 +166,8 @@ describe('RtDetailModal', () => {
       'bendahara',
       'keamanan',
       'sosial',
-      'kebersihan_pembangunan',
+      'operasional',
+      'kebersihan',
     ])
   })
 

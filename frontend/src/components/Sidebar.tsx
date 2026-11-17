@@ -1,11 +1,14 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, type RWMembership } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, hasPermission, type RWMembership } from '@/app/AuthContext'
 import { DownOutlined } from '@ant-design/icons'
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DashboardOutlined,
+  HomeOutlined,
+  CalendarOutlined,
+  NotificationOutlined,
   UserOutlined,
   ApartmentOutlined,
   AccountBookOutlined,
@@ -13,6 +16,8 @@ import {
   BankOutlined,
   BellOutlined,
   AreaChartOutlined,
+  SafetyCertificateOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string, itemId?: string): boolean {
@@ -36,7 +41,11 @@ export function Sidebar() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('sf_sidebar_collapsed') === 'true'
+      const stored = localStorage.getItem('sf_sidebar_collapsed')
+      if (stored !== null) return stored === 'true'
+      // Default to collapsed on small screens so the sidebar overlay
+      // does not cover content before the user pins/unpins it.
+      return typeof window !== 'undefined' && window.innerWidth <= 768
     } catch {
       return false
     }
@@ -54,12 +63,38 @@ export function Sidebar() {
 
   const isSuperAdmin = isSuperAdminUser(user)
   const allowedRT = isAllowedRT(user)
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  const isSecurityOfficer = jabatan === 'keamanan'
+  const isCleaningOfficer = jabatan === 'kebersihan'
+  const isResident =
+    user?.role.trim().toLowerCase() === 'warga' && !jabatan && allowedRT
+  const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
-  const items: NavItem[] = [
-    { to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' },
-  ]
+  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer
+    ? []
+    : [{ to: '/', label: 'Beranda', icon: <HomeOutlined />, id: 'dashboard' }]
 
-    if (allowedRT) {
+  if (isSecurityOfficer) {
+    items.push(
+      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      {
+        to: '/monitoring',
+        label: 'Sampah',
+        icon: <ScheduleOutlined />,
+        id: 'monitoring',
+      },
+    )
+  } else if (isCleaningOfficer) {
+    items.push({
+      to: '/monitoring',
+      label: 'Sampah',
+      icon: <ScheduleOutlined />,
+      id: 'monitoring',
+    })
+  } else if (allowedRT) {
+    items.push(
+      { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
+    )
     const canAccessLokasiDana =
         user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
     items.push(
@@ -77,16 +112,27 @@ export function Sidebar() {
     items.push(
         { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
     )
-}
-
-  const canAccessNotifikasi = canAccessNotificationAdmin(user)
-  if (canAccessNotifikasi) {
-    items.push({
-      to: '/notifikasi',
-      label: 'Notifikasi',
-      icon: <BellOutlined />,
-      id: 'notifikasi',
-    })
+    if (jabatan === 'ketua') {
+      items.push({
+        to: '/monitoring',
+        label: 'Sampah',
+        icon: <ScheduleOutlined />,
+        id: 'monitoring',
+      })
+    }
+    const canManageSecurity =
+      isSuperAdmin ||
+      jabatan === 'ketua' ||
+      hasPermission(user, 'security.schedule.write') ||
+      hasPermission(user, 'security.device.manage')
+    if (canManageSecurity) {
+      items.push({
+        to: '/keamanan-rt',
+        label: 'Kelola Keamanan',
+        icon: <SafetyCertificateOutlined />,
+        id: 'keamanan-rt',
+      })
+    }
   }
 
   const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
@@ -95,7 +141,7 @@ export function Sidebar() {
   )
 
   // Add RW data view link(s)
-  if (rwMemberships.length > 0) {
+  if (!isSecurityOfficer && !isCleaningOfficer && rwMemberships.length > 0) {
     const rwIdForData = rwMemberships[0].rw_id
     // Build a label showing RW count if multiple
     const rwLabel = rwMemberships.length === 1
@@ -111,11 +157,35 @@ export function Sidebar() {
     })
   }
 
-  if (isSuperAdmin) {
+  if (isSuperAdmin && !isSecurityOfficer && !isCleaningOfficer) {
     items.push(
       { to: '/rt', label: 'Kelola RT', icon: <ApartmentOutlined />, id: 'rt' },
       { to: '/rw', label: 'Kelola RW', icon: <ApartmentOutlined />, id: 'rw' },
     )
+  }
+
+  const canAccessNotifikasi =
+    !isCleaningOfficer &&
+    (isSecurityOfficer || isResident || isPengurus || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
+
+  // Place Pengumuman, Kegiatan, Notifikasi as the three bottom-most menu items
+  // in that exact order.
+  // Non-allowed/non-officer views only have Beranda; do not append the
+  // community pair there (preserves prior restricted visibility).
+  const showCommunityNav = !isSecurityOfficer && !isCleaningOfficer && allowedRT
+  if (showCommunityNav) {
+    items.push(
+      { to: '/pengumuman', label: 'Pengumuman', icon: <NotificationOutlined />, id: 'pengumuman' },
+      { to: '/kegiatan', label: 'Kegiatan', icon: <CalendarOutlined />, id: 'kegiatan' },
+    )
+  }
+  if (canAccessNotifikasi) {
+    items.push({
+      to: '/notifikasi',
+      label: 'Notifikasi',
+      icon: <BellOutlined />,
+      id: 'notifikasi',
+    })
   }
 
   return (

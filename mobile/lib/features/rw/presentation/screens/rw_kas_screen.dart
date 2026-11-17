@@ -3,18 +3,19 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
+import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
-
+import 'package:social_finance/features/rw/presentation/screens/rw_kas_report_screen.dart';
 /// KAS screen untuk konteks RW — catatan transaksi KAS RW dan riwayat.
 class RwKasScreen extends ConsumerStatefulWidget {
   final String rwId;
@@ -30,8 +31,11 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-  RwKasReport? _kasReport;
+  RwKasReportDetail? _kasReport;
   List<RwTransaction> _transactions = [];
+  List<RwRtInfo> _rts = [];
+  List<RwFinancialCategory> _expenseCategories = [];
+  List<RwFinancialCategory> _allCategories = [];
   bool _isLoading = true;
   String? _error;
   int _selectedMonth = DateTime.now().month;
@@ -39,22 +43,92 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   bool _isAllPeriods = false;
   String _searchQuery = '';
   String _filterArus = 'all';
+  String _filterMetode = 'all';
+  String _filterCategoryId = 'all';
+  bool _isDateRangeActive = false;
+  DateTime? _dateRangeStart;
+  DateTime? _dateRangeEnd;
 
   String get _periodKey {
     if (_isAllPeriods) return 'all';
     return '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
   }
 
+  bool _canViewReportRw(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    if (user['system_role'] == 'super_admin') return true;
+    final memberships = (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    return memberships.any(
+        (m) => (m['rw_id'] ?? m['rwId']) == widget.rwId);
+  }
+
+  void _openKasReport(BuildContext context) {
+    final start = _isDateRangeActive ? _dateRangeStart : null;
+    final end = _isDateRangeActive ? _dateRangeEnd : null;
+    final period = (!_isDateRangeActive && !_isAllPeriods) ? _periodKey : null;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RwKasReportScreen(
+          rwId: widget.rwId,
+          period: period,
+          startDate: start?.toIso8601String().substring(0, 10),
+          endDate: end?.toIso8601String().substring(0, 10),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final pickedStart = await showDatePicker(
+      context: context,
+      initialDate: _dateRangeStart ?? now,
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (pickedStart == null || !mounted) return;
+    final pickedEnd = await showDatePicker(
+      context: context,
+      initialDate: _dateRangeEnd ?? pickedStart,
+      firstDate: pickedStart,
+      lastDate: now,
+    );
+    if (pickedEnd == null || !mounted) return;
+    setState(() {
+      _dateRangeStart = pickedStart;
+      _dateRangeEnd = pickedEnd;
+      _isDateRangeActive = true;
+      _isAllPeriods = false;
+    });
+    _fetchData();
+  }
+
+  void _clearDateRange() {
+    setState(() {
+      _isDateRangeActive = false;
+      _dateRangeStart = null;
+      _dateRangeEnd = null;
+    });
+    _fetchData();
+  }
+
   bool _canCreateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
     if (user['role'] == AppRole.superAdmin || user['system_role'] == 'super_admin') return true;
+    // Source-aware: RT inferred users have read-only access.
+    final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
+    if (!hasWriteAccess) return false;
     final rwMemberships = (user['rw_memberships'] as List?)
         ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final jabatan = (currentMembership?.jabatan ?? '').toLowerCase();
-    return jabatan == 'bendahara' || jabatan == 'ketua' || jabatan == 'wakil_ketua';
+        .toList() ?? <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull;
+    final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
+    return jabatan == 'bendahara' || jabatan == 'ketua';
   }
 
   @override
@@ -70,20 +144,45 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     });
     try {
       final api = ref.read(rwApiClientProvider);
-      final period = _isAllPeriods ? 'all' : _periodKey;
+      final useMonth = !_isAllPeriods && !_isDateRangeActive;
+      final periodParam = useMonth ? _periodKey : null;
+      final startDate = (_isDateRangeActive && _dateRangeStart != null)
+          ? _dateRangeStart!.toIso8601String().substring(0, 10)
+          : null;
+      final endDate = (_isDateRangeActive && _dateRangeEnd != null)
+          ? _dateRangeEnd!.toIso8601String().substring(0, 10)
+          : null;
+
+      // Fetch ALL posted transactions in the window (client-side pagination
+      // of the paginated API, mirroring the RT kas implementation). Empty
+      // period param = all-time cumulative.
+      final txsFuture = _fetchAllTransactions(
+        api,
+        period: periodParam,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
       final results = await Future.wait([
-        api.getKas(widget.rwId, period: period),
-        api.getTransactions(
-          rwId: widget.rwId,
-          period: period,
-          page: 1,
-          pageSize: 100,
+        api.getKasReportDetail(
+          widget.rwId,
+          period: periodParam,
+          startDate: startDate,
+          endDate: endDate,
         ),
+        txsFuture,
+        api.getRTRs(widget.rwId),
+        api.getCategories(isActive: true),
       ]);
       if (mounted) {
         setState(() {
-          _kasReport = results[0] as RwKasReport;
-          _transactions = (results[1] as RwTransactionsResponse).data;
+          _kasReport = results[0] as RwKasReportDetail;
+          _transactions = results[1] as List<RwTransaction>;
+          _rts = (results[2] as List<RwRtInfo>);
+          _allCategories = results[3] as List<RwFinancialCategory>;
+          _expenseCategories = _allCategories
+              .where((c) => c.type == 'expense')
+              .toList();
         });
       }
     } catch (e) {
@@ -93,16 +192,55 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     }
   }
 
+  Future<List<RwTransaction>> _fetchAllTransactions(
+    RwApiClient api, {
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final out = <RwTransaction>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final resp = await api.getTransactions(
+        rwId: widget.rwId,
+        period: period,
+        startDate: startDate,
+        endDate: endDate,
+        page: page,
+        pageSize: 100,
+      );
+      out.addAll(resp.data);
+      totalPages = resp.pagination.totalPages;
+      page++;
+    } while (page <= totalPages);
+    return out;
+  }
+
   List<RwTransaction> get _filteredTransactions {
     var txs = _transactions;
     if (_filterArus != 'all') {
       txs = txs.where((t) => t.type == _filterArus).toList();
+    }
+    if (_filterCategoryId != 'all') {
+      txs = txs.where((t) => t.categoryId == _filterCategoryId).toList();
+    }
+    if (_filterMetode != 'all') {
+      const cashLike = ['CASH', 'TUNAI'];
+      const transferLike = ['TRANSFER', 'BANK', 'BANK_TRANSFER', 'QRIS'];
+      txs = txs.where((t) {
+        final m = (t.paymentMethod ?? '').trim().toUpperCase();
+        if (_filterMetode == 'CASH') return cashLike.contains(m);
+        if (_filterMetode == 'TRANSFER') return transferLike.contains(m);
+        return true;
+      }).toList();
     }
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
       txs = txs.where((t) =>
           t.description.toLowerCase().contains(q) ||
           (t.referenceNo ?? '').toLowerCase().contains(q) ||
+          (t.categoryName ?? '').toLowerCase().contains(q) ||
           t.rtName.toLowerCase().contains(q) ||
           (t.locationName ?? '').toLowerCase().contains(q)).toList();
     }
@@ -111,21 +249,22 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final canCreate = _canCreateRw(user);
 
     final rwMemberships = (user?['rw_memberships'] as List?)
         ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final rwNumberText = currentMembership?.rwNumber != null
-        ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
+        .toList() ?? <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull;
+    final rwNumberText = currentMembership?['rwNumber'] != null
+        ? currentMembership!['rwNumber'].toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);
-    final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
+    final rwDisplayName = currentMembership?['rwName'] ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
-    super.build(context);
     final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(
@@ -160,6 +299,14 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                           ],
                         ),
                       ),
+                      if (_canViewReportRw(user))
+                        IconButton(
+                          key: const Key('rw-kas-report-btn'),
+                          icon: const Icon(Icons.assessment_outlined,
+                              color: AppColors.accent),
+                          tooltip: 'Laporan KAS',
+                          onPressed: () => _openKasReport(context),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -225,6 +372,15 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         automaticallyImplyLeading: true,
         centerTitle: false,
         title: MenuAppBarTitle(title: 'KAS RW', rw: rwNumberText),
+        actions: [
+          if (_canViewReportRw(user))
+            IconButton(
+              key: const Key('rw-kas-report-btn'),
+              icon: const Icon(Icons.assessment_outlined),
+              tooltip: 'Laporan KAS',
+              onPressed: () => _openKasReport(context),
+            ),
+        ],
       ),
       body: body,
     );
@@ -336,6 +492,112 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
+  void _showSummaryCardDetail({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(
+                            alpha: isDark ? 0.2 : 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(
+                              ctx,
+                            ).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSummaryCard(
     String title,
     String value,
@@ -343,9 +605,18 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     IconData icon, {
     VoidCallback? onTap,
     Widget? trailing,
+    String? subtitle,
   }) {
+    final effectiveOnTap = onTap ?? () => _showSummaryCardDetail(
+          context: context,
+          title: title,
+          value: value,
+          color: color,
+          icon: icon,
+          subtitle: subtitle,
+        );
     return InkWell(
-      onTap: onTap,
+      onTap: effectiveOnTap,
       borderRadius: BorderRadius.circular(AppRadius.base),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -427,7 +698,9 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          _isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear',
+                          _isDateRangeActive
+                              ? 'Rentang Tanggal'
+                              : (_isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear'),
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: infoStyle.text),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -443,7 +716,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             const SizedBox(width: 8),
             GestureDetector(
               onTap: () {
-                setState(() => _isAllPeriods = !_isAllPeriods);
+                setState(() {
+                  _isAllPeriods = !_isAllPeriods;
+                  _isDateRangeActive = false;
+                });
                 _fetchData();
               },
               child: Container(
@@ -469,7 +745,107 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _pickDateRange,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _isDateRangeActive
+                      ? accentStyle.background
+                      : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: _isDateRangeActive
+                        ? accentStyle.border
+                        : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  ),
+                ),
+                child: Text(
+                  'Rentang',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _isDateRangeActive ? accentStyle.text : (isDark ? AppColors.darkText : AppColors.lightText),
+                  ),
+                ),
+              ),
+            ),
           ],
+        ),
+        if (_isDateRangeActive) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: accentStyle.background,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: accentStyle.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.date_range, size: 14, color: accentStyle.text),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '${_formatDate(_dateRangeStart!)} — ${_formatDate(_dateRangeEnd!)}',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: accentStyle.text),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Hapus rentang tanggal',
+                onPressed: _clearDateRange,
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _filterMetode,
+          decoration: const InputDecoration(
+            labelText: 'Metode Pembayaran',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('Semua Metode')),
+            DropdownMenuItem(value: 'CASH', child: Text('Tunai')),
+            DropdownMenuItem(value: 'TRANSFER', child: Text('Transfer')),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _filterMetode = v);
+          },
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _filterCategoryId,
+          decoration: const InputDecoration(
+            labelText: 'Kategori',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem(value: 'all', child: Text('Semua Kategori')),
+            ..._allCategories.map(
+              (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+            ),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _filterCategoryId = v);
+          },
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
@@ -591,6 +967,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
       _selectedYear = pickedYear;
       _selectedMonth = pickedMonth;
       _isAllPeriods = false;
+      _isDateRangeActive = false;
     });
     _fetchData();
   }
@@ -805,24 +1182,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
-  static const List<String> _kExpenseCategories = [
-    'Konsumsi',
-    'ATK',
-    'Kebersihan',
-    'Keamanan',
-    'Pemeliharaan dan Perbaikan',
-    'Kegiatan Warga',
-    'Sosial dan Santunan',
-    'Operasional',
-    'Transportasi',
-    'Listrik dan Air',
-    'Komunikasi dan Internet',
-    'Administrasi dan Dokumentasi',
-    'Perlengkapan dan Peralatan',
-    'Sewa',
-    'Lain-lain',
-  ];
-
   static String _formatFundLocationCategory(String cat) {
     final c = cat.trim().toLowerCase();
     if (c == 'cash' || c == 'coh') return 'COH';
@@ -931,21 +1290,38 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     Uint8List? proofBytes;
     String? selectedLocationId;
     String? selectedExpenseCategory;
+    String? selectedSourceRtId; // RT sumber untuk Setoran RT
     String paymentMethod = 'transfer';
     bool saving = false;
     String? error;
     List<RwFundLocation> locations = [];
+    List<RwRtInfo> rts = [];
+    List<RwFinancialCategory> expenseCategories = [];
     bool loadingLocations = true;
+    bool loadingRefData = true;
 
     try {
-      locations = await ref.read(rwApiClientProvider).getLocations(widget.rwId, isActive: true);
-      loadingLocations = false;
-      if (locations.isNotEmpty) {
-        selectedLocationId = locations.first.id;
-        paymentMethod = locations.first.category == 'rekening' ? 'transfer' : 'cash';
-      }
+      final api = ref.read(rwApiClientProvider);
+      final futures = <Future<void>>[];
+      futures.add(api.getLocations(widget.rwId, isActive: true).then((loc) {
+        locations = loc;
+        loadingLocations = false;
+        if (locations.isNotEmpty) {
+          selectedLocationId = locations.first.id;
+          paymentMethod = locations.first.category == 'rekening' ? 'transfer' : 'cash';
+        }
+      }));
+      futures.add(api.getRTRs(widget.rwId).then((rtList) {
+        rts = rtList;
+      }));
+      futures.add(api.getCategories(isActive: true).then((catList) {
+        expenseCategories = catList.where((c) => c.type == 'expense').toList();
+      }));
+      await Future.wait(futures);
+      loadingRefData = false;
     } catch (_) {
       loadingLocations = false;
+      loadingRefData = false;
     }
 
     if (!context.mounted) return;
@@ -1009,20 +1385,47 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         },
                       ),
                       const SizedBox(height: 8),
-                      if (!isIncome) ...[
+                      if (isIncome) ...[
+                        DropdownButtonFormField<String?>(
+                          value: selectedSourceRtId,
+                          decoration: const InputDecoration(
+                            labelText: 'Jenis Kas Masuk',
+                            hintText: 'Pilih: Kas Masuk atau Setoran RT',
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(value: null, child: Text('Kas Masuk')),
+                            ...rts.map((rt) => DropdownMenuItem<String?>(
+                              value: rt.id,
+                              child: Text('Setoran RT — ${rt.label}'),
+                            )),
+                          ],
+                          onChanged: (val) {
+                            setDialogState(() => selectedSourceRtId = val);
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ] else ...[
                         DropdownButtonFormField<String>(
                           value: selectedExpenseCategory,
                           decoration: const InputDecoration(
                             labelText: 'Kategori Kas Keluar *',
                           ),
-                          items: _kExpenseCategories.map((cat) {
-                            return DropdownMenuItem(value: cat, child: Text(cat));
+                          items: expenseCategories.map((cat) {
+                            return DropdownMenuItem(
+                              value: cat.id,
+                              child: Text(cat.name),
+                            );
                           }).toList(),
                           onChanged: (val) {
                             setDialogState(() => selectedExpenseCategory = val);
                           },
                         ),
                         const SizedBox(height: 8),
+                        if (expenseCategories.isEmpty)
+                          const Text(
+                            'Tidak ada kategori pengeluaran yang tersedia.',
+                            style: TextStyle(color: AppColors.danger, fontSize: 12),
+                          ),
                       ],
                       TextField(
                         controller: amountCtrl,
@@ -1172,6 +1575,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       setDialogState(() => error = 'Pilih kategori kas keluar');
                       return;
                     }
+                    if (isIncome && selectedSourceRtId != null && rts.where((rt) => rt.id == selectedSourceRtId).isEmpty) {
+                      setDialogState(() => error = 'Pilih RT sumber yang valid untuk Setoran RT');
+                      return;
+                    }
                     final amt = double.tryParse(amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
                     if (amt <= 0) {
                       setDialogState(() => error = 'Nominal harus lebih dari 0');
@@ -1203,6 +1610,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         'location_id': selectedLocationId,
                         'description': descCtrl.text.trim(),
                         'payment_method': paymentMethod,
+                        if (isIncome && selectedSourceRtId != null)
+                          'source_rt_id': selectedSourceRtId,
                         if (!isIncome && selectedExpenseCategory != null)
                           'expense_category': selectedExpenseCategory,
                       });

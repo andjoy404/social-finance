@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/notification/notification_url_helper.dart';
+import 'package:social_finance/core/notification/push_notification_service.dart';
+import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -211,16 +214,10 @@ class _NotificationDetailScreenState
   }
 
   String? _formatTimestamp(DateTime? dt, String? rawSentAt) {
-    final effective =
-        dt ?? (rawSentAt != null ? DateTime.tryParse(rawSentAt) : null);
-    if (effective == null) return null;
-    final local = effective.toLocal();
-    final day = local.day.toString().padLeft(2, '0');
-    final month = local.month.toString().padLeft(2, '0');
-    final year = local.year;
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$day/$month/$year • $hour:$minute';
+    final input = dt ?? rawSentAt;
+    if (input == null) return null;
+    final formatted = formatJakartaDetailDateTime(input);
+    return formatted == '-' ? null : formatted;
   }
 
   void _openFullScreenImage(BuildContext context, String resolvedImageUrl) {
@@ -432,11 +429,18 @@ class _NotificationDetailScreenState
                           effectiveBody.isNotEmpty)
                         const SizedBox(height: 12),
                       if (effectiveBody.isNotEmpty)
-                        Text(
-                          effectiveBody,
+                        NotificationBodyText(
+                          text: effectiveBody,
+                          eventType: effectiveEventType,
+                          dedupKey: _fetchedEntry?.dedupKey,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             height: 1.5,
                           ),
+                          onOpenUrl: (url) {
+                            ref
+                                .read(pushNotificationServiceProvider)
+                                .openExternalUrl(url);
+                          },
                         ),
                       if (rawImageUrl != null && rawImageUrl.isNotEmpty) ...[
                         const SizedBox(height: 16),

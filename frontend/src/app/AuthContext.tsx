@@ -3,17 +3,14 @@ import { apiLogin, apiMe, apiRefresh, apiLogout, setTokenManager, clearSessionPa
 
 export { ApiError } from '@/app/api'
 
-export const ALLOWED_RT_CODES = ['002', '003']
-export const ALLOWED_RT_IDS = [
-  'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', // RT 002
-  '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
-]
+export type RWMembershipSource = 'explicit' | 'rt_inferred'
 
 export interface RWMembership {
   rw_id: string
   rw_name: string
   rw_number?: number
   jabatan: string
+  source?: RWMembershipSource
 }
 
 export interface AuthUser {
@@ -21,12 +18,16 @@ export interface AuthUser {
   name: string
   email: string
   phone?: string | null
+  avatarPath?: string | null
+  avatarThumbPath?: string | null
   systemRole: string | null
   role: string
   jabatan: string | null
   effectivePermissions?: string[]
   rt: { id: string; name: string } | null
   rtCode?: string | null
+  rwName?: string | null
+  rwNumber?: number | null
   rtId?: string | null
   rwId?: string | null
   rwMemberships?: RWMembership[]
@@ -45,20 +46,100 @@ export function isKetuaRTUser(user: AuthUser | null | undefined): boolean {
   return jabatan === 'ketua' || jabatan === 'ketua_rt' || jabatan === 'ketua rt'
 }
 
+/**
+ * Check whether a user has full RW write access for a specific RW.
+ *
+ * Checks only the membership for the given `rwId`. Returns `true` if that
+ * membership has `source === 'explicit'` AND jabatan is ketua or bendahara,
+ * or if the user is super_admin.
+ * Returns `false` for other pengurus positions (wakil_ketua, sekretaris),
+ * when the membership is `source === 'rt_inferred'`, or when no matching
+ * membership is found.
+ *
+ * Super Admin always gets `true`.
+ */
+export function hasRwWriteAccess(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
+  if (!user) return false
+  if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
+  const memberships = user.rwMemberships ?? []
+  if (!rwId) return false
+  const membership = memberships.find((m) => m.rw_id === rwId)
+  if (!membership) return false
+  if (membership.source !== 'explicit') return false
+  const cleanJabatan = (membership.jabatan || '').trim().toLowerCase()
+  return cleanJabatan === 'ketua' || cleanJabatan === 'bendahara'
+}
+
+/**
+ * Check whether a user has access to RW sub-features (KAS, Lokasi Dana, Notifikasi RW).
+ *
+ * Only explicit RW members (any valid jabatan) and Super Admin have access.
+ * RT-inferred members are strictly limited to Beranda RW (dashboard).
+ */
+export function hasRwFeatureAccess(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
+  if (!user) return false
+  if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
+  const memberships = user.rwMemberships ?? []
+  if (!rwId) return false
+  const membership = memberships.find((m) => m.rw_id === rwId)
+  if (!membership) return false
+  return membership.source === 'explicit'
+}
+
 export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {
-  return isSuperAdminUser(user) || isKetuaRTUser(user)
+  return isSuperAdminUser(user) ||
+    (user?.effectivePermissions ?? []).includes('notification.manage')
+}
+
+export function canAccessNotificationRead(user: AuthUser | null | undefined): boolean {
+  return isSuperAdminUser(user) ||
+    (user?.effectivePermissions ?? []).includes('notification.read')
 }
 
 export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
-  return !!user
+  return !!user && (canAccessNotificationAdmin(user) || canAccessNotificationRead(user))
 }
 
+/**
+ * Check whether a user holds a specific permission. Super Admin passes.
+ * Jabatan-based users are evaluated against their effective_permissions
+ * (resolved by the backend from position_permissions — the single source
+ * of truth). Role-only users without a jabatan never gain community
+ * permissions implicitly.
+ */
+export function hasPermission(user: AuthUser | null | undefined, permission: string): boolean {
+  if (!user) return false
+  if (isSuperAdminUser(user)) return true
+  return (user.effectivePermissions ?? []).includes(permission)
+}
+
+/** Activities management: create, update, publish, cancel, or delete drafts. */
+export function canManageActivities(user: AuthUser | null | undefined): boolean {
+  return hasPermission(user, 'activities.create') || hasPermission(user, 'activities.update')
+}
+
+/** Announcements management: create, update, publish, or archive/delete. */
+export function canManageAnnouncements(user: AuthUser | null | undefined): boolean {
+  return hasPermission(user, 'announcements.create') || hasPermission(user, 'announcements.update')
+}
+
+/**
+ * Coarse RT-membership gate used only for UX routing; the backend enforces
+ * actual authorization (active RT, configured scope fail-closed, jabatan and
+ * permission checks). Any user with an RT membership in /me is allowed to
+ * enter the RT-scoped area; the backend still decides what they can do.
+ */
 export function isAllowedRT(user: AuthUser | null): boolean {
   if (!user) return false
   if (isSuperAdminUser(user)) return true
-  if (user.rtCode && ALLOWED_RT_CODES.includes(user.rtCode)) return true
-  if (user.rtId && ALLOWED_RT_IDS.includes(user.rtId)) return true
-  if (user.rt?.id && ALLOWED_RT_IDS.includes(user.rt.id)) return true
+  if (typeof user.rtId === 'string' && user.rtId.trim() !== '') return true
+  if (typeof user.rt?.id === 'string' && user.rt.id.trim() !== '') return true
   return false
 }
 
@@ -77,6 +158,9 @@ function mapUser(raw: ApiUser): AuthUser {
         rw_name: m.rw_name,
         rw_number: m.rw_number,
         jabatan: m.jabatan,
+        source: m.source === 'explicit' || m.source === 'rt_inferred'
+          ? (m.source as RWMembershipSource)
+          : undefined,
       }))
     : []
   return {
@@ -84,12 +168,16 @@ function mapUser(raw: ApiUser): AuthUser {
     name: raw.full_name,
     email: raw.email,
     phone: raw.phone ?? null,
+    avatarPath: raw.avatar_path ?? null,
+    avatarThumbPath: raw.avatar_thumb_path ?? null,
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,
     effectivePermissions: raw.effective_permissions ?? [],
     rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
     rtCode,
+    rwName: raw.rw_name ?? null,
+    rwNumber: raw.rw_number ?? raw.rt_rw ?? null,
     rtId,
     rwId,
     rwMemberships,

@@ -4,6 +4,7 @@ import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -16,15 +17,18 @@ class RwFundLocationScreen extends ConsumerStatefulWidget {
   final String rwId;
   final bool isTabView;
 
-  const RwFundLocationScreen({super.key, required this.rwId, this.isTabView = false});
+  const RwFundLocationScreen({
+    super.key,
+    required this.rwId,
+    this.isTabView = false,
+  });
 
   @override
   ConsumerState<RwFundLocationScreen> createState() =>
       _RwFundLocationScreenState();
 }
 
-class _RwFundLocationScreenState
-    extends ConsumerState<RwFundLocationScreen>
+class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
@@ -32,31 +36,50 @@ class _RwFundLocationScreenState
   bool _isLoading = true;
   String? _error;
 
+  RwReconciliationReport? _reconciliation;
+  String? _allocError;
+
   String _selectedCategory = 'all';
   String _selectedStatus = 'all';
   String _searchQuery = '';
 
   bool _canCreateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
-    if (user['role'] == AppRole.superAdmin || user['system_role'] == 'super_admin') return true;
-    final rwMemberships = (user['rw_memberships'] as List?)
-        ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final jabatan = (currentMembership?.jabatan ?? '').toLowerCase();
-    return jabatan == 'bendahara' || jabatan == 'ketua' || jabatan == 'wakil_ketua';
+    if (user['role'] == AppRole.superAdmin ||
+        user['system_role'] == 'super_admin')
+      return true;
+    // Source-aware: RT inferred users have read-only access.
+    final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
+    if (!hasWriteAccess) return false;
+    final rwMemberships =
+        (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull;
+    final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
+    return jabatan == 'bendahara' || jabatan == 'ketua';
   }
 
   bool _canUpdateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
-    if (user['role'] == AppRole.superAdmin || user['system_role'] == 'super_admin') return true;
-    final rwMemberships = (user['rw_memberships'] as List?)
-        ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final jabatan = (currentMembership?.jabatan ?? '').toLowerCase();
+    if (user['role'] == AppRole.superAdmin ||
+        user['system_role'] == 'super_admin')
+      return true;
+    // Source-aware: RT inferred users have read-only access.
+    final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
+    if (!hasWriteAccess) return false;
+    final rwMemberships =
+        (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull;
+    final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
     return jabatan == 'bendahara' || jabatan == 'ketua';
   }
 
@@ -75,9 +98,13 @@ class _RwFundLocationScreenState
     try {
       final api = ref.read(rwApiClientProvider);
       final locations = await api.getLocations(widget.rwId);
+      final reconciliation = await api.getReconciliation(widget.rwId);
 
       if (mounted) {
-        setState(() => _locations = locations);
+        setState(() {
+          _locations = locations;
+          _reconciliation = reconciliation;
+        });
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -99,10 +126,14 @@ class _RwFundLocationScreenState
     }
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
-      locs = locs.where((l) =>
-          l.name.toLowerCase().contains(q) ||
-          (l.bankName ?? '').toLowerCase().contains(q) ||
-          (l.accountNumber ?? '').toLowerCase().contains(q)).toList();
+      locs = locs
+          .where(
+            (l) =>
+                l.name.toLowerCase().contains(q) ||
+                (l.bankName ?? '').toLowerCase().contains(q) ||
+                (l.accountNumber ?? '').toLowerCase().contains(q),
+          )
+          .toList();
     }
 
     return locs;
@@ -120,13 +151,22 @@ class _RwFundLocationScreenState
     return {
       'rekening': _locations
           .where((l) => l.category == 'rekening')
-          .fold(0, (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0)),
+          .fold(
+            0,
+            (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0),
+          ),
       'brankas': _locations
           .where((l) => l.category == 'brankas')
-          .fold(0, (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0)),
+          .fold(
+            0,
+            (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0),
+          ),
       'coh': _locations
           .where((l) => l.category == 'coh')
-          .fold(0, (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0)),
+          .fold(
+            0,
+            (sum, loc) => sum + (double.tryParse(loc.currentBalance) ?? 0),
+          ),
     };
   }
 
@@ -136,86 +176,100 @@ class _RwFundLocationScreenState
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final canCreate = _canCreateRw(user);
     final canUpdate = _canUpdateRw(user);
     final isReadOnly = !canCreate && !canUpdate;
 
-    final rwMemberships = (user?['rw_memberships'] as List?)
-        ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
+    final rwMemberships =
+        (user?['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
+            .toList() ??
+        <RWMembership>[];
+    final currentMembership = rwMemberships
+        .where((m) => m.rwId == widget.rwId)
+        .firstOrNull;
     final rwNumberText = currentMembership?.rwNumber != null
         ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);
-    final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
+    final rwDisplayName =
+        currentMembership?.rwName ??
+        (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
-    super.build(context);
     final body = NestedScrollView(
-        headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.sm),
-                        ),
-                        child: const Icon(Icons.business,
-                            color: Colors.white, size: 18),
+      headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Lokasi Dana RW',
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700),
-                            ),
-                            Text(
-                              !isReadOnly ? 'Kelola Lokasi Dana $rwDisplayName' : '$rwDisplayName — Read Only',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textMutedColor(context),
-                              ),
-                            ),
-                          ],
-                        ),
+                      child: const Icon(
+                        Icons.business,
+                        color: Colors.white,
+                        size: 18,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (isReadOnly) ...[
-                    Builder(builder: (context) {
-                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Lokasi Dana RW',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            !isReadOnly
+                                ? 'Kelola Lokasi Dana $rwDisplayName'
+                                : '$rwDisplayName — Read Only',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textMutedColor(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (isReadOnly) ...[
+                  Builder(
+                    builder: (context) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
                       final warningStyle = RwBadgeStyle.warning(isDark: isDark);
                       return Container(
                         padding: const EdgeInsets.all(12),
                         margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
                           color: warningStyle.background,
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.sm),
-                          border: Border.all(
-                              color: warningStyle.border),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(color: warningStyle.border),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.info_outline,
-                                color: warningStyle.text, size: 18),
+                            Icon(
+                              Icons.info_outline,
+                              color: warningStyle.text,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -230,32 +284,37 @@ class _RwFundLocationScreenState
                           ],
                         ),
                       );
-                    }),
-                  ],
-                  _buildActionToolbar(context, canCreate: canCreate, canUpdate: canUpdate),
+                    },
+                  ),
                 ],
-              ),
-            ),
-          ),
-        ],
-        body: RefreshIndicator(
-          onRefresh: _fetchData,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 32),
-            child: Column(
-              children: [
-                // Category Summary
-                _buildCategorySummary(context),
-                const SizedBox(height: 12),
-
-                // Main content
-                _buildMainContent(context, canUpdate: canUpdate),
+                _buildActionToolbar(
+                  context,
+                  canCreate: canCreate,
+                  canUpdate: canUpdate,
+                ),
               ],
             ),
           ),
         ),
-      );
+      ],
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 32),
+          child: Column(
+            children: [
+              // Category Summary
+              _buildCategorySummary(context),
+              const SizedBox(height: 12),
+
+              // Main content
+              _buildMainContent(context, canUpdate: canUpdate),
+            ],
+          ),
+        ),
+      ),
+    );
 
     if (widget.isTabView) {
       return body;
@@ -271,7 +330,11 @@ class _RwFundLocationScreenState
     );
   }
 
-  Widget _buildActionToolbar(BuildContext context, {required bool canCreate, required bool canUpdate}) {
+  Widget _buildActionToolbar(
+    BuildContext context, {
+    required bool canCreate,
+    required bool canUpdate,
+  }) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -280,7 +343,10 @@ class _RwFundLocationScreenState
           ElevatedButton.icon(
             onPressed: () => _showCreateLocationDialog(context),
             icon: const Icon(Icons.add, size: 16),
-            label: const Text('Tambah Lokasi', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            label: const Text(
+              'Tambah Lokasi',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.accent,
               foregroundColor: Colors.white,
@@ -291,7 +357,22 @@ class _RwFundLocationScreenState
           OutlinedButton.icon(
             onPressed: () => _showTransferDialog(context),
             icon: const Icon(Icons.swap_horiz, size: 16),
-            label: const Text('Transfer Antar-Lokasi', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            label: const Text(
+              'Transfer Antar-Lokasi',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        if (canCreate)
+          OutlinedButton.icon(
+            onPressed: _showAllocationDialog,
+            icon: const Icon(Icons.account_balance_wallet, size: 16),
+            label: const Text(
+              'Alokasi Saldo Awal',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
             style: OutlinedButton.styleFrom(
               visualDensity: VisualDensity.compact,
             ),
@@ -299,18 +380,20 @@ class _RwFundLocationScreenState
         OutlinedButton.icon(
           onPressed: () => _showTransfersHistoryDialog(context, canUpdate),
           icon: const Icon(Icons.history, size: 16),
-          label: const Text('Riwayat Transfer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
+          label: const Text(
+            'Riwayat Transfer',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
+          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
         ),
         OutlinedButton.icon(
           onPressed: () => _showReconcileDialog(context),
           icon: const Icon(Icons.account_balance, size: 16),
-          label: const Text('Rekonsiliasi', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
+          label: const Text(
+            'Rekonsiliasi',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
+          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
         ),
       ],
     );
@@ -320,8 +403,7 @@ class _RwFundLocationScreenState
     final totals = _categoryTotals;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
           // Total Card
@@ -341,8 +423,7 @@ class _RwFundLocationScreenState
                 child: _buildSummaryCard(
                   context,
                   'Rekening Bank',
-                  RupiahFormatter.format(
-                      totals['rekening']?.toInt() ?? 0),
+                  RupiahFormatter.format(totals['rekening']?.toInt() ?? 0),
                   AppColors.info,
                   Icons.account_balance,
                   '${_locations.where((l) => l.category == 'rekening' && l.isActive).length} lokasi',
@@ -353,8 +434,7 @@ class _RwFundLocationScreenState
                 child: _buildSummaryCard(
                   context,
                   'Brankas Fisik',
-                  RupiahFormatter.format(
-                      totals['brankas']?.toInt() ?? 0),
+                  RupiahFormatter.format(totals['brankas']?.toInt() ?? 0),
                   AppColors.warning,
                   Icons.security,
                   '${_locations.where((l) => l.category == 'brankas' && l.isActive).length} lokasi',
@@ -367,8 +447,7 @@ class _RwFundLocationScreenState
           _buildSummaryCard(
             context,
             'Kas Di Tangan (COH)',
-            RupiahFormatter.format(
-                totals['coh']?.toInt() ?? 0),
+            RupiahFormatter.format(totals['coh']?.toInt() ?? 0),
             AppColors.success,
             Icons.wallet,
             '${_locations.where((l) => l.category == 'coh' && l.isActive).length} lokasi',
@@ -378,66 +457,184 @@ class _RwFundLocationScreenState
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context, String title, String value,
-      Color color, IconData icon, String subtitle) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
+  void _showSummaryCardDetail({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.lightTextMuted,
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textMutedColor(context),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
                   ),
                 ),
               ],
             ),
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSummaryCard(
+    BuildContext context,
+    String title,
+    String value,
+    Color color,
+    IconData icon,
+    String subtitle,
+  ) {
+    return InkWell(
+      onTap: () => _showSummaryCardDetail(
+        context: context,
+        title: title,
+        value: value,
+        color: color,
+        icon: icon,
+        subtitle: subtitle,
+      ),
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.lightTextMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMainContent(BuildContext context, {required bool canUpdate}) {
     return Card(
-      margin: const EdgeInsets.fromLTRB(
-          20, 12, 20, 0),
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -448,15 +645,13 @@ class _RwFundLocationScreenState
             const SizedBox(height: 12),
 
             // Error
-            if (_error != null)
-              _buildErrorBanner(),
+            if (_error != null) _buildErrorBanner(),
 
             // Loading
             if (_isLoading) const _LoadingBanner(),
 
             // Empty
-            if (!_isLoading && _locations.isEmpty)
-              const _EmptyBanner(),
+            if (!_isLoading && _locations.isEmpty) const _EmptyBanner(),
 
             // Locations table
             if (!_isLoading && _filteredLocations.isNotEmpty)
@@ -471,64 +666,155 @@ class _RwFundLocationScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            // Category filter
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Kategori',
-                  isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'all', child: Text('Semua Kategori')),
-                  DropdownMenuItem(
-                      value: 'rekening',
-                      child: Text('Rekening Bank')),
-                  DropdownMenuItem(
-                      value: 'brankas', child: Text('Brankas Fisik')),
-                  DropdownMenuItem(
-                      value: 'coh',
-                      child: Text('Kas Di Tangan (COH)')),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 560;
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Category filter
+                  DropdownButtonFormField<String>(
+                    value: _selectedCategory,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Kategori',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'all',
+                        child: Text('Semua Kategori'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'rekening',
+                        child: Text('Rekening Bank'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'brankas',
+                        child: Text('Brankas Fisik'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'coh',
+                        child: Text('Kas Di Tangan (COH)'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedCategory = v);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Status filter
+                  DropdownButtonFormField<String>(
+                    value: _selectedStatus,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Status',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'all',
+                        child: Text('Semua Status'),
+                      ),
+                      DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                      DropdownMenuItem(
+                        value: 'inactive',
+                        child: Text('Nonaktif'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedStatus = v);
+                    },
+                  ),
                 ],
-                onChanged: (v) {
-                  if (v != null) setState(() => _selectedCategory = v);
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Status filter
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                value: _selectedStatus,
-                decoration: const InputDecoration(
-                  labelText: 'Status',
-                  isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  border: OutlineInputBorder(),
+              );
+            }
+            return Row(
+              children: [
+                // Category filter
+                Expanded(
+                  flex: 2,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedCategory,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Kategori',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'all',
+                        child: Text('Semua Kategori'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'rekening',
+                        child: Text('Rekening Bank'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'brankas',
+                        child: Text('Brankas Fisik'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'coh',
+                        child: Text('Kas Di Tangan (COH)'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedCategory = v);
+                    },
+                  ),
                 ),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'all', child: Text('Semua Status')),
-                  DropdownMenuItem(
-                      value: 'active', child: Text('Aktif')),
-                  DropdownMenuItem(
-                      value: 'inactive', child: Text('Nonaktif')),
-                ],
-                onChanged: (v) {
-                  if (v != null) setState(() => _selectedStatus = v);
-                },
-              ),
-            ),
-          ],
+                const SizedBox(width: 8),
+                // Status filter
+                Expanded(
+                  flex: 2,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedStatus,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Status',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'all',
+                        child: Text('Semua Status'),
+                      ),
+                      DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                      DropdownMenuItem(
+                        value: 'inactive',
+                        child: Text('Nonaktif'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedStatus = v);
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 8),
 
@@ -538,8 +824,7 @@ class _RwFundLocationScreenState
             hintText: 'Cari nama lokasi, RT, bank...',
             prefixIcon: Icon(Icons.search, size: 18),
             isDense: true,
-            contentPadding:
-                EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             border: OutlineInputBorder(),
           ),
           onChanged: (v) => setState(() => _searchQuery = v),
@@ -549,23 +834,29 @@ class _RwFundLocationScreenState
   }
 
   Widget _buildErrorBanner() {
-    return Builder(builder: (context) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final dangerStyle = RwBadgeStyle.danger(isDark: isDark);
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: dangerStyle.background,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: dangerStyle.border),
-        ),
-        child: Text(
-          'Error: $_error',
-          style: TextStyle(color: dangerStyle.text, fontSize: 13, fontWeight: FontWeight.w600),
-        ),
-      );
-    });
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final dangerStyle = RwBadgeStyle.danger(isDark: isDark);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: dangerStyle.background,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(color: dangerStyle.border),
+          ),
+          child: Text(
+            'Error: $_error',
+            style: TextStyle(
+              color: dangerStyle.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildLocationsTable(BuildContext context, {required bool canUpdate}) {
@@ -577,128 +868,184 @@ class _RwFundLocationScreenState
         constraints: const BoxConstraints(minWidth: 700),
         child: DataTable(
           headingRowColor: WidgetStateProperty.all(
-              AppColors.lightTextMuted.withValues(alpha: 0.05)),
+            AppColors.lightTextMuted.withValues(alpha: 0.05),
+          ),
           columns: [
             DataColumn(
-                label: Text('NAMA LOKASI',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'NAMA LOKASI',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text('KATEGORI',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'KATEGORI',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text('DETAIL / BANK',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'DETAIL / BANK',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text('SALDO',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'SALDO',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text('STATUS',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'STATUS',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text('AKSI',
-                    style: TextStyle(
-                        fontSize: 10, color: AppColors.textMutedColor(context)))),
+              label: Text(
+                'AKSI',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ),
           ],
           rows: locs.map((loc) {
             final bal = double.tryParse(loc.currentBalance) ?? 0;
             final detailText = loc.category == 'rekening'
-                ? [loc.bankName, loc.accountNumber].where((s) => s != null && s.isNotEmpty).join(' - ')
+                ? [
+                    loc.bankName,
+                    loc.accountNumber,
+                  ].where((s) => s != null && s.isNotEmpty).join(' - ')
                 : '—';
 
-            return DataRow(cells: [
-              DataCell(
-                InkWell(
-                  onTap: () => _showLocationDetailDialog(context, loc),
-                  child: Text(
-                    loc.name,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.accent),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+            return DataRow(
+              cells: [
+                DataCell(
+                  InkWell(
+                    onTap: () => _showLocationDetailDialog(context, loc),
+                    child: Text(
+                      loc.name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.accent,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-              ),
-              DataCell(
-                Builder(builder: (context) {
-                  final isDark = Theme.of(context).brightness == Brightness.dark;
-                  final badgeStyle = loc.category == 'rekening'
-                      ? RwBadgeStyle.info(isDark: isDark)
-                      : loc.category == 'brankas'
+                DataCell(
+                  Builder(
+                    builder: (context) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      final badgeStyle = loc.category == 'rekening'
+                          ? RwBadgeStyle.info(isDark: isDark)
+                          : loc.category == 'brankas'
                           ? RwBadgeStyle.warning(isDark: isDark)
                           : RwBadgeStyle.success(isDark: isDark);
-                  return AppBadge(
-                    label: loc.category == 'rekening'
-                        ? 'Rekening Bank'
-                        : loc.category == 'brankas'
+                      return AppBadge(
+                        label: loc.category == 'rekening'
+                            ? 'Rekening Bank'
+                            : loc.category == 'brankas'
                             ? 'Brankas Fisik'
                             : 'Kas Di Tangan (COH)',
-                    backgroundColor: badgeStyle.background,
-                    textColor: badgeStyle.text,
-                  );
-                }),
-              ),
-              DataCell(Text(
-                detailText.isNotEmpty ? detailText : '—',
-                style: const TextStyle(fontSize: 12),
-              )),
-              DataCell(Text(
-                RupiahFormatter.format(bal.toInt()),
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                        backgroundColor: badgeStyle.background,
+                        textColor: badgeStyle.text,
+                      );
+                    },
+                  ),
                 ),
-              )),
-              DataCell(
-                Builder(builder: (context) {
-                  final isDark = Theme.of(context).brightness == Brightness.dark;
-                  final badgeStyle = loc.isActive
-                      ? RwBadgeStyle.success(isDark: isDark)
-                      : RwBadgeStyle.danger(isDark: isDark);
-                  return AppBadge(
-                    label: loc.isActive ? 'Aktif' : 'Nonaktif',
-                    backgroundColor: badgeStyle.background,
-                    textColor: badgeStyle.text,
-                  );
-                }),
-              ),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.info_outline, size: 18),
-                      tooltip: 'Detail Lokasi',
-                      onPressed: () => _showLocationDetailDialog(context, loc),
+                DataCell(
+                  Text(
+                    detailText.isNotEmpty ? detailText : '—',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    RupiahFormatter.format(bal.toInt()),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.history, size: 18),
-                      tooltip: 'Riwayat Mutasi',
-                      onPressed: () => _showMutationsDialog(context, loc),
-                    ),
-                    if (canUpdate) ...[
+                  ),
+                ),
+                DataCell(
+                  Builder(
+                    builder: (context) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      final badgeStyle = loc.isActive
+                          ? RwBadgeStyle.success(isDark: isDark)
+                          : RwBadgeStyle.danger(isDark: isDark);
+                      return AppBadge(
+                        label: loc.isActive ? 'Aktif' : 'Nonaktif',
+                        backgroundColor: badgeStyle.background,
+                        textColor: badgeStyle.text,
+                      );
+                    },
+                  ),
+                ),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       IconButton(
-                        icon: const Icon(Icons.edit, size: 18),
-                        tooltip: 'Edit',
-                        onPressed: () => _showEditLocationDialog(context, loc),
+                        icon: const Icon(Icons.info_outline, size: 18),
+                        tooltip: 'Detail Lokasi',
+                        onPressed: () =>
+                            _showLocationDetailDialog(context, loc),
                       ),
                       IconButton(
-                        icon: Icon(
-                          loc.isActive ? Icons.power_settings_new : Icons.check_circle_outline,
-                          size: 18,
-                          color: loc.isActive ? AppColors.danger : AppColors.success,
+                        icon: const Icon(Icons.history, size: 18),
+                        tooltip: 'Riwayat Mutasi',
+                        onPressed: () => _showMutationsDialog(context, loc),
+                      ),
+                      if (canUpdate) ...[
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 18),
+                          tooltip: 'Edit',
+                          onPressed: () =>
+                              _showEditLocationDialog(context, loc),
                         ),
-                        tooltip: loc.isActive ? 'Nonaktifkan' : 'Aktifkan',
-                        onPressed: () => _toggleLocationStatus(context, loc),
-                      ),
+                        IconButton(
+                          icon: Icon(
+                            loc.isActive
+                                ? Icons.power_settings_new
+                                : Icons.check_circle_outline,
+                            size: 18,
+                            color: loc.isActive
+                                ? AppColors.danger
+                                : AppColors.success,
+                          ),
+                          tooltip: loc.isActive ? 'Nonaktifkan' : 'Aktifkan',
+                          onPressed: () => _toggleLocationStatus(context, loc),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ]);
+              ],
+            );
           }).toList(),
         ),
       ),
@@ -715,17 +1062,31 @@ class _RwFundLocationScreenState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildReconcileRow('Kategori:', loc.category == 'rekening'
-                ? 'Rekening Bank'
-                : loc.category == 'brankas'
-                    ? 'Brankas Fisik'
-                    : 'Kas Di Tangan (COH)'),
+            _buildReconcileRow(
+              'Kategori:',
+              loc.category == 'rekening'
+                  ? 'Rekening Bank'
+                  : loc.category == 'brankas'
+                  ? 'Brankas Fisik'
+                  : 'Kas Di Tangan (COH)',
+            ),
             if (loc.category == 'rekening') ...[
-              _buildReconcileRow('Nama Bank:', loc.bankName ?? '—'),
-              _buildReconcileRow('No. Rekening:', loc.accountNumber ?? '—'),
+              _buildReconcileRow(
+                'Nama Bank:',
+                loc.bankName ?? '—',
+                valueColor: AppColors.info,
+              ),
+              _buildReconcileRow(
+                'No. Rekening:',
+                loc.accountNumber ?? '—',
+                valueColor: AppColors.accent,
+              ),
               _buildReconcileRow('Pemilik Rekening:', loc.accountHolder ?? '—'),
             ],
-            _buildReconcileRow('Saldo Saat Ini:', RupiahFormatter.format(bal.toInt())),
+            _buildReconcileRow(
+              'Saldo Saat Ini:',
+              RupiahFormatter.format(bal.toInt()),
+            ),
             _buildReconcileRow('Status:', loc.isActive ? 'Aktif' : 'Nonaktif'),
           ],
         ),
@@ -774,20 +1135,39 @@ class _RwFundLocationScreenState
                           color: AppColors.danger.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
-                        child: Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     TextField(
                       controller: nameCtrl,
-                      decoration: const InputDecoration(labelText: 'Nama Lokasi *'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lokasi *',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: category,
-                      decoration: const InputDecoration(labelText: 'Kategori *'),
+                      decoration: const InputDecoration(
+                        labelText: 'Kategori *',
+                      ),
                       items: const [
-                        DropdownMenuItem(value: 'rekening', child: Text('Rekening Bank')),
-                        DropdownMenuItem(value: 'brankas', child: Text('Brankas Fisik')),
-                        DropdownMenuItem(value: 'coh', child: Text('Kas Di Tangan (COH)')),
+                        DropdownMenuItem(
+                          value: 'rekening',
+                          child: Text('Rekening Bank'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'brankas',
+                          child: Text('Brankas Fisik'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'coh',
+                          child: Text('Kas Di Tangan (COH)'),
+                        ),
                       ],
                       onChanged: (val) {
                         if (val != null) setDialogState(() => category = val);
@@ -797,17 +1177,23 @@ class _RwFundLocationScreenState
                       const SizedBox(height: 8),
                       TextField(
                         controller: bankCtrl,
-                        decoration: const InputDecoration(labelText: 'Nama Bank * (mis. BCA, Mandiri)'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Bank * (mis. BCA, Mandiri)',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: noCtrl,
-                        decoration: const InputDecoration(labelText: 'Nomor Rekening'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nomor Rekening',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: holderCtrl,
-                        decoration: const InputDecoration(labelText: 'Nama Pemilik Rekening'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Pemilik Rekening',
+                        ),
                       ),
                     ],
                   ],
@@ -819,46 +1205,65 @@ class _RwFundLocationScreenState
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
-                  onPressed: saving ? null : () async {
-                    if (nameCtrl.text.trim().isEmpty) {
-                      setDialogState(() => error = 'Nama lokasi wajib diisi');
-                      return;
-                    }
-                    if (category == 'rekening' && bankCtrl.text.trim().isEmpty) {
-                      setDialogState(() => error = 'Nama bank wajib diisi untuk rekening');
-                      return;
-                    }
-                    setDialogState(() {
-                      saving = true;
-                      error = null;
-                    });
-                    try {
-                      final api = ref.read(rwApiClientProvider);
-                      await api.createLocation(widget.rwId, {
-                        'name': nameCtrl.text.trim(),
-                        'category': category,
-                        if (category == 'rekening') 'bank_name': bankCtrl.text.trim(),
-                        if (category == 'rekening' && noCtrl.text.trim().isNotEmpty)
-                          'account_number': noCtrl.text.trim(),
-                        if (category == 'rekening' && holderCtrl.text.trim().isNotEmpty)
-                          'account_holder': holderCtrl.text.trim(),
-                      });
-                      if (context.mounted) {
-                        Navigator.pop(dialogCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Lokasi dana RW berhasil ditambahkan')),
-                        );
-                        _fetchData();
-                      }
-                    } catch (e) {
-                      setDialogState(() {
-                        saving = false;
-                        error = e.toString();
-                      });
-                    }
-                  },
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (nameCtrl.text.trim().isEmpty) {
+                            setDialogState(
+                              () => error = 'Nama lokasi wajib diisi',
+                            );
+                            return;
+                          }
+                          if (category == 'rekening' &&
+                              bankCtrl.text.trim().isEmpty) {
+                            setDialogState(
+                              () => error =
+                                  'Nama bank wajib diisi untuk rekening',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            final api = ref.read(rwApiClientProvider);
+                            await api.createLocation(widget.rwId, {
+                              'name': nameCtrl.text.trim(),
+                              'category': category,
+                              if (category == 'rekening')
+                                'bank_name': bankCtrl.text.trim(),
+                              if (category == 'rekening' &&
+                                  noCtrl.text.trim().isNotEmpty)
+                                'account_number': noCtrl.text.trim(),
+                              if (category == 'rekening' &&
+                                  holderCtrl.text.trim().isNotEmpty)
+                                'account_holder': holderCtrl.text.trim(),
+                            });
+                            if (context.mounted) {
+                              Navigator.pop(dialogCtx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Lokasi dana RW berhasil ditambahkan',
+                                  ),
+                                ),
+                              );
+                              _fetchData();
+                            }
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
                   child: saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Simpan'),
                 ),
               ],
@@ -869,7 +1274,10 @@ class _RwFundLocationScreenState
     );
   }
 
-  Future<void> _showEditLocationDialog(BuildContext context, RwFundLocation loc) async {
+  Future<void> _showEditLocationDialog(
+    BuildContext context,
+    RwFundLocation loc,
+  ) async {
     final nameCtrl = TextEditingController(text: loc.name);
     final bankCtrl = TextEditingController(text: loc.bankName ?? '');
     final noCtrl = TextEditingController(text: loc.accountNumber ?? '');
@@ -896,27 +1304,41 @@ class _RwFundLocationScreenState
                           color: AppColors.danger.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
-                        child: Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     TextField(
                       controller: nameCtrl,
-                      decoration: const InputDecoration(labelText: 'Nama Lokasi *'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lokasi *',
+                      ),
                     ),
                     if (loc.category == 'rekening') ...[
                       const SizedBox(height: 8),
                       TextField(
                         controller: bankCtrl,
-                        decoration: const InputDecoration(labelText: 'Nama Bank'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Bank',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: noCtrl,
-                        decoration: const InputDecoration(labelText: 'Nomor Rekening'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nomor Rekening',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: holderCtrl,
-                        decoration: const InputDecoration(labelText: 'Nama Pemilik Rekening'),
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Pemilik Rekening',
+                        ),
                       ),
                     ],
                   ],
@@ -928,39 +1350,54 @@ class _RwFundLocationScreenState
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
-                  onPressed: saving ? null : () async {
-                    if (nameCtrl.text.trim().isEmpty) {
-                      setDialogState(() => error = 'Nama lokasi wajib diisi');
-                      return;
-                    }
-                    setDialogState(() {
-                      saving = true;
-                      error = null;
-                    });
-                    try {
-                      final api = ref.read(rwApiClientProvider);
-                      await api.updateLocation(widget.rwId, loc.id, {
-                        'name': nameCtrl.text.trim(),
-                        if (loc.category == 'rekening') 'bank_name': bankCtrl.text.trim(),
-                        if (loc.category == 'rekening') 'account_number': noCtrl.text.trim(),
-                        if (loc.category == 'rekening') 'account_holder': holderCtrl.text.trim(),
-                      });
-                      if (context.mounted) {
-                        Navigator.pop(dialogCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Lokasi dana berhasil diperbarui')),
-                        );
-                        _fetchData();
-                      }
-                    } catch (e) {
-                      setDialogState(() {
-                        saving = false;
-                        error = e.toString();
-                      });
-                    }
-                  },
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (nameCtrl.text.trim().isEmpty) {
+                            setDialogState(
+                              () => error = 'Nama lokasi wajib diisi',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            final api = ref.read(rwApiClientProvider);
+                            await api.updateLocation(widget.rwId, loc.id, {
+                              'name': nameCtrl.text.trim(),
+                              if (loc.category == 'rekening')
+                                'bank_name': bankCtrl.text.trim(),
+                              if (loc.category == 'rekening')
+                                'account_number': noCtrl.text.trim(),
+                              if (loc.category == 'rekening')
+                                'account_holder': holderCtrl.text.trim(),
+                            });
+                            if (context.mounted) {
+                              Navigator.pop(dialogCtx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Lokasi dana berhasil diperbarui',
+                                  ),
+                                ),
+                              );
+                              _fetchData();
+                            }
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
                   child: saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Simpan'),
                 ),
               ],
@@ -971,7 +1408,10 @@ class _RwFundLocationScreenState
     );
   }
 
-  Future<void> _toggleLocationStatus(BuildContext context, RwFundLocation loc) async {
+  Future<void> _toggleLocationStatus(
+    BuildContext context,
+    RwFundLocation loc,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
     final bal = double.tryParse(loc.currentBalance) ?? 0;
     if (loc.isActive && bal != 0) {
@@ -1011,7 +1451,9 @@ class _RwFundLocationScreenState
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: loc.isActive ? AppColors.danger : AppColors.success,
+              backgroundColor: loc.isActive
+                  ? AppColors.danger
+                  : AppColors.success,
               foregroundColor: Colors.white,
             ),
             child: Text(loc.isActive ? 'Nonaktifkan' : 'Aktifkan'),
@@ -1044,7 +1486,11 @@ class _RwFundLocationScreenState
     final activeLocs = _locations.where((l) => l.isActive).toList();
     if (activeLocs.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dibutuhkan minimal 2 lokasi aktif untuk melakukan transfer')),
+        const SnackBar(
+          content: Text(
+            'Dibutuhkan minimal 2 lokasi aktif untuk melakukan transfer',
+          ),
+        ),
       );
       return;
     }
@@ -1062,7 +1508,9 @@ class _RwFundLocationScreenState
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
             final fromLoc = activeLocs.where((l) => l.id == fromId).firstOrNull;
-            final fromBal = fromLoc != null ? (double.tryParse(fromLoc.currentBalance) ?? 0) : 0;
+            final fromBal = fromLoc != null
+                ? (double.tryParse(fromLoc.currentBalance) ?? 0)
+                : 0;
 
             return AlertDialog(
               title: const Text('Transfer Antar-Lokasi RW'),
@@ -1078,16 +1526,26 @@ class _RwFundLocationScreenState
                           color: AppColors.danger.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
-                        child: Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
                       ),
                     DropdownButtonFormField<String>(
                       value: fromId,
-                      decoration: const InputDecoration(labelText: 'Dari Lokasi (Sumber) *'),
+                      decoration: const InputDecoration(
+                        labelText: 'Dari Lokasi (Sumber) *',
+                      ),
                       items: activeLocs.map((l) {
                         final b = double.tryParse(l.currentBalance) ?? 0;
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Text('${l.name} (${RupiahFormatter.format(b.toInt())})'),
+                          child: Text(
+                            '${l.name} (${RupiahFormatter.format(b.toInt())})',
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -1100,7 +1558,9 @@ class _RwFundLocationScreenState
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
                       value: toId,
-                      decoration: const InputDecoration(labelText: 'Ke Lokasi (Tujuan) *'),
+                      decoration: const InputDecoration(
+                        labelText: 'Ke Lokasi (Tujuan) *',
+                      ),
                       items: activeLocs.where((l) => l.id != fromId).map((l) {
                         return DropdownMenuItem(
                           value: l.id,
@@ -1129,7 +1589,9 @@ class _RwFundLocationScreenState
                     const SizedBox(height: 8),
                     TextField(
                       controller: notesCtrl,
-                      decoration: const InputDecoration(labelText: 'Catatan (Opsional)'),
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan (Opsional)',
+                      ),
                     ),
                   ],
                 ),
@@ -1140,55 +1602,85 @@ class _RwFundLocationScreenState
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
-                  onPressed: saving ? null : () async {
-                    if (fromId == null || toId == null) {
-                      setDialogState(() => error = 'Pilih lokasi sumber dan tujuan');
-                      return;
-                    }
-                    if (fromId == toId) {
-                      setDialogState(() => error = 'Lokasi sumber dan tujuan tidak boleh sama');
-                      return;
-                    }
-                    final amt = double.tryParse(amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-                    if (amt <= 0) {
-                      setDialogState(() => error = 'Nominal transfer harus lebih dari 0');
-                      return;
-                    }
-                    if (amt > fromBal) {
-                      setDialogState(() => error = 'Saldo tidak mencukupi untuk transfer');
-                      return;
-                    }
-                    setDialogState(() {
-                      saving = true;
-                      error = null;
-                    });
-                    try {
-                      final api = ref.read(rwApiClientProvider);
-                      final now = DateTime.now();
-                      final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-                      await api.createTransfer(widget.rwId, {
-                        'from_location_id': fromId,
-                        'to_location_id': toId,
-                        'amount': '${amt.toInt()}.00',
-                        'transfer_date': dateStr,
-                        if (notesCtrl.text.trim().isNotEmpty) 'notes': notesCtrl.text.trim(),
-                      });
-                      if (context.mounted) {
-                        Navigator.pop(dialogCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Transfer dana RW berhasil dilakukan')),
-                        );
-                        _fetchData();
-                      }
-                    } catch (e) {
-                      setDialogState(() {
-                        saving = false;
-                        error = e.toString();
-                      });
-                    }
-                  },
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (fromId == null || toId == null) {
+                            setDialogState(
+                              () => error = 'Pilih lokasi sumber dan tujuan',
+                            );
+                            return;
+                          }
+                          if (fromId == toId) {
+                            setDialogState(
+                              () => error =
+                                  'Lokasi sumber dan tujuan tidak boleh sama',
+                            );
+                            return;
+                          }
+                          final amt =
+                              double.tryParse(
+                                amountCtrl.text.replaceAll(
+                                  RegExp(r'[^0-9]'),
+                                  '',
+                                ),
+                              ) ??
+                              0;
+                          if (amt <= 0) {
+                            setDialogState(
+                              () =>
+                                  error = 'Nominal transfer harus lebih dari 0',
+                            );
+                            return;
+                          }
+                          if (amt > fromBal) {
+                            setDialogState(
+                              () => error =
+                                  'Saldo tidak mencukupi untuk transfer',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            final api = ref.read(rwApiClientProvider);
+                            final now = DateTime.now();
+                            final dateStr =
+                                '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+                            await api.createTransfer(widget.rwId, {
+                              'from_location_id': fromId,
+                              'to_location_id': toId,
+                              'amount': '${amt.toInt()}.00',
+                              'transfer_date': dateStr,
+                              if (notesCtrl.text.trim().isNotEmpty)
+                                'notes': notesCtrl.text.trim(),
+                            });
+                            if (context.mounted) {
+                              Navigator.pop(dialogCtx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Transfer dana RW berhasil dilakukan',
+                                  ),
+                                ),
+                              );
+                              _fetchData();
+                            }
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
                   child: saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Transfer'),
                 ),
               ],
@@ -1199,7 +1691,10 @@ class _RwFundLocationScreenState
     );
   }
 
-  Future<void> _showTransfersHistoryDialog(BuildContext context, bool canUpdate) async {
+  Future<void> _showTransfersHistoryDialog(
+    BuildContext context,
+    bool canUpdate,
+  ) async {
     showDialog<void>(
       context: context,
       builder: (ctx) {
@@ -1211,17 +1706,27 @@ class _RwFundLocationScreenState
                 width: double.maxFinite,
                 height: 450,
                 child: FutureBuilder<List<RwFundTransfer>>(
-                  future: ref.read(rwApiClientProvider).getTransfers(widget.rwId),
+                  future: ref
+                      .read(rwApiClientProvider)
+                      .getTransfers(widget.rwId),
                   builder: (fCtx, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (snapshot.hasError) {
-                      return Center(child: Text('Gagal memuat riwayat transfer: ${snapshot.error}'));
+                      return Center(
+                        child: Text(
+                          'Gagal memuat riwayat transfer: ${snapshot.error}',
+                        ),
+                      );
                     }
                     final transfers = snapshot.data ?? [];
                     if (transfers.isEmpty) {
-                      return const Center(child: Text('Belum ada riwayat transfer dana antar-lokasi.'));
+                      return const Center(
+                        child: Text(
+                          'Belum ada riwayat transfer dana antar-lokasi.',
+                        ),
+                      );
                     }
                     return ListView.separated(
                       itemCount: transfers.length,
@@ -1229,7 +1734,8 @@ class _RwFundLocationScreenState
                       itemBuilder: (_, idx) {
                         final t = transfers[idx];
                         final amt = double.tryParse(t.amount) ?? 0;
-                        final isReversed = t.isReversal || t.reversesTransferId != null;
+                        final isReversed =
+                            t.isReversal || t.reversesTransferId != null;
 
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1237,23 +1743,35 @@ class _RwFundLocationScreenState
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     t.transferDate,
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                  Builder(builder: (context) {
-                                    final isDark = Theme.of(context).brightness == Brightness.dark;
-                                    final badgeStyle = isReversed
-                                        ? RwBadgeStyle.danger(isDark: isDark)
-                                        : RwBadgeStyle.success(isDark: isDark);
-                                    return AppBadge(
-                                      label: isReversed ? 'Dibatalkan (Reversal)' : 'Berhasil',
-                                      backgroundColor: badgeStyle.background,
-                                      textColor: badgeStyle.text,
-                                    );
-                                  }),
+                                  Builder(
+                                    builder: (context) {
+                                      final isDark =
+                                          Theme.of(context).brightness ==
+                                          Brightness.dark;
+                                      final badgeStyle = isReversed
+                                          ? RwBadgeStyle.danger(isDark: isDark)
+                                          : RwBadgeStyle.success(
+                                              isDark: isDark,
+                                            );
+                                      return AppBadge(
+                                        label: isReversed
+                                            ? 'Dibatalkan (Reversal)'
+                                            : 'Berhasil',
+                                        backgroundColor: badgeStyle.background,
+                                        textColor: badgeStyle.text,
+                                      );
+                                    },
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 4),
@@ -1262,12 +1780,19 @@ class _RwFundLocationScreenState
                                   Expanded(
                                     child: Text(
                                       '${t.fromLocationName ?? 'Lokasi Asal'}  ➔  ${t.toLocationName ?? 'Lokasi Tujuan'}',
-                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
                                   ),
                                   Text(
                                     RupiahFormatter.format(amt.toInt()),
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.accent),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.accent,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1275,7 +1800,10 @@ class _RwFundLocationScreenState
                                 const SizedBox(height: 2),
                                 Text(
                                   'Catatan: ${t.notes}',
-                                  style: TextStyle(fontSize: 11, color: AppColors.textMutedColor(context)),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textMutedColor(context),
+                                  ),
                                 ),
                               ],
                               if (canUpdate && !isReversed) ...[
@@ -1284,27 +1812,35 @@ class _RwFundLocationScreenState
                                   alignment: Alignment.centerRight,
                                   child: OutlinedButton.icon(
                                     onPressed: () async {
-                                      final reasonCtrl = TextEditingController();
+                                      final reasonCtrl =
+                                          TextEditingController();
                                       final confirm = await showDialog<bool>(
                                         context: context,
                                         builder: (cCtx) => AlertDialog(
-                                          title: const Text('Batalkan Transfer (Reversal)?'),
+                                          title: const Text(
+                                            'Batalkan Transfer (Reversal)?',
+                                          ),
                                           content: Column(
                                             mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Text(
                                                 'Transfer sebesar ${RupiahFormatter.format(amt.toInt())} dari '
                                                 '${t.fromLocationName ?? 'Asal'} ke ${t.toLocationName ?? 'Tujuan'} '
                                                 'akan dikembalikan (reversal).',
-                                                style: const TextStyle(fontSize: 13),
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                ),
                                               ),
                                               const SizedBox(height: 12),
                                               TextField(
                                                 controller: reasonCtrl,
                                                 decoration: const InputDecoration(
-                                                  labelText: 'Alasan Pembatalan / Reversal *',
-                                                  hintText: 'Contoh: Salah pilih lokasi tujuan...',
+                                                  labelText:
+                                                      'Alasan Pembatalan / Reversal *',
+                                                  hintText:
+                                                      'Contoh: Salah pilih lokasi tujuan...',
                                                   isDense: true,
                                                   border: OutlineInputBorder(),
                                                 ),
@@ -1313,19 +1849,26 @@ class _RwFundLocationScreenState
                                           ),
                                           actions: [
                                             TextButton(
-                                              onPressed: () => Navigator.pop(cCtx, false),
+                                              onPressed: () =>
+                                                  Navigator.pop(cCtx, false),
                                               child: const Text('Batal'),
                                             ),
                                             ElevatedButton(
                                               onPressed: () {
-                                                if (reasonCtrl.text.trim().isEmpty) return;
+                                                if (reasonCtrl.text
+                                                    .trim()
+                                                    .isEmpty)
+                                                  return;
                                                 Navigator.pop(cCtx, true);
                                               },
                                               style: ElevatedButton.styleFrom(
-                                                backgroundColor: AppColors.danger,
+                                                backgroundColor:
+                                                    AppColors.danger,
                                                 foregroundColor: Colors.white,
                                               ),
-                                              child: const Text('Batalkan Transfer'),
+                                              child: const Text(
+                                                'Batalkan Transfer',
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -1333,35 +1876,58 @@ class _RwFundLocationScreenState
 
                                       if (confirm == true && context.mounted) {
                                         try {
-                                          await ref.read(rwApiClientProvider).reverseTransfer(
-                                            widget.rwId,
-                                            t.id,
-                                            reasonCtrl.text.trim(),
-                                          );
+                                          await ref
+                                              .read(rwApiClientProvider)
+                                              .reverseTransfer(
+                                                widget.rwId,
+                                                t.id,
+                                                reasonCtrl.text.trim(),
+                                              );
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Transfer berhasil dibatalkan (reversal)')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Transfer berhasil dibatalkan (reversal)',
+                                                ),
+                                              ),
                                             );
                                             setDialogState(() {});
                                             _fetchData();
                                           }
                                         } catch (e) {
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Gagal membatalkan transfer: $e')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Gagal membatalkan transfer: $e',
+                                                ),
+                                              ),
                                             );
                                           }
                                         }
                                       }
                                     },
-                                    icon: const Icon(Icons.undo, size: 14, color: AppColors.danger),
+                                    icon: const Icon(
+                                      Icons.undo,
+                                      size: 14,
+                                      color: AppColors.danger,
+                                    ),
                                     label: const Text(
                                       'Batalkan Transfer',
-                                      style: TextStyle(fontSize: 11, color: AppColors.danger),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.danger,
+                                      ),
                                     ),
                                     style: OutlinedButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
-                                      side: const BorderSide(color: AppColors.danger),
+                                      side: const BorderSide(
+                                        color: AppColors.danger,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1387,7 +1953,10 @@ class _RwFundLocationScreenState
     );
   }
 
-  Future<void> _showMutationsDialog(BuildContext context, RwFundLocation loc) async {
+  Future<void> _showMutationsDialog(
+    BuildContext context,
+    RwFundLocation loc,
+  ) async {
     showDialog<void>(
       context: context,
       builder: (ctx) {
@@ -1397,17 +1966,23 @@ class _RwFundLocationScreenState
             width: double.maxFinite,
             height: 400,
             child: FutureBuilder<List<RwLocationMutation>>(
-              future: ref.read(rwApiClientProvider).getLocationMutations(widget.rwId, loc.id),
+              future: ref
+                  .read(rwApiClientProvider)
+                  .getLocationMutations(widget.rwId, loc.id),
               builder: (fCtx, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Gagal memuat mutasi: ${snapshot.error}'));
+                  return Center(
+                    child: Text('Gagal memuat mutasi: ${snapshot.error}'),
+                  );
                 }
                 final mutations = snapshot.data ?? [];
                 if (mutations.isEmpty) {
-                  return const Center(child: Text('Belum ada mutasi untuk lokasi ini.'));
+                  return const Center(
+                    child: Text('Belum ada mutasi untuk lokasi ini.'),
+                  );
                 }
                 return ListView.separated(
                   itemCount: mutations.length,
@@ -1421,7 +1996,10 @@ class _RwFundLocationScreenState
                       contentPadding: EdgeInsets.zero,
                       title: Text(
                         m.notes?.isNotEmpty == true ? m.notes! : m.changeType,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                       ),
                       subtitle: Text(
                         '${m.changeType} • ${m.createdAt.day}/${m.createdAt.month}/${m.createdAt.year}',
@@ -1431,7 +2009,9 @@ class _RwFundLocationScreenState
                         '${isPositive ? '+' : ''}${RupiahFormatter.format(delta.toInt())}',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
-                          color: isPositive ? AppColors.success : AppColors.danger,
+                          color: isPositive
+                              ? AppColors.success
+                              : AppColors.danger,
                         ),
                       ),
                     );
@@ -1451,6 +2031,212 @@ class _RwFundLocationScreenState
     );
   }
 
+  void _showAllocationDialog() {
+    final activeLocs = _locations.where((l) => l.isActive).toList();
+    if (activeLocs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak ada lokasi dana aktif untuk alokasi'),
+        ),
+      );
+      return;
+    }
+    final unallocated =
+        double.tryParse(_reconciliation?.unallocatedBalance ?? '0') ?? 0;
+
+    String? selectedLocId;
+    final amountCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    bool saving = false;
+    String? error;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (statefulCtx, setDialogState) {
+            final selectedLoc = activeLocs
+                .where((l) => l.id == selectedLocId)
+                .firstOrNull;
+            return AlertDialog(
+              title: const Text('Alokasi Saldo Awal Kas Historis'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Saldo awal adalah alokasi dari sisa saldo kas historis yang belum terpetakan ke instrumen mana pun. Alokasi ini tidak menambah pemasukan baru.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textMutedColor(dialogCtx),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (error != null)
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Text(
+                          error!,
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    _buildReconcileRow(
+                      'Saldo Kas Belum Teralokasi',
+                      RupiahFormatter.format(unallocated.toInt()),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedLocId,
+                      decoration: const InputDecoration(
+                        labelText: 'Lokasi Tujuan Alokasi *',
+                      ),
+                      items: activeLocs.map((l) {
+                        final b = double.tryParse(l.currentBalance) ?? 0;
+                        return DropdownMenuItem(
+                          value: l.id,
+                          child: Text(
+                            '${l.name} (${RupiahFormatter.format(b.toInt())})',
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) =>
+                          setDialogState(() => selectedLocId = val),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: amountCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [
+                        RupiahInputFormatter.withPrefix(),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Nominal Alokasi (Rp) *',
+                        hintText: 'Contoh: 1000000',
+                        helperText: unallocated > 0
+                            ? 'Maksimal: ${RupiahFormatter.format(unallocated.toInt())}'
+                            : 'Tidak ada saldo yang dapat dialokasikan',
+                      ),
+                      onChanged: (v) {
+                        final amt =
+                            double.tryParse(
+                              v.replaceAll(RegExp(r'[^0-9]'), ''),
+                            ) ??
+                            0;
+                        if (amt > unallocated) {
+                          setDialogState(
+                            () => error =
+                                'Nominal melebihi saldo belum teralokasi',
+                          );
+                        } else {
+                          error = null;
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: notesCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan (Opsional)',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: saving || unallocated <= 0
+                      ? null
+                      : () async {
+                          if (selectedLocId == null) {
+                            setDialogState(
+                              () => error = 'Pilih lokasi tujuan alokasi',
+                            );
+                            return;
+                          }
+                          final amt =
+                              double.tryParse(
+                                amountCtrl.text.replaceAll(
+                                  RegExp(r'[^0-9]'),
+                                  '',
+                                ),
+                              ) ??
+                              0;
+                          if (amt <= 0) {
+                            setDialogState(
+                              () =>
+                                  error = 'Nominal alokasi harus lebih dari 0',
+                            );
+                            return;
+                          }
+                          if (amt > unallocated) {
+                            setDialogState(
+                              () => error =
+                                  'Nominal melebihi saldo belum teralokasi',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            final api = ref.read(rwApiClientProvider);
+                            await api.allocateOpeningBalance(
+                              widget.rwId,
+                              selectedLocId!,
+                              {
+                                'amount': '${amt.toInt()}.00',
+                                if (notesCtrl.text.trim().isNotEmpty)
+                                  'notes': notesCtrl.text.trim(),
+                              },
+                            );
+                            if (dialogCtx.mounted) {
+                              Navigator.pop(dialogCtx);
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Alokasi saldo awal berhasil'),
+                                ),
+                              );
+                              _fetchData();
+                            }
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Simpan Alokasi'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _showReconcileDialog(BuildContext context) async {
     showDialog<void>(
       context: context,
@@ -1460,65 +2246,130 @@ class _RwFundLocationScreenState
           content: SizedBox(
             width: double.maxFinite,
             child: FutureBuilder<RwReconciliationReport>(
-              future: ref.read(rwApiClientProvider).getReconciliation(widget.rwId),
+              future: ref
+                  .read(rwApiClientProvider)
+                  .getReconciliation(widget.rwId),
               builder: (fCtx, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()));
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Gagal memuat rekonsiliasi: ${snapshot.error}'));
+                  return Center(
+                    child: Text('Gagal memuat rekonsiliasi: ${snapshot.error}'),
+                  );
                 }
                 final r = snapshot.data!;
                 final calc = double.tryParse(r.calculatedBalance) ?? 0;
                 final totalLoc = double.tryParse(r.totalLocationBalances) ?? 0;
                 final disc = double.tryParse(r.discrepancy) ?? 0;
+                final unalloc = double.tryParse(r.unallocatedBalance) ?? 0;
+                final pct = r.allocatedPercentage;
 
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Builder(builder: (context) {
-                      final isDark = Theme.of(context).brightness == Brightness.dark;
-                      final badgeStyle = r.isReconciled
-                          ? RwBadgeStyle.success(isDark: isDark)
-                          : RwBadgeStyle.danger(isDark: isDark);
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: badgeStyle.background,
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          border: Border.all(
-                            color: badgeStyle.border,
+                    Builder(
+                      builder: (context) {
+                        final isDark =
+                            Theme.of(context).brightness == Brightness.dark;
+                        Color badgeColor;
+                        switch (r.status) {
+                          case 'matched':
+                            badgeColor = AppColors.success;
+                            break;
+                          case 'belum_teralokasi':
+                            badgeColor = AppColors.warning;
+                            break;
+                          case 'discrepant':
+                            badgeColor = AppColors.danger;
+                            break;
+                          default:
+                            badgeColor = AppColors.info;
+                        }
+                        final badgeStyle = RwBadgeStyle(
+                          background: badgeColor.withValues(
+                            alpha: isDark ? 0.2 : 0.1,
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              r.isReconciled ? Icons.check_circle : Icons.warning_amber_rounded,
-                              color: badgeStyle.text,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                r.isReconciled
-                                    ? 'TEREKONSILIASI: Total saldo lokasi dana cocok dengan saldo ledger KAS RW.'
-                                    : 'SELISIH DITEMUKAN: Terdapat selisih sebesar ${RupiahFormatter.format(disc.toInt())}.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: badgeStyle.text,
+                          border: badgeColor,
+                          text: badgeColor,
+                        );
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: badgeStyle.background,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(color: badgeStyle.border),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                r.status == 'matched' ||
+                                        r.status == 'belum_teralokasi'
+                                    ? Icons.check_circle
+                                    : Icons.warning_amber_rounded,
+                                color: badgeStyle.text,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  r.statusLabel.isNotEmpty
+                                      ? r.statusLabel
+                                      : (r.isReconciled
+                                            ? 'TEREKONSILIASI'
+                                            : 'SELISIH DITEMUKAN'),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: badgeStyle.text,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 16),
-                    _buildReconcileRow('Saldo Ledger KAS RW:', RupiahFormatter.format(calc.toInt())),
-                    _buildReconcileRow('Total Saldo Lokasi Dana:', RupiahFormatter.format(totalLoc.toInt())),
-                    _buildReconcileRow('Selisih (Discrepancy):', RupiahFormatter.format(disc.toInt()),
-                        isDanger: !r.isReconciled),
+                    _buildReconcileRow(
+                      'Status Rekonsiliasi Kas:',
+                      r.statusLabel,
+                    ),
+                    _buildReconcileRow(
+                      'Persentase Teralokasi:',
+                      '${pct.toStringAsFixed(1)}%',
+                    ),
+                    _buildReconcileRow(
+                      'Total Saldo Kas (K):',
+                      RupiahFormatter.format(calc.toInt()),
+                    ),
+                    _buildReconcileRow(
+                      'Total Terdistribusi (L):',
+                      RupiahFormatter.format(totalLoc.toInt()),
+                    ),
+                    _buildReconcileRow(
+                      'Belum Teralokasi (U):',
+                      RupiahFormatter.format(unalloc.toInt()),
+                    ),
+                    _buildReconcileRow(
+                      'Selisih / Discrepancy (D):',
+                      RupiahFormatter.format(disc.toInt()),
+                      isDanger: disc != 0,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Invariant: K = L + U  →  ${RupiahFormatter.format(calc.toInt())} = ${RupiahFormatter.format(totalLoc.toInt())} + ${RupiahFormatter.format(unalloc.toInt())}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: AppColors.textMutedColor(context),
+                      ),
+                    ),
                   ],
                 );
               },
@@ -1535,19 +2386,25 @@ class _RwFundLocationScreenState
     );
   }
 
-  Widget _buildReconcileRow(String label, String val, {bool isDanger = false}) {
+  Widget _buildReconcileRow(
+    String label,
+    String val, {
+    bool isDanger = false,
+    Color? valueColor,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13)),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+          const SizedBox(width: 8),
           Text(
             val,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: isDanger ? AppColors.danger : null,
+              color: valueColor ?? (isDanger ? AppColors.danger : null),
             ),
           ),
         ],
@@ -1586,10 +2443,7 @@ class _EmptyBanner extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Text(
           'Belum ada lokasi dana pada RW ini.',
-          style: TextStyle(
-            color: AppColors.lightTextMuted,
-            fontSize: 13,
-          ),
+          style: TextStyle(color: AppColors.lightTextMuted, fontSize: 13),
         ),
       ),
     );

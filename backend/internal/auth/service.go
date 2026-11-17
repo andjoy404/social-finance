@@ -6,13 +6,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
 
-// loadRWMemberships queries user_rw_memberships for the given user and returns
-// a slice of RWMembership. Returns nil (not error) when no memberships exist.
+// validRTJabatans defines RT jabatan values that may inherit ReadOnly RW access.
+var validRTJabatans = map[string]struct{}{
+	"ketua":        {},
+	"wakil_ketua":  {},
+	"sekretaris":   {},
+	"bendahara":    {},
+}
+
+// loadRWMemberships queries user_rw_memberships for explicit memberships and
+// infers a ReadOnly RW membership from the user's active RT membership when the
+// user holds a valid RT jabatan (ketua, wakil_ketua, sekretaris, bendahara).
+//
+// The inferred membership is marked with Source == "rt_inferred" and only grants
+// read access via the permission layer; it does not alter any explicit membership
+// that may already exist for the same user.
+//
+// Returns nil (not error) when no memberships exist.
 func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMembership, error) {
+	// 1. Load explicit memberships from user_rw_memberships.
 	rows, err := tx.QueryContext(ctx,
 		`SELECT urm.rw_id, w.rw_number, w.name, urm.jabatan FROM user_rw_memberships urm
 		 LEFT JOIN rws w ON w.id = urm.rw_id
@@ -22,26 +39,106 @@ func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMemb
 	if err != nil {
 		return nil, fmt.Errorf("load rw memberships: %w", err)
 	}
-	defer rows.Close()
 
+	seenRW := make(map[string]struct{})
 	var result []RWMembership
+
 	for rows.Next() {
 		var rwID string
 		var rwNumber int
 		var rwName, jabatan string
 		if err := rows.Scan(&rwID, &rwNumber, &rwName, &jabatan); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("scan rw membership: %w", err)
 		}
+		// Avoid duplicates (same user_rw_memberships row should not appear twice,
+		// but defensive de-duplication protects against future schema changes).
+		if _, dup := seenRW[rwID]; dup {
+			continue
+		}
+		seenRW[rwID] = struct{}{}
 		result = append(result, RWMembership{
 			RWID:     rwID,
 			RWNumber: rwNumber,
 			RWName:   rwName,
 			Jabatan:  jabatan,
+			Source:   RWMembershipSourceExplicit,
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate rw memberships: %w", err)
 	}
+	rows.Close()
+
+	// 2. Infer a ReadOnly RW membership from the user's active RT membership.
+	//    Only users with a valid RT jabatan get this inferred membership.
+	//    This query may return at most one row because a member login can only
+	//    have one active RT membership (enforced at login time).  For SA users
+	//    with multiple memberships the loop below handles each RT deterministically.
+	//    We use a simple loop here — if the user has multiple active RT
+	//    memberships (should be rare/edge-case), we infer RW access for each
+	//    distinct RW, avoiding duplicates via seenRW.
+	//
+	//    Note: the query below uses a LEFT JOIN pattern with user_rt_memberships
+	//    to get the user's RT jabatan and the RT's rw_id.  This is safe because
+	//    we validate every value against the database.
+	//
+	//    We JOIN rws directly to avoid a separate inner query per row, which
+	//    would conflict with the pq driver's restriction on multiple open result
+	//    sets in a single transaction.
+	rtRows, err := tx.QueryContext(ctx, `
+		SELECT urm.jabatan, r.rw_id, w.rw_number, w.name, w.is_active
+		FROM user_rt_memberships urm
+		JOIN rts r ON r.id = urm.rt_id
+		JOIN rws w ON w.id = r.rw_id
+		WHERE urm.user_id = $1
+		  AND urm.is_active = true
+		  AND urm.jabatan IS NOT NULL
+		  AND urm.jabatan != ''
+	`, userID)
+	if err != nil {
+		// DB error during inference — log but do NOT grant access.
+		// We still return explicit memberships if they exist.
+		slog.Error("inference of RW membership from RT failed",
+			"user_id", userID, "error", err)
+		return result, nil
+	}
+	defer rtRows.Close()
+
+	for rtRows.Next() {
+		var rtJabatan, rtRWID string
+		var rwNumber int
+		var rwName string
+		var rwActive bool
+		if err := rtRows.Scan(&rtJabatan, &rtRWID, &rwNumber, &rwName, &rwActive); err != nil {
+			continue
+		}
+		// Validate jabatan is one of the eligible RT positions.
+		if _, ok := validRTJabatans[rtJabatan]; !ok {
+			continue
+		}
+		// Skip if we already inferred this RW (handles user with multiple RTs in same RW).
+		if _, dup := seenRW[rtRWID]; dup {
+			continue
+		}
+		// Skip inactive RWs — do not infer access.
+		if !rwActive {
+			continue
+		}
+		seenRW[rtRWID] = struct{}{}
+		result = append(result, RWMembership{
+			RWID:     rtRWID,
+			RWNumber: rwNumber,
+			RWName:   rwName,
+			Jabatan:  rtJabatan,
+			Source:   RWMembershipSourceRTInferred,
+		})
+	}
+	if err := rtRows.Err(); err != nil {
+		// Iteration error — already returned explicit memberships above.
+		return result, nil
+	}
+
 	return result, nil
 }
 
@@ -414,7 +511,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 	}
 
 	// Regenerate access token with both system and tenant roles.
-	// Also include RW memberships loaded from user_rw_memberships.
+	// Also include RW memberships loaded from user_rw_memberships (and inferred).
 	var rwMemberships []RWMembership
 	if userRW, err := loadRWMemberships(ctx, tx, m.UserID); err == nil {
 		rwMemberships = userRW

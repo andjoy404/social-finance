@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' as rp;
 import 'package:social_finance/app/app.dart';
+import 'package:social_finance/app/navigation_shell.dart';
 import 'package:social_finance/features/auth/presentation/screens/login_screen.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/cash/presentation/screens/cash_screen.dart';
@@ -10,6 +11,7 @@ import 'package:social_finance/features/dues/presentation/screens/dues_screen.da
 import 'package:social_finance/features/reports/presentation/screens/reports_screen.dart';
 import 'package:social_finance/features/profile/presentation/screens/profile_screen.dart';
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:social_finance/features/keuangan/presentation/screens/keuangan_screen.dart';
 import 'package:social_finance/features/dashboard/data/mock_dashboard_data.dart';
 import 'package:social_finance/features/dashboard/presentation/widgets/financial_summary_chart.dart';
 import 'package:social_finance/core/api/auth_service.dart';
@@ -22,6 +24,8 @@ import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 
 AuthRepository _createTestAuthRepo([Map<String, dynamic>? initialData]) {
   final client = ApiClient(baseUrl: 'http://test.local');
@@ -61,6 +65,16 @@ class _MockWargaNotifierForLaunch extends WargaListNotifier {
   }
 }
 
+final List<PublicRekening> _launchRekeningFixtures = [
+  const PublicRekening(
+    id: 'loc-launch',
+    name: 'BCA Operasional RT',
+    bankName: 'BCA',
+    accountNumber: '1234567890',
+    accountHolder: 'RT 002',
+  ),
+];
+
 Widget _dashboardViaMaterialApp() {
   return rp.ProviderScope(
     overrides: [
@@ -73,6 +87,24 @@ Widget _dashboardViaMaterialApp() {
         });
       })),
       wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+    ],
+    child: MaterialApp(home: const KeuanganScreen()),
+  );
+}
+
+Widget _communityDashboardViaMaterialApp() {
+  return rp.ProviderScope(
+    overrides: [
+      authRepositoryProvider.overrideWith(((ref) {
+        return _createTestAuthRepo({
+          'name': 'Heri Prastyo',
+          'role': AppRole.bendahara,
+          'rt': '002',
+          'rw': '016',
+        });
+      })),
+      wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+      publicRekeningProvider.overrideWith((ref) async => _launchRekeningFixtures),
     ],
     child: MaterialApp(home: const DashboardScreen()),
   );
@@ -96,6 +128,39 @@ Widget _profileViaMaterialApp() {
 }
 
 void main() {
+  test(
+    'security notification route is a shell root but detail routes are not',
+    () {
+      const shellTabs = ['/home/warga', '/home/notifikasi', '/home/profile'];
+      expect(
+        isDirectlyOnTopLevelTab('/home/notifikasi/waste-truck', shellTabs),
+        isTrue,
+      );
+      expect(
+        isDirectlyOnTopLevelTab('/home/notifikasi/detail', shellTabs),
+        isFalse,
+      );
+      expect(isDirectlyOnTopLevelTab('/home/kas', shellTabs), isFalse);
+      expect(isDirectlyOnTopLevelTab('/home/warga', shellTabs), isTrue);
+    },
+  );
+
+  test('security officer default home is the Warga tab only', () {
+    expect(securityOfficerHomeRedirect('keamanan', '/login'), '/home/warga');
+    expect(securityOfficerHomeRedirect('keamanan', '/home'), '/home/warga');
+    expect(
+      cleaningOfficerHomeRedirect('kebersihan', '/login'),
+      '/home/monitoring',
+    );
+    expect(
+      cleaningOfficerHomeRedirect('kebersihan', '/home'),
+      '/home/monitoring',
+    );
+    expect(cleaningOfficerHomeRedirect('keamanan', '/home'), isNull);
+    expect(securityOfficerHomeRedirect('kebersihan', '/login'), isNull);
+    expect(securityOfficerHomeRedirect('warga', '/home'), isNull);
+  });
+
   // ── App Lifecycle ──
 
   testWidgets('App launches without error', (tester) async {
@@ -236,10 +301,10 @@ void main() {
     expect(find.text('Iuran Bulan Ini'), findsOneWidget);
   });
 
-  testWidgets('42 / 50 KK sudah membayar information renders', (tester) async {
+  testWidgets('42 / 50 warga sudah membayar information renders', (tester) async {
     await tester.pumpWidget(_dashboardViaMaterialApp());
     await tester.pump();
-    expect(find.textContaining('KK sudah membayar'), findsOneWidget);
+    expect(find.textContaining('warga sudah membayar'), findsOneWidget);
     expect(find.textContaining('42'), findsWidgets);
     expect(find.textContaining('50'), findsWidgets);
   });
@@ -310,6 +375,7 @@ void main() {
             });
           })),
           wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+          publicRekeningProvider.overrideWith((ref) async => _launchRekeningFixtures),
         ],
         child: MaterialApp(
           home: SizedBox(width: 360, child: const DashboardScreen()),
@@ -363,7 +429,9 @@ void main() {
     notifier.dispose();
   });
 
-  testWidgets('Profile AppBar no longer has theme palette icon (Item G)', (tester) async {
+  testWidgets('Profile AppBar no longer has theme palette icon (Item G)', (
+    tester,
+  ) async {
     await tester.pumpWidget(_profileViaMaterialApp());
     await tester.pumpAndSettle();
     // Theme palette icon in profile AppBar is removed
@@ -384,9 +452,27 @@ void main() {
     await tester.tap(themeTile);
     await tester.pumpAndSettle();
     expect(find.text('Pilih Tema'), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Ikuti Sistem')), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Terang')), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Gelap')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Ikuti Sistem'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Terang'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Gelap'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Dashboard no longer has theme palette icon', (tester) async {
@@ -521,7 +607,7 @@ void main() {
           theme: isDarkTest,
           darkTheme: isDarkTest,
           themeMode: ThemeMode.dark,
-          home: const DashboardScreen(),
+          home: const KeuanganScreen(),
         ),
       ),
     );
@@ -667,7 +753,7 @@ void main() {
             wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
           ],
           child: MaterialApp(
-            home: DashboardScreen(
+            home: KeuanganScreen(
               onRefreshOverride: () async {
                 refreshCalled++;
               },
@@ -733,38 +819,44 @@ void main() {
 
   // ── P0/P1/P3 Master Task Verification Tests ──
 
-  test('AuthUser.fromJson parses rw_id, rw_name, and rt_rw into rwCode and rwName', () {
-    final user = AuthUser.fromJson({
-      'id': 'u-1',
-      'email': 'bendahara@local.com',
-      'full_name': 'Heri Prastyo',
-      'role': 'bendahara',
-      'rt_id': 'rt-002',
-      'rt_name': 'RT 002',
-      'rt_rw': '016',
-      'rw_id': 'rw-016',
-      'rw_name': 'RW 016',
-      'is_active': true,
-    });
-    expect(user.rtCode, equals('002'));
-    expect(user.rwId, equals('rw-016'));
-    expect(user.rwCode, equals('016'));
-    expect(user.rwName, equals('RW 016'));
-  });
+  test(
+    'AuthUser.fromJson parses rw_id, rw_name, and rt_rw into rwCode and rwName',
+    () {
+      final user = AuthUser.fromJson({
+        'id': 'u-1',
+        'email': 'bendahara@local.com',
+        'full_name': 'Heri Prastyo',
+        'role': 'bendahara',
+        'rt_id': 'rt-002',
+        'rt_name': 'RT 002',
+        'rt_rw': '016',
+        'rw_id': 'rw-016',
+        'rw_name': 'RW 016',
+        'is_active': true,
+      });
+      expect(user.rtCode, equals('002'));
+      expect(user.rwId, equals('rw-016'));
+      expect(user.rwCode, equals('016'));
+      expect(user.rwName, equals('RW 016'));
+    },
+  );
 
-  test('BackendTransaction.fromJson falls back to reference_no for manual KAS transactions', () {
-    final tx = BackendTransaction.fromJson({
-      'id': 'tx-manual-1',
-      'rt_id': 'rt-002',
-      'category_id': 'cat-1',
-      'amount': '150000',
-      'type': 'expense',
-      'status': 'posted',
-      'reference_no': 'KAS-20260417-ABC12',
-      'description': 'Beli lampu jalan',
-    });
-    expect(tx.paymentNo, equals('KAS-20260417-ABC12'));
-  });
+  test(
+    'BackendTransaction.fromJson falls back to reference_no for manual KAS transactions',
+    () {
+      final tx = BackendTransaction.fromJson({
+        'id': 'tx-manual-1',
+        'rt_id': 'rt-002',
+        'category_id': 'cat-1',
+        'amount': '150000',
+        'type': 'expense',
+        'status': 'posted',
+        'reference_no': 'KAS-20260417-ABC12',
+        'description': 'Beli lampu jalan',
+      });
+      expect(tx.paymentNo, equals('KAS-20260417-ABC12'));
+    },
+  );
 
   testWidgets(
     'Dashboard renders Metode Pembayaran Donut Chart panel (Transfer vs Tunai) and handles empty data without NaN%',
@@ -819,5 +911,27 @@ void main() {
       expect(find.textContaining('Keluar  Rp 2.175.000'), findsOneWidget);
     },
   );
-}
 
+  // ── Community Hub Beranda ──
+
+  testWidgets('Community Hub Beranda renders greeting, security status, and banners', (tester) async {
+    await tester.pumpWidget(_communityDashboardViaMaterialApp());
+    await tester.pump();
+
+    // Greeting & Identity
+    expect(find.text('Selamat datang,'), findsOneWidget);
+    expect(find.text('Heri Prastyo'), findsOneWidget);
+    expect(find.textContaining('RT 002 / RW 016'), findsOneWidget);
+
+    // Security on-duty card with graceful empty state
+    expect(find.text('Petugas Keamanan Sedang Bertugas'), findsOneWidget);
+    expect(find.text('Tidak ada petugas keamanan yang sedang bertugas.'), findsOneWidget);
+
+    // Strictly NO garbage truck or waste collection status on Beranda
+    expect(find.textContaining('Truk Sampah'), findsNothing);
+    expect(find.textContaining('Pengangkutan Sampah'), findsNothing);
+
+    // Community banner / portal warga
+    expect(find.text('Selamat Datang di Portal Warga'), findsOneWidget);
+  });
+}

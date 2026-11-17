@@ -171,14 +171,22 @@ type CategorySummary struct {
 
 // ReconciliationReport provides reconciliation status between KAS and fund locations.
 type ReconciliationReport struct {
-	KasBalance            string            `json:"kas_balance"`
-	TotalAllocatedBalance string            `json:"total_allocated_balance"`
-	UnallocatedBalance    string            `json:"unallocated_balance"`
-	Discrepancy           string            `json:"discrepancy"`
-	Status                string            `json:"status"`
-	StatusLabel           string            `json:"status_label"`
-	LocationsSummary      []CategorySummary `json:"locations_summary"`
-	AnomaliesDetected     []string          `json:"anomalies_detected"`
+	KasBalance             string            `json:"kas_balance"`
+	TotalAllocatedBalance  string            `json:"total_allocated_balance"`
+	UnallocatedBalance     string            `json:"unallocated_balance"`
+	Discrepancy            string            `json:"discrepancy"`
+	Status                 string            `json:"status"`
+	StatusLabel            string            `json:"status_label"`
+	AllocatedPercentage    float64           `json:"allocated_percentage"`
+	OpeningBalance         string            `json:"opening_balance"`
+	TotalIncome            string            `json:"total_income"`
+	TotalExpense           string            `json:"total_expense"`
+	CalculatedBalance      string            `json:"calculated_balance"`
+	TotalLocationBalances  string            `json:"total_location_balances"`
+	IsReconciled           bool              `json:"is_reconciled"`
+	CategoryBreakdown      []CategorySummary `json:"category_breakdown"`
+	LocationsSummary       []CategorySummary `json:"locations_summary"`
+	AnomaliesDetected      []string          `json:"anomalies_detected"`
 }
 
 // KASReport aggregates KAS data (income/expense) from RW's own independent ledger.
@@ -189,6 +197,22 @@ type KASReport struct {
 	NetBalance       string `json:"net_balance"`
 	TotalBalance     string `json:"total_balance,omitempty"`
 	TransactionCount int64  `json:"transaction_count"`
+}
+
+// KASReportResponse is returned by GET /api/v1/rw/{rwId}/kas/report. It carries
+// the period context of the computation alongside the aggregated totals.
+type KASReportResponse struct {
+	*KASReport
+	Period    string `json:"period,omitempty"`
+	StartDate string `json:"start_date,omitempty"`
+	EndDate   string `json:"end_date,omitempty"`
+}
+
+// TransactionFilter optionally narrows the posted-transaction list.
+// Fields are additive filters for GET /api/v1/rw/{rwId}/kas/transactions.
+type TransactionFilter struct {
+	Type       string
+	CategoryID string
 }
 
 // TransactionEntry is a single posted transaction from RW's own independent ledger.
@@ -230,6 +254,14 @@ type CreateTransactionInput struct {
 
 type UpdateOpeningBalanceInput struct {
 	OpeningBalance string `json:"opening_balance"`
+}
+
+// AllocateOpeningBalanceInput defines payload for allocating opening balance
+// from unallocated cash (U) to a specific RW fund location.
+type AllocateOpeningBalanceInput struct {
+	LocationID string  `json:"location_id"`
+	Amount     string  `json:"amount"`
+	Notes      *string `json:"notes,omitempty"`
 }
 
 // PaginationInfo metadata returned alongside list responses.

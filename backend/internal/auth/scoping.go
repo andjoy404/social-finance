@@ -284,49 +284,182 @@ func ValidateSAForRW(ctx context.Context, cfg *ScopingConfig, pool *database.Poo
 	return nil
 }
 
-// rwPermissionMap defines RW-specific permissions mapped by jabatan.
-// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara').
-// Permission codes use the existing 'finance' domain.
-//
-// This map is HARD-CODED to avoid modifying the database or position_permissions
-// table (which has a strict CHECK constraint with only 8 RT jabatan values).
+// RW feature permission codes
+const (
+	PermissionRWDashboardRead     = "rw.dashboard.read"
+	PermissionRWKasRead           = "rw.kas.read"
+	PermissionRWKasWrite          = "rw.kas.write"
+	PermissionRWLocationRead      = "rw.fund_location.read"
+	PermissionRWLocationWrite     = "rw.fund_location.write"
+	PermissionRWNotificationRead  = "rw.notification.read"
+	PermissionRWNotificationWrite = "rw.notification.write"
+)
+
+// rwPermissionMapReadOnly defines RW permissions for RT officials accessing RW
+// through inferred membership (rt_inferred). In accordance with the final RBAC matrix:
+//   - Beranda RW: READ
+//   - KAS RW: NO
+//   - Lokasi Dana RW: NO
+//   - Notifikasi RW: NO
+var rwPermissionMapReadOnly = map[string][]string{
+	"ketua":       {PermissionRWDashboardRead},
+	"wakil_ketua": {PermissionRWDashboardRead},
+	"sekretaris":  {PermissionRWDashboardRead},
+	"bendahara":   {PermissionRWDashboardRead},
+	"anggota":     {PermissionRWDashboardRead},
+	"pengurus":    {PermissionRWDashboardRead},
+	"perangkat":   {PermissionRWDashboardRead},
+}
+
+// rwPermissionMap defines RW-specific permissions mapped by explicit RW jabatan.
+// Strict Final RBAC Matrix:
+//   - Ketua RW: Beranda READ, KAS WRITE, Lokasi Dana WRITE, Notifikasi WRITE
+//   - Bendahara RW: Beranda READ, KAS WRITE, Lokasi Dana WRITE, Notifikasi WRITE
+//   - Pengurus RW (wakil_ketua, sekretaris, etc.): Beranda READ, KAS READ, Lokasi Dana READ, Notifikasi READ (ALL WRITE DENIED)
 var rwPermissionMap = map[string][]string{
 	"ketua": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWKasWrite,
+		PermissionRWLocationRead,
+		PermissionRWLocationWrite,
+		PermissionRWNotificationRead,
+		PermissionRWNotificationWrite,
+		// Domain/legacy aliases
+		"warga.read",
+		"warga.create",
+		"warga.update",
+		"warga.import",
+		"warga.export",
 		"finance.read",
 		"finance.create",
 		"finance.update",
 		"finance.approve",
-	},
-	"wakil_ketua": {
-		"finance.read",
-		"finance.create",
-		// TIDAK punya finance.update — tidak bisa transfer, tidak bisa update transaksi
-		"finance.approve",
-	},
-	"sekretaris": {
-		"finance.read",
+		"notification.read",
+		"notification.manage",
+		"reports.read",
+		"rt.settings.read",
+		"rt.settings.manage",
 	},
 	"bendahara": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWKasWrite,
+		PermissionRWLocationRead,
+		PermissionRWLocationWrite,
+		PermissionRWNotificationRead,
+		PermissionRWNotificationWrite,
+		// Domain/legacy aliases
 		"finance.read",
 		"finance.create",
 		"finance.update",
 		"finance.approve",
+		"notification.read",
+		"notification.manage",
+	},
+	"wakil_ketua": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"sekretaris": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"anggota": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"pengurus": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
 	},
 }
 
-// HasRWScopePermission checks whether the given RW jabatan grants the specified
-// permission code. Returns false if the jabatan has no entry in rwPermissionMap.
+// HasRWScopePermission checks whether the given RW jabatan and source
+// grants the specified permission code.
+//
+// Source must be one of:
+//   - RWMembershipSourceExplicit  — from user_rw_memberships (RW officials).
+//   - RWMembershipSourceRTInferred — from user_rt_memberships + rts.rw_id (RT officials).
+//
+// RT officials (rt_inferred) may ONLY read Beranda RW (rw.dashboard.read).
+// RW officials (explicit): Ketua and Bendahara have full write permissions;
+// other RW officials have read-only access across all RW features.
 //
 // Exported as HasRWScopePermission for use by external packages (e.g., internal/rw).
-// The lowercase hasRWScopePermission is kept for backward compatibility with existing tests.
-func HasRWScopePermission(jabatan string, permissionCode string) bool {
-	return hasRWScopePermission(jabatan, permissionCode)
+func HasRWScopePermission(jabatan string, source RWMembershipSource, permissionCode string) bool {
+	cleanJabatan := strings.ToLower(strings.TrimSpace(jabatan))
+	if cleanJabatan == "" {
+		return false
+	}
+	normalizedCode := normalizeRWPermissionCode(permissionCode)
+
+	if source == RWMembershipSourceRTInferred {
+		// RT officials get ONLY Beranda RW read access.
+		return hasRWScopePermissionMap(cleanJabatan, normalizedCode, rwPermissionMapReadOnly)
+	}
+	// RW officials (explicit) use the full permission map.
+	perms, ok := rwPermissionMap[cleanJabatan]
+	if !ok {
+		return false
+	}
+	for _, p := range perms {
+		if p == normalizedCode || p == permissionCode {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRWPermissionCode(code string) string {
+	switch code {
+	case "dashboard.read", "beranda.read":
+		return PermissionRWDashboardRead
+	case "kas.read":
+		return PermissionRWKasRead
+	case "kas.write":
+		return PermissionRWKasWrite
+	case "fund_location.read", "locations.read", "rw.locations.read":
+		return PermissionRWLocationRead
+	case "fund_location.write", "locations.write", "rw.locations.write":
+		return PermissionRWLocationWrite
+	case "rw.notification.manage":
+		return PermissionRWNotificationWrite
+	default:
+		return code
+	}
 }
 
 // hasRWScopePermission checks whether the given RW jabatan grants the specified
-// permission code. Returns false if the jabatan has no entry in rwPermissionMap.
+// permission code against rwPermissionMap. Returns false if no entry exists.
+// This is kept for backward compatibility with existing tests and internal use.
 func hasRWScopePermission(jabatan string, permissionCode string) bool {
-	perms, ok := rwPermissionMap[jabatan]
+	return HasRWScopePermission(jabatan, RWMembershipSourceExplicit, permissionCode)
+}
+
+// hasRWScopePermissionMap checks permissions against a given permission map.
+func hasRWScopePermissionMap(jabatan string, permissionCode string, permMap map[string][]string) bool {
+	perms, ok := permMap[jabatan]
 	if !ok {
 		return false
 	}

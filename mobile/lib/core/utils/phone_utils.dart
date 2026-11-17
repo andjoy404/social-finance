@@ -61,22 +61,28 @@ class PhoneUtils {
     return 'Format nomor HP tidak valid. Gunakan format seperti 081298918220.';
   }
 
-  /// Normalizes an Indonesian phone number to canonical `+628...` format.
+  /// Normalizes an Indonesian phone number to standard local `08...` format.
   ///
   /// Examples:
-  /// - `081298918220` -> `+6281298918220`
-  /// - `6281298918220` -> `+6281298918220`
-  /// - `+6281298918220` -> `+6281298918220`
+  /// - `081298918220` -> `081298918220`
+  /// - `6281298918220` -> `081298918220`
+  /// - `+6281298918220` -> `081298918220`
   static String normalizePhone(String raw) {
     final clean = raw.trim().replaceAll(RegExp(r'[\s\-]'), '');
     if (clean.startsWith('+628')) {
-      return clean;
+      return '08${clean.substring(4)}';
     }
-    if (clean.startsWith('08')) {
-      return '+628${clean.substring(2)}';
+    if (clean.startsWith('+6208')) {
+      return '08${clean.substring(5)}';
     }
     if (clean.startsWith('628')) {
-      return '+628${clean.substring(3)}';
+      return '08${clean.substring(3)}';
+    }
+    if (clean.startsWith('6208')) {
+      return '08${clean.substring(4)}';
+    }
+    if (clean.startsWith('08')) {
+      return clean;
     }
     return clean;
   }

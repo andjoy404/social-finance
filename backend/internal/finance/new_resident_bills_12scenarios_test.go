@@ -285,7 +285,7 @@ func TestNewResidentBills12Scenarios(t *testing.T) {
 	// SCENARIO 9: Warga baru dengan beberapa anggota keluarga -> Tagihan per KK bukan per warga
 	// ----------------------------------------------------------------------------------
 	t.Run("Scenario 9: Anggota keluarga ganda dalam satu KK tagihan tetap per KK", func(t *testing.T) {
-		_, occID := createNewHouseholdWithOccupancy(t, "A-09", "Kepala Keluarga 09", "2026-09-01")
+		_, occID := createNewHouseholdWithOccupancy(t, "A-09", "Warga Utama 09", "2026-09-01")
 
 		// Add 3 residents to this same occupancy
 		tx, err := pool.BeginTx(ctx)

@@ -455,7 +455,7 @@ describe('ResidentDetail — edit flow dispatches warga:refresh on success', () 
       rt_id: 'rt-1',
       household_id: null,
       full_name: 'Ahmad Keamanan',
-      nik: null,
+      nik: '3201234567890001',
       phone: '081234567891',
       email: 'ahmad@example.com',
       is_active: true,

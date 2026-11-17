@@ -11,22 +11,24 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined, BarChartOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
-import { useAuth } from '@/app/AuthContext'
-import { getSessionPair } from '@/app/api'
+import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
+import { getSessionPair, apiListCategories, type ApiFinancialCategory } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
+import { RwKasReport, getRwKasReportAccess } from './RwKasReport'
 import {
   apiListRWTransactions,
-  apiGetRWKAS,
+  apiGetRWKASReportDetail,
   apiListRWLocations,
   apiCreateRWTransaction,
   apiUpdateRWOpeningBalance,
+  apiListRWRTRs,
   type ApiRWTransaction,
-  type ApiRWKASReport,
+  type ApiRWKASReportDetail,
   type ApiRWLocation,
 } from './rw-api'
 
@@ -45,30 +47,36 @@ function formatTanggal(dateStr: string): string {
 export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const { user } = useAuth()
 
-  const isSuperAdmin = user?.systemRole === 'super_admin' || user?.role === 'super_admin'
   const rwMemberships = (user as any)?.rw_memberships || (user as any)?.rwMemberships || []
-  const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
   const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
-  const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
-  const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
-  const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
-  const canEditSaldoAwal = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
+
+  // Source-aware write permission: Only Ketua RW and Bendahara RW have write access.
+  // Pengurus RW (wakil_ketua, sekretaris) and Pengurus RT get read-only.
+  const canWrite = hasRwWriteAccess(user, rwId)
+  const canCreate = canWrite
+  const canUpdate = canWrite
+  const canEditSaldoAwal = canWrite
+  const canViewReport = getRwKasReportAccess(user, rwId).canView
   const isReadOnly = !canCreate && !canUpdate
+
+  const [reportModalOpen, setReportModalOpen] = useState<boolean>(false)
 
   // Month filter state
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [isAllPeriods, setIsAllPeriods] = useState<boolean>(false)
+  const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState<string>('')
   const [filterArus, setFilterArus] = useState<'all' | 'income' | 'expense'>('all')
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('all')
 
   const [page, setPage] = useState<number>(1)
   const pageSize = 20
 
-  const [kasReport, setKasReport] = useState<ApiRWKASReport | null>(null)
+  const [kasReport, setKasReport] = useState<ApiRWKASReportDetail | null>(null)
   const [rawTransactions, setRawTransactions] = useState<ApiRWTransaction[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [totalPages, setTotalPages] = useState<number>(1)
@@ -82,26 +90,56 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   // Transaction Create Modal
   const [showTxModal, setShowTxModal] = useState(false)
   const [txType, setTxType] = useState<'income' | 'expense'>('income')
+  const [txIncomeSubType, setTxIncomeSubType] = useState<'kas_masuk' | 'setoran_rt'>('kas_masuk')
   const [locations, setLocations] = useState<ApiRWLocation[]>([])
+  const [rts, setRts] = useState<{ id: string; name: string; rt: string; label: string }[]>([])
+  const [expenseCategories, setExpenseCategories] = useState<ApiFinancialCategory[]>([])
   const [txForm, setTxForm] = useState<{
     location_id: string
     amount: string
     description: string
     payment_method: 'transfer' | 'cash'
     source_rt_name?: string
+    source_rt_id?: string
+    expense_category?: string
   }>({
     location_id: '',
     amount: '',
     description: '',
     payment_method: 'transfer',
     source_rt_name: '',
+    source_rt_id: '',
+    expense_category: '',
   })
   const [txError, setTxError] = useState<string | null>(null)
   const [submittingTx, setSubmittingTx] = useState(false)
 
-  const activePeriodStr = isAllPeriods
-    ? undefined
-    : `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+  const isFullYearRange =
+    !!dateRange &&
+    dateRange.start.endsWith('-01-01') &&
+    dateRange.end.endsWith('-12-31') &&
+    dateRange.start.slice(0, 4) === dateRange.end.slice(0, 4)
+
+  // Month-mode period for the report/list calls (YYYY-MM). Range mode and all-periods pass none.
+  const monthPeriodParam = !isAllPeriods && !dateRange
+    ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+    : undefined
+
+  // Params for the period-consistent /kas/report endpoint (summary cards + modal document).
+  const reportDetailParams = useMemo(
+    () =>
+      dateRange
+        ? { startDate: dateRange.start, endDate: dateRange.end }
+        : monthPeriodParam
+          ? { period: monthPeriodParam }
+          : {},
+    [dateRange, monthPeriodParam],
+  )
+
+  // Report period prop for the document header ('YYYY' for a full-year range).
+  const reportPeriodProp = isFullYearRange
+    ? (dateRange!.start.slice(0, 4) as string)
+    : monthPeriodParam ?? null
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -114,15 +152,20 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     }
 
     try {
-      const [report, txData, locData] = await Promise.all([
-        apiGetRWKAS(token, rwId, activePeriodStr),
+      const [report, txData, locData, rtData, catData] = await Promise.all([
+        apiGetRWKASReportDetail(token, rwId, reportDetailParams),
         apiListRWTransactions(token, rwId, {
           page,
           page_size: pageSize,
-          period: activePeriodStr,
+          period: monthPeriodParam,
+          start_date: dateRange ? dateRange.start : undefined,
+          end_date: dateRange ? dateRange.end : undefined,
           search: search.trim() || undefined,
+          categoryId: filterCategoryId === 'all' ? undefined : filterCategoryId,
         }),
         apiListRWLocations(token, rwId, { is_active: true }),
+        apiListRWRTRs(token, rwId),
+        apiListCategories(token, true),
       ])
 
       setKasReport(report)
@@ -130,19 +173,34 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       setTotalCount(txData.pagination?.total || 0)
       setTotalPages(Math.max(1, txData.pagination?.total_pages || 1))
       setLocations(locData || [])
+      setRts(rtData || [])
+      setExpenseCategories(catData || [])
     } catch (err: any) {
       setError(err?.message || 'Gagal memuat data KAS RW')
     } finally {
       setLoading(false)
     }
-  }, [rwId, activePeriodStr, page, pageSize, search])
+  }, [rwId, monthPeriodParam, page, pageSize, search, dateRange, reportDetailParams, filterCategoryId])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
+  const formatShortDate = (iso: string): string => {
+    const d = new Date(`${iso}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return iso
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
+  const modalSubtitle = isAllPeriods
+    ? 'Semua Periode'
+    : dateRange
+      ? `${formatShortDate(dateRange.start)} – ${formatShortDate(dateRange.end)}`
+      : `${MONTH_NAMES[selectedMonth - 1]?.slice(0, 3) ?? ''} ${selectedYear}`
+
   const handleAllPeriods = () => {
     setIsAllPeriods((prev) => !prev)
+    setDateRange(null)
     setPage(1)
   }
 
@@ -188,6 +246,9 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const openCreateTx = (type: 'income' | 'expense') => {
     setTxType(type)
     setTxError(null)
+    if (type === 'income') {
+      setTxIncomeSubType('kas_masuk')
+    }
     const initialLocId = locations.length > 0 ? locations[0].id : ''
     setTxForm({
       location_id: initialLocId,
@@ -195,6 +256,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       description: '',
       payment_method: getMethodForLocation(initialLocId),
       source_rt_name: '',
+      source_rt_id: '',
+      expense_category: '',
     })
     setShowTxModal(true)
   }
@@ -239,6 +302,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
         location_id: txForm.location_id,
         description: txForm.description.trim(),
         payment_method: derivedMethod,
+        source_rt_id: txIncomeSubType === 'setoran_rt' && txForm.source_rt_id ? txForm.source_rt_id : undefined,
+        expense_category: txType === 'expense' && txForm.expense_category ? txForm.expense_category : undefined,
       })
       setShowTxModal(false)
       loadData()
@@ -273,7 +338,10 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const incomeBalNum = parseFloat(kasReport?.total_income || '0') || 0
   const expenseBalNum = parseFloat(kasReport?.total_expense || '0') || 0
   const netBalNum = incomeBalNum - expenseBalNum
-  const totalSaldoNum = openingBalNum + netBalNum
+  // Server-computed closing (carry-forward semantics) takes precedence when present.
+  const totalSaldoNum = kasReport?.total_balance != null
+    ? parseFloat(kasReport.total_balance) || 0
+    : openingBalNum + netBalNum
 
   return (
     <>
@@ -290,6 +358,19 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
             </div>
           </div>
         </div>
+        {canViewReport && (
+          <div className="sf-page-header-right" style={{ marginLeft: 'auto' }}>
+            <button
+              type="button"
+              className="sf-btn sf-btn-outline"
+              onClick={() => setReportModalOpen(true)}
+              aria-label="Laporan KAS"
+            >
+              <BarChartOutlined style={{ fontSize: 12, marginRight: 6 }} />
+              Laporan KAS
+            </button>
+          </div>
+        )}
       </div>
 
       {/* KAS Summary Cards */}
@@ -425,6 +506,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               value={selectedMonth}
               onChange={(e) => {
                 setIsAllPeriods(false)
+                setDateRange(null)
                 setSelectedMonth(parseInt(e.target.value, 10))
                 setPage(1)
               }}
@@ -441,6 +523,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               value={selectedYear}
               onChange={(e) => {
                 setIsAllPeriods(false)
+                setDateRange(null)
                 setSelectedYear(parseInt(e.target.value, 10))
                 setPage(1)
               }}
@@ -451,6 +534,59 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
+
+            {/* Filter Rentang Tanggal */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="date"
+                className="sf-form-input"
+                value={dateRange?.start ?? ''}
+                onChange={(e) => {
+                  const start = e.target.value
+                  setIsAllPeriods(false)
+                  setPage(1)
+                  setDateRange((prev) => {
+                    if (!start) return null
+                    const end = prev?.end && start <= prev.end ? prev.end : start
+                    return { start, end }
+                  })
+                }}
+                style={{ fontSize: 13, height: 34, padding: '4px 8px', width: 150 }}
+                aria-label="Tanggal mulai"
+              />
+              <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>s/d</span>
+              <input
+                type="date"
+                className="sf-form-input"
+                value={dateRange?.end ?? ''}
+                onChange={(e) => {
+                  const end = e.target.value
+                  setIsAllPeriods(false)
+                  setPage(1)
+                  setDateRange((prev) => {
+                    if (!end) return null
+                    const start = prev?.start && prev.start <= end ? prev.start : end
+                    return { start, end }
+                  })
+                }}
+                style={{ fontSize: 13, height: 34, padding: '4px 8px', width: 150 }}
+                aria-label="Tanggal selesai"
+              />
+              {dateRange && (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  onClick={() => {
+                    setDateRange(null)
+                    setPage(1)
+                  }}
+                  style={{ padding: '6px 10px', fontSize: 13 }}
+                  aria-label="Hapus rentang tanggal"
+                >
+                  ×
+                </button>
+              )}
+            </div>
 
             {/* Filter Arus */}
             <select
@@ -463,6 +599,25 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               <option value="all">Semua Arus Kas</option>
               <option value="income">Pemasukan (+)</option>
               <option value="expense">Pengeluaran (-)</option>
+            </select>
+
+            {/* Filter Kategori */}
+            <select
+              className="sf-form-select"
+              value={filterCategoryId}
+              onChange={(e) => {
+                setFilterCategoryId(e.target.value)
+                setPage(1)
+              }}
+              style={{ fontSize: 13, height: 34, padding: '4px 10px', width: 'auto', minWidth: 150 }}
+              aria-label="Filter Kategori"
+            >
+              <option value="all">Semua Kategori</option>
+              {expenseCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
 
             {/* Search */}
@@ -691,6 +846,80 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                       </select>
                     </div>
 
+                    {txType === 'income' && (
+                      <>
+                        <div className="sf-form-group">
+                          <label>Jenis Kas Masuk *</label>
+                          <select
+                            className="sf-form-select"
+                            value={txIncomeSubType}
+                            onChange={(e) => setTxIncomeSubType(e.target.value as 'kas_masuk' | 'setoran_rt')}
+                            required
+                          >
+                            <option value="kas_masuk">Kas Masuk</option>
+                            <option value="setoran_rt">Setoran RT</option>
+                          </select>
+                        </div>
+                        {txIncomeSubType === 'setoran_rt' && (
+                          <div className="sf-form-group">
+                            <label>RT Sumber *</label>
+                            <select
+                              className="sf-form-select"
+                              value={txForm.source_rt_id || ''}
+                              onChange={(e) => {
+                                const rtId = e.target.value
+                                const rt = rts.find((r) => r.id === rtId)
+                                setTxForm({
+                                  ...txForm,
+                                  source_rt_id: rtId,
+                                  source_rt_name: rt?.name || '',
+                                })
+                              }}
+                              required
+                            >
+                              <option value="">-- Pilih RT Sumber --</option>
+                              {rts.map((rt) => (
+                                <option key={rt.id} value={rt.id}>
+                                  {rt.label}
+                                </option>
+                              ))}
+                            </select>
+                            {rts.length === 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+                                Tidak ada RT yang tersedia di RW ini.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {txType === 'expense' && (
+                      <div className="sf-form-group">
+                        <label>Kategori Kas Keluar *</label>
+                        <select
+                          className="sf-form-select"
+                          value={txForm.expense_category || ''}
+                          onChange={(e) => setTxForm({ ...txForm, expense_category: e.target.value })}
+                          required
+                        >
+                          <option value="">-- Pilih Kategori Pengeluaran --</option>
+                          {expenseCategories
+                            .filter((c) => c.type === 'expense')
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                        </select>
+                        {expenseCategories.filter((c) => c.type === 'expense').length === 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+                            Tidak ada kategori pengeluaran yang tersedia.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="sf-form-group">
                       <label>Nominal (Rp) *</label>
                       <input
@@ -796,6 +1025,47 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Laporan KAS RW */}
+      {reportModalOpen && (
+        <div className="sf-modal-overlay" onClick={() => setReportModalOpen(false)}>
+          <div
+            className="sf-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960, width: '95%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Laporan KAS RW"
+          >
+            <div className="sf-modal-header">
+              <div className="sf-modal-header-copy">
+                <div className="sf-modal-title">Laporan KAS RW</div>
+                <div className="sf-modal-subtitle">
+                  {modalSubtitle}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="sf-modal-close"
+                onClick={() => setReportModalOpen(false)}
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+            <div className="sf-modal-body" style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+              <RwKasReport
+                rwId={rwId}
+                rwName={displayRwLabel}
+                period={reportPeriodProp}
+                startDate={dateRange?.start ?? null}
+                endDate={dateRange?.end ?? null}
+                onClose={() => setReportModalOpen(false)}
+                onNavigateBack={() => setReportModalOpen(false)}
+              />
+            </div>
           </div>
         </div>
       )}

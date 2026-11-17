@@ -128,13 +128,17 @@ class MenuAppBarTitle extends ConsumerWidget {
           ),
         ),
         const SizedBox(width: 8),
-        Text(
-          title.toUpperCase(),
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-            color: isDark ? AppColors.darkText : AppColors.lightText,
+        Flexible(
+          child: Text(
+            title.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+              color: isDark ? AppColors.darkText : AppColors.lightText,
+            ),
           ),
         ),
         const SizedBox(width: 8),

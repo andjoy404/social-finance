@@ -2,10 +2,11 @@
 // of the Push Notification module.
 //
 // Test scenarios:
-//   A. Super Admin must have a valid, whitelisted RT — no silent bypass.
-//   B. JWT-derived RT is authoritative; X-RT-ID header cannot change tenant for non-SuperAdmin.
-//   C. Sensitive operations require an explicit, validated RT — no silent fallback to a default RT.
-//   D. Per-user endpoints are scoped to the authenticated user.
+//
+//	A. Super Admin must have a valid, whitelisted RT — no silent bypass.
+//	B. JWT-derived RT is authoritative; X-RT-ID header cannot change tenant for non-SuperAdmin.
+//	C. Sensitive operations require an explicit, validated RT — no silent fallback to a default RT.
+//	D. Per-user endpoints are scoped to the authenticated user.
 package notification_test
 
 import (
@@ -33,7 +34,7 @@ func TestSecurity_A_SAEmptyRTRejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{}, RWIDs: []string{}}) // SA with empty RTID must reject
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -68,7 +69,7 @@ func TestSecurity_A_SANonWhitelistedRTRejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{}, RWIDs: []string{}}) // white-listed non-existing RT still rejected
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -100,7 +101,7 @@ func TestSecurity_A_SAWhitelistedRTPasses(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rtID}, RWIDs: []string{}}) // whitelisted RT passes
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -136,7 +137,7 @@ func TestSecurity_B_JWTAndHeaderMatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rtID}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -170,7 +171,7 @@ func TestSecurity_B_NonSADifferentRT(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rt002}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -199,7 +200,7 @@ func TestSecurity_B_SAEmptyRT_EmptyHeaderRejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(nil) // nil pool — empty RTID rejected before DB lookup
+	middleware := auth.RequireAllowedRT(nil, auth.ScopingConfig{}) // nil pool — empty RTID rejected before DB lookup
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -228,7 +229,7 @@ func TestSecurity_B_InvalidJWTRejection(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -339,7 +340,7 @@ func TestSecurity_D_GetNotificationDetail_UserIsolation(t *testing.T) {
 		RTID:       "rt-002",
 	}
 
-	entry, err := svc.GetNotificationDetail(ctx, otherUser, "rt-002", "nonexistent-id")
+	entry, err := svc.GetNotificationDetail(ctx, otherUser, "rt-002", "nonexistent-id", false)
 	if err != nil {
 		_ = err
 	}
@@ -401,7 +402,7 @@ func TestSecurity_D_BroadcastNotificationsAccessible(t *testing.T) {
 		TenantRole: auth.RoleWarga,
 	}
 
-	_, err := svc.GetNotificationDetail(ctx, user, "rt-002", "nonexistent")
+	_, err := svc.GetNotificationDetail(ctx, user, "rt-002", "nonexistent", false)
 	if err != nil {
 		// Expected — notification not found
 	}
@@ -420,7 +421,7 @@ func TestSecurity_D_CrossTenantAccessRejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rt002}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -470,7 +471,7 @@ func TestSecurity_NoSideEffectOnRejectedRequest(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{

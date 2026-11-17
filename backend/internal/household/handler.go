@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -206,16 +207,28 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		if req.RequestedRTID == nil {
+		targetRT := ""
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			bodyRT := strings.TrimSpace(*req.RequestedRTID)
+			if ac.RTID != "" && ac.RTID != bodyRT {
+				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
+				return
+			}
+			targetRT = bodyRT
+		} else if ac.RTID != "" {
+			targetRT = ac.RTID
+		} else {
+			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
+			if reqRT != "" {
+				targetRT = reqRT
+			}
+		}
+
+		if targetRT == "" {
 			httpx.WriteValidationError(w, "rt_id is required", nil)
 			return
 		}
-		trimmedRTID := strings.TrimSpace(*req.RequestedRTID)
-		if trimmedRTID == "" {
-			httpx.WriteValidationError(w, "rt_id cannot be empty", nil)
-			return
-		}
-		rtID := trimmedRTID
+		rtID := targetRT
 		rt, err := rtpkg.GetByID(ctx, tx, rtID)
 		if err != nil {
 			if errors.Is(err, rtpkg.ErrNotFound) {
@@ -352,7 +365,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(redactHouseholdNik(result, ac, ac.RTID))
 }
 
 // ListHouseholds handles GET /api/v1/households — all tenant roles, system read for SUPER_ADMIN.
@@ -378,6 +391,36 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			households, err := svc.ListHouseholds(ctx, tx, targetRT, isActive, search, offset, pageSize)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
+				return
+			}
+
+			total, err := svc.CountHouseholds(ctx, tx, targetRT, isActive, search)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count households")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
+				return
+			}
+
+			writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
+			return
+		}
+
 		households, err := svc.ListAllHouseholds(ctx, tx, isActive, search, offset, pageSize)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
@@ -395,7 +438,7 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writePaginated(w, http.StatusOK, households, page, pageSize, total)
+		writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
 		return
 	}
 
@@ -422,7 +465,7 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writePaginated(w, http.StatusOK, households, page, pageSize, total)
+	writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
 }
 
 // GetHousehold handles GET /api/v1/households/{id} — all tenant roles, system read for SUPER_ADMIN.
@@ -448,6 +491,34 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			household, err := svc.GetHouseholdByID(ctx, tx, id, targetRT)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					httpx.WriteNotFound(w, "household not found")
+					return
+				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
+			return
+		}
+
 		household, err := svc.GetAllHouseholdByID(ctx, tx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -463,7 +534,7 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, household)
+		writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
 		return
 	}
 
@@ -488,7 +559,7 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, household)
+	writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
 }
 
 // UpdateHousehold handles PATCH /api/v1/households/{id} — pengurus only,
@@ -648,7 +719,7 @@ func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, redactHouseholdNik(result, ac, ac.RTID))
 }
 
 // MoveHousehold handles POST /api/v1/households/{id}/move — pengurus only,
@@ -781,31 +852,85 @@ func (h *Handler) DeactivateHousehold(w http.ResponseWriter, r *http.Request) {
 // ─── Resident Handlers ──────────────────────────────────────────────────────
 
 // CreateResident handles POST /api/v1/residents — pengurus only,
-// system-level SUPER_ADMIN derives target RT from target household.
+// SUPER_ADMIN with explicit target rt_id (via X-RT-ID header, query param, or JSON body) or target household.
 func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
 	var req CreateResidentInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
 
-	// Resolve target RT: tenant users use authenticated RT;
-	// system super_admin without RT resolves it from the target household (if provided).
-	// For special residents (no household_id), RT comes from auth context only.
 	var rtID string
-	var ok bool
-	if req.HouseholdID != nil && *req.HouseholdID != "" {
-		rtID, ok = h.resolveRTID(w, r, func(ctx context.Context, tx *sql.Tx) (string, error) {
-			return HouseholdGetRTByID(ctx, tx, *req.HouseholdID)
-		})
-		if !ok {
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			bodyRT := strings.TrimSpace(*req.RequestedRTID)
+			if targetRT != "" && targetRT != bodyRT {
+				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
+				return
+			}
+			targetRT = bodyRT
+		} else if targetRT == "" {
+			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
+			if reqRT != "" {
+				targetRT = reqRT
+			}
+		}
+
+		if targetRT == "" && req.HouseholdID != nil && strings.TrimSpace(*req.HouseholdID) != "" {
+			ctxH, cancelH := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancelH()
+			txH, errH := h.pool.BeginTx(ctxH)
+			if errH == nil {
+				targetRT, _ = HouseholdGetRTByID(ctxH, txH, strings.TrimSpace(*req.HouseholdID))
+				_ = txH.Rollback()
+			}
+		}
+
+		if targetRT == "" {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
 			return
 		}
+
+		// Verify target RT exists and is active
+		ctxV, cancelV := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancelV()
+		txV, errV := h.pool.BeginTx(ctxV)
+		if errV != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+			return
+		}
+		defer txV.Rollback()
+
+		rt, errRT := rtpkg.GetByID(ctxV, txV, targetRT)
+		if errRT != nil {
+			if errors.Is(errRT, rtpkg.ErrNotFound) {
+				httpx.WriteNotFound(w, "target RT not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify target RT")
+			return
+		}
+		if !rt.IsActive {
+			httpx.WriteValidationError(w, "cannot create resident under an inactive RT", nil)
+			return
+		}
+		_ = txV.Rollback()
+
+		rtID = targetRT
 	} else {
-		// Special resident: RT must come from auth context (not from client).
-		ac := auth.GetAuthContext(r)
-		if ac == nil || ac.RTID == "" {
-			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			httpx.WriteValidationError(w, "rt_id is not allowed for tenant users", nil)
+			return
+		}
+		if ac.RTID == "" {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
 			return
 		}
 		rtID = ac.RTID
@@ -905,7 +1030,7 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resident)
+	json.NewEncoder(w).Encode(redactResidentNik(resident, ac, ac.RTID))
 }
 
 // ListResidents handles GET /api/v1/residents — all tenant roles, system read for SUPER_ADMIN.
@@ -932,17 +1057,22 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		// When rt_id query param is present, use tenant-scoped list (single-RT view for super_admin).
-		// When absent, use cross-tenant view (admin managing all RTs).
-		rtQueryPtr := parseStringQuery(r, "rt_id")
-		if rtQueryPtr != nil && *rtQueryPtr != "" {
-			residents, err := svc.ListResidents(ctx, tx, *rtQueryPtr, householdID, isActive, search, offset, pageSize)
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			residents, err := svc.ListResidents(ctx, tx, targetRT, householdID, isActive, search, offset, pageSize)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
 				return
 			}
 
-			total, err := svc.CountResidents(ctx, tx, *rtQueryPtr, householdID, isActive)
+			total, err := svc.CountResidents(ctx, tx, targetRT, householdID, isActive)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count residents")
 				return
@@ -953,7 +1083,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writePaginated(w, http.StatusOK, residents, page, pageSize, total)
+			writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 			return
 		}
 
@@ -974,7 +1104,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writePaginated(w, http.StatusOK, residents, page, pageSize, total)
+		writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 		return
 	}
 
@@ -1000,7 +1130,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writePaginated(w, http.StatusOK, residents, page, pageSize, total)
+	writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 }
 
 // GetResident handles GET /api/v1/residents/{id} — all tenant roles & super_admin.
@@ -1026,6 +1156,34 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			resident, err := svc.GetResidentByID(ctx, tx, id, targetRT)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					httpx.WriteNotFound(w, "resident not found")
+					return
+				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
+			return
+		}
+
 		resident, err := svc.GetAllResidentByID(ctx, tx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -1041,7 +1199,7 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, resident)
+		writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
 		return
 	}
 
@@ -1065,11 +1223,12 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resident)
+	writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
 }
 
 // UpdateResident handles PATCH /api/v1/residents/{id} — pengurus only.
 func (h *Handler) UpdateResident(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -1194,7 +1353,7 @@ func (h *Handler) UpdateResident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, redactResidentNik(result, ac, ac.RTID))
 }
 
 // MoveResident handles POST /api/v1/residents/{id}/move — pengurus only.
@@ -1309,17 +1468,24 @@ func (h *Handler) DeactivateResident(w http.ResponseWriter, r *http.Request) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Special Resident (keamanan, kebersihan_pembangunan)
+// Special Resident (keamanan, operasional, kebersihan)
 // No household chain — user account + membership + household-less resident.
 // ────────────────────────────────────────────────────────────────────────
 
 // validSpecialJabatans is the allowed set of jabatan for special residents.
 var validSpecialJabatans = map[string]bool{
-	"keamanan":                    true,
-	"kebersihan_pembangunan": true,
+	"keamanan":    true,
+	"operasional": true,
+	"kebersihan":  true,
 }
 
 // SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
+//
+// Password is the officer's initial login password (hashed with the same
+// auth.Hash used by every other account). It is required: before it existed
+// the handler silently generated a random password nobody knew, so newly
+// created officers could never log in.
+// IsActive is optional and defaults to true.
 type SpecialResidentCreateRequest struct {
 	RTID     string `json:"rt_id,omitempty"`
 	Jabatan  string `json:"jabatan"`
@@ -1327,6 +1493,8 @@ type SpecialResidentCreateRequest struct {
 	Nik      string `json:"nik"`
 	Phone    string `json:"phone"`
 	Email    string `json:"email"`
+	Password string `json:"password"`
+	IsActive *bool  `json:"is_active,omitempty"`
 }
 
 // CreateSpecialResident handles POST /api/v1/residents/special.
@@ -1343,7 +1511,7 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !validSpecialJabatans[req.Jabatan] {
-		httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+		httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
 		return
 	}
 	if req.FullName == "" {
@@ -1363,7 +1531,9 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteValidationError(w, "phone is required", nil)
 		return
 	}
-	canonPhone, phoneErr := NormalizePhone(req.Phone)
+	// Use the auth package's normalizer: it is the exact function the login
+	// path applies, so the stored phone and the login lookup can never diverge.
+	canonPhone, phoneErr := auth.NormalizePhone(req.Phone)
 	if phoneErr != nil {
 		httpx.WriteValidationError(w, phoneErr.Error(), nil)
 		return
@@ -1377,6 +1547,38 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	canonEmail := NormalizeEmail(req.Email)
+	var passwordHash string
+	trimmedPassword := strings.TrimSpace(req.Password)
+	if trimmedPassword != "" {
+		if len(trimmedPassword) < auth.MinPasswordLength {
+			httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
+			return
+		}
+		var hashErr error
+		passwordHash, hashErr = auth.Hash(trimmedPassword)
+		if hashErr != nil {
+			httpx.WriteValidationError(w, hashErr.Error(), nil)
+			return
+		}
+	} else {
+		// When no password is provided, generate a cryptographically random initial password.
+		// Plaintext is never stored, and credentials can be established via authorized reset flow.
+		randBytes := make([]byte, 32)
+		if _, err := crand.Read(randBytes); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate initial password")
+			return
+		}
+		var hashErr error
+		passwordHash, hashErr = auth.Hash(base64.StdEncoding.EncodeToString(randBytes))
+		if hashErr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash initial password")
+			return
+		}
+	}
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
 
 	// Resolve RTID: non-super-admin uses their authenticated RT.
 	// Super-admin without RTID must provide rt_id in the body.
@@ -1430,44 +1632,65 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback()
 
-	// 1. Create user (upsert by normalized email)
-	passwordHash, err := auth.Hash("SpecialResident123!")
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash password")
+	// Never attach an existing account to a new RT or change its role/jabatan.
+	// Email is global across tenants, so reusing it could grant access to an
+	// existing warga account or move its resident record across RTs.
+	existingUser, findErr := auth.UsersFindByEmail(ctx, tx, canonEmail)
+	if findErr == nil && existingUser != nil {
+		httpx.WriteConflict(w, "email is already registered")
 		return
 	}
-	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
-	if err != nil {
-		// User may already exist — query by normalized email to get the existing ID
-		existingUser, userErr := auth.UsersFindByEmail(ctx, tx, canonEmail)
-		if userErr != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
-			return
-		}
-		userID = existingUser.ID
+	if !errors.Is(findErr, auth.ErrUserNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered email")
+		return
 	}
 
-	// 2. Upsert membership (pengurus + jabatan)
+	// Phone is a login identifier too, and the database has no unique index on
+	// it, so reject duplicates explicitly (UsersFindByPhone also matches
+	// legacy +62/62 variants and residents.phone, exactly like login does).
+	existingByPhone, phoneFindErr := auth.UsersFindByPhone(ctx, tx, canonPhone)
+	if phoneFindErr == nil && existingByPhone != nil {
+		httpx.WriteConflict(w, "phone number is already registered")
+		return
+	}
+	if !errors.Is(phoneFindErr, auth.ErrUserNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered phone")
+		return
+	}
+
+	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
+	if err != nil {
+		if isPGUniqueViolation(err) {
+			httpx.WriteConflict(w, "email is already registered")
+			return
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+		return
+	}
+	if !isActive {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET is_active = false, updated_at = now() WHERE id = $1`, userID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to set account status")
+			return
+		}
+	}
+
+	// 2. Create a least-privilege warga membership with the special jabatan.
 	memQ := `
 		INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
-		VALUES ($1, $2, $3, $4, true)
-		ON CONFLICT (user_id, rt_id) WHERE is_active = true DO UPDATE SET
-			role = EXCLUDED.role,
-			jabatan = EXCLUDED.jabatan,
-			updated_at = now()
+		VALUES ($1, $2, $3, $4, $5)
 	`
-	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RolePengurus), req.Jabatan); err != nil {
+	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RoleWarga), req.Jabatan, isActive); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create membership")
 		return
 	}
 
-	// 3. Create resident with household_id = NULL
+	// 3. Create resident with household_id = NULL.
 	var resident Resident
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO residents (rt_id, user_id, full_name, phone, nik, email, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, true)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, rt_id, full_name, phone, nik, email, is_active, created_at, updated_at`,
-		rtID, userID, req.FullName, canonPhone, strings.TrimSpace(req.Nik), canonEmail,
+		rtID, userID, req.FullName, canonPhone, strings.TrimSpace(req.Nik), canonEmail, isActive,
 	).Scan(
 		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
 		&resident.Nik, &resident.Email, &resident.IsActive, &resident.CreatedAt, &resident.UpdatedAt,
@@ -1488,7 +1711,7 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resident)
+	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, ac.RTID))
 }
 
 // SpecialResidentUpdateRequest is the body for PATCH /api/v1/residents/special/:id.
@@ -1499,6 +1722,9 @@ type SpecialResidentUpdateRequest struct {
 	Email    *string `json:"email,omitempty"`
 	Jabatan  *string `json:"jabatan,omitempty"`
 	IsActive *bool   `json:"is_active,omitempty"`
+	// Password is optional: absent/empty keeps the current password, a value
+	// replaces it (min auth.MinPasswordLength chars, hashed with auth.Hash).
+	Password *string `json:"password,omitempty"`
 }
 
 // UpdateSpecialResident handles PATCH /api/v1/residents/special/:id.
@@ -1516,8 +1742,26 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// An empty password means "do not change it".
+	var newPasswordHash *string
+	if req.Password != nil && strings.TrimSpace(*req.Password) == "" {
+		req.Password = nil
+	}
+	if req.Password != nil {
+		if len(*req.Password) < auth.MinPasswordLength {
+			httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
+			return
+		}
+		hashed, hashErr := auth.Hash(*req.Password)
+		if hashErr != nil {
+			httpx.WriteValidationError(w, hashErr.Error(), nil)
+			return
+		}
+		newPasswordHash = &hashed
+	}
+
 	// At least one field must be provided
-	if req.FullName == nil && req.Nik == nil && req.Phone == nil && req.Email == nil && req.Jabatan == nil && req.IsActive == nil {
+	if req.FullName == nil && req.Nik == nil && req.Phone == nil && req.Email == nil && req.Jabatan == nil && req.IsActive == nil && req.Password == nil {
 		httpx.WriteValidationError(w, "at least one field must be provided", nil)
 		return
 	}
@@ -1525,7 +1769,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	// Validate jabatan if provided
 	if req.Jabatan != nil {
 		if !validSpecialJabatans[*req.Jabatan] {
-			httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+			httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
 			return
 		}
 	}
@@ -1546,12 +1790,13 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback()
 
-	// 1. Find the resident and verify it's a special resident (no household)
+	// 1. Find the resident and verify it's a special resident (no household).
+	// Inactive officers must stay editable so they can be re-activated.
 	var resident Resident
 	var userID sql.NullString
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, rt_id, full_name, phone, nik, email, user_id, is_active, created_at, updated_at
-		 FROM residents WHERE id = $1 AND is_active = true`,
+		 FROM residents WHERE id = $1`,
 		id,
 	).Scan(
 		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
@@ -1589,6 +1834,25 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	rtID := resident.RTID
 
+	// Only genuine special officers may be edited here. Without this guard the
+	// password/status fields below could be applied to any household-less
+	// resident (e.g. a pengurus record), which is not what this endpoint is for.
+	if !userID.Valid {
+		httpx.WriteConflict(w, "not a special resident — no linked account")
+		return
+	}
+	var membershipJabatan sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT jabatan FROM user_rt_memberships WHERE user_id = $1 AND rt_id = $2 LIMIT 1`,
+		userID.String, rtID,
+	).Scan(&membershipJabatan); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify officer membership")
+		return
+	} else if errors.Is(err, sql.ErrNoRows) || !membershipJabatan.Valid || !validSpecialJabatans[membershipJabatan.String] {
+		httpx.WriteConflict(w, "not a special resident — membership is not an officer jabatan")
+		return
+	}
+
 	// 2. Update resident fields
 	hasChanges := false
 	var fields []updateField
@@ -1601,6 +1865,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, "full_name cannot be empty", nil)
 			return
 		}
+		req.FullName = &trimmed
 		fields = append(fields, updateField{"full_name", trimmed})
 		args = append(args, trimmed)
 		argIdx++
@@ -1611,11 +1876,20 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, "phone cannot be empty", nil)
 			return
 		}
-		normalized, normErr := NormalizePhone(trimmed)
+		// Same normalizer as login (auth.NormalizePhone) — see CreateSpecialResident.
+		normalized, normErr := auth.NormalizePhone(trimmed)
 		if normErr != nil {
 			httpx.WriteValidationError(w, normErr.Error(), nil)
 			return
 		}
+		if other, findErr := auth.UsersFindByPhone(ctx, tx, normalized); findErr == nil && other != nil && other.ID != userID.String {
+			httpx.WriteConflict(w, "phone number is already registered")
+			return
+		} else if findErr != nil && !errors.Is(findErr, auth.ErrUserNotFound) {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered phone")
+			return
+		}
+		req.Phone = &normalized
 		fields = append(fields, updateField{"phone", normalized})
 		args = append(args, normalized)
 		argIdx++
@@ -1630,6 +1904,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, err.Error(), nil)
 			return
 		}
+		req.Nik = &trimmed
 		fields = append(fields, updateField{"nik", trimmed})
 		args = append(args, trimmed)
 		argIdx++
@@ -1644,8 +1919,10 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, err.Error(), nil)
 			return
 		}
-		fields = append(fields, updateField{"email", NormalizeEmail(trimmed)})
-		args = append(args, NormalizeEmail(trimmed))
+		normalized := NormalizeEmail(trimmed)
+		req.Email = &normalized
+		fields = append(fields, updateField{"email", normalized})
+		args = append(args, normalized)
 		argIdx++
 	}
 	if req.IsActive != nil {
@@ -1657,7 +1934,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	if len(fields) > 0 {
 		query := `UPDATE residents SET ` + setClause(fields, 0) +
 			`, updated_at = now() WHERE id = $` + fmt.Sprint(len(fields)+1) +
-			` AND rt_id = $` + fmt.Sprint(len(fields)+2) + ` AND is_active = true`
+			` AND rt_id = $` + fmt.Sprint(len(fields)+2)
 		args = append(args, id, rtID)
 		result, execErr := tx.ExecContext(ctx, query, args...)
 		if execErr != nil {
@@ -1676,17 +1953,86 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		hasChanges = true
 	}
 
-	// 3. Update membership jabatan if provided
+	// 3. Update membership jabatan if provided. The membership is_active flag
+	// always follows the account status chosen in the form, so a deactivated
+	// officer is blocked at login (membership + user) and a re-activated one
+	// can log in again.
 	if req.Jabatan != nil {
 		memUpdateQ := `
 			UPDATE user_rt_memberships SET jabatan = $1, updated_at = now()
-			WHERE user_id = $2 AND rt_id = $3 AND is_active = true
+			WHERE user_id = $2 AND rt_id = $3
 		`
 		if _, err := tx.ExecContext(ctx, memUpdateQ, *req.Jabatan, userID.String, rtID); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update jabatan")
 			return
 		}
 		hasChanges = true
+	}
+	if req.IsActive != nil {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE user_rt_memberships SET is_active = $1, updated_at = now() WHERE user_id = $2 AND rt_id = $3`,
+			*req.IsActive, userID.String, rtID,
+		); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update membership status")
+			return
+		}
+		hasChanges = true
+	}
+
+	if userID.Valid && (req.FullName != nil || req.Phone != nil || req.Email != nil || req.IsActive != nil || newPasswordHash != nil) {
+		var fullName, phone, email, passwordHash, isActive any
+		if req.FullName != nil {
+			fullName = *req.FullName
+		}
+		if req.Phone != nil {
+			phone = *req.Phone
+		}
+		if req.Email != nil {
+			email = *req.Email
+		}
+		if newPasswordHash != nil {
+			passwordHash = *newPasswordHash
+		}
+		if req.IsActive != nil {
+			isActive = *req.IsActive
+		}
+		result, updateErr := tx.ExecContext(ctx, `
+			UPDATE users
+			SET full_name = COALESCE($2, full_name),
+			    phone = COALESCE($3, phone),
+			    email = COALESCE($4, email),
+			    password_hash = COALESCE($5, password_hash),
+			    is_active = COALESCE($6::boolean, is_active),
+			    updated_at = now()
+			WHERE id = $1
+		`, userID.String, fullName, phone, email, passwordHash, isActive)
+		if updateErr != nil {
+			if isPGUniqueViolation(updateErr) {
+				httpx.WriteConflict(w, "account profile conflicts with an existing user")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to synchronize resident account")
+			return
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify resident account update")
+			return
+		}
+		if rows == 0 {
+			httpx.WriteNotFound(w, "resident account not found")
+			return
+		}
+		hasChanges = true
+
+		// A new password or a deactivation must cut off sessions that were
+		// issued with the old credentials/status.
+		if newPasswordHash != nil || (req.IsActive != nil && !*req.IsActive) {
+			if err := auth.RevokeRefreshTokensByUserID(ctx, tx, userID.String); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to revoke sessions")
+				return
+			}
+		}
 	}
 
 	if !hasChanges {
@@ -1699,9 +2045,45 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if req.FullName != nil {
+		resident.FullName = *req.FullName
+	}
+	if req.Phone != nil {
+		phone := *req.Phone
+		resident.Phone = &phone
+	}
+	if req.Nik != nil {
+		nik := *req.Nik
+		resident.Nik = &nik
+	}
+	if req.Email != nil {
+		email := *req.Email
+		resident.Email = &email
+	}
+	if req.IsActive != nil {
+		resident.IsActive = *req.IsActive
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resident)
+	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, ac.RTID))
+}
+
+// isResetPasswordOfficer checks whether the auth context corresponds to an authorized officer or Super Admin.
+func isResetPasswordOfficer(ac *auth.AuthContext) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return true
+	}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isJabatanOfficer := j == string(auth.JabatanKetua) ||
+		j == "ketua_rt" || j == "ketua rt" ||
+		j == string(auth.JabatanWakilKetua) ||
+		j == string(auth.JabatanSekretaris) ||
+		j == string(auth.JabatanBendahara)
+	isRoleOfficer := ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara
+	return isRoleOfficer || isJabatanOfficer
 }
 
 // GenerateResetPasswordCode handles POST /api/v1/residents/{id}/reset-password-code
@@ -1713,12 +2095,12 @@ func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	isSuperAdmin := ac.SystemRole == auth.SystemRoleSuperAdmin
-	isOfficer := ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara
-	if !isSuperAdmin && !isOfficer {
+	if !isResetPasswordOfficer(ac) {
 		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only pengurus or super admin can generate reset codes")
 		return
 	}
+
+	isSuperAdmin := ac.SystemRole == auth.SystemRoleSuperAdmin
 
 	residentID := chi.URLParam(r, "id")
 	if residentID == "" {
@@ -1856,4 +2238,117 @@ func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Reque
 		"resident_name": resFullName,
 		"identifier":    identifier,
 	})
+}
+
+// canViewNik returns true only if the requester is Ketua RT in the active context.
+// Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
+// MUST NOT see unmasked NIK.
+//
+// Ketua RT in production has role=warga with jabatan=ketua (see migration 031),
+// so the check must NOT require TenantRole==pengurus — it must rely on jabatan
+// plus RT isolation: the user's active RT (ac.RTID) must match the requested rtID.
+//
+// If rtID is provided, the user's active RT must equal rtID and jabatan must be ketua.
+// If rtID is empty, it falls back to checking the jabatan claim only.
+//
+// IMPORTANT: Super Admin must NOT see NIK — strict Ketua RT-only access, regardless of rtID provided.
+func canViewNik(ac *auth.AuthContext, rtID string) bool {
+	if ac == nil {
+		return false
+	}
+	// Super Admin never sees NIK — strict Ketua RT-only access
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return false
+	}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	if !isKetua {
+		return false
+	}
+	// If rtID is provided, enforce RT isolation: ketua only in their own active RT.
+	if rtID != "" {
+		if ac.RTID == "" || ac.RTID != rtID {
+			return false
+		}
+	}
+	return true
+}
+
+// canViewContact returns true only if the requester is Ketua RT in the active context.
+// Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
+// MUST NOT see unmasked contact data (phone, email).
+//
+// Like canViewNik, this must not require TenantRole==pengurus because the real
+// Ketua RT has role=warga with jabatan=ketua. RT isolation is enforced by
+// requiring ac.RTID == rtID when rtID is provided.
+//
+// If rtID is empty, it falls back to checking the jabatan claim only.
+//
+// IMPORTANT: Super Admin must NOT see contact data — strict Ketua RT-only access,
+// regardless of rtID provided.
+func canViewContact(ac *auth.AuthContext, rtID string) bool {
+	if ac == nil {
+		return false
+	}
+	// Super Admin never sees contact data — strict Ketua RT-only access
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return false
+	}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	if !isKetua {
+		return false
+	}
+	if rtID != "" {
+		if ac.RTID == "" || ac.RTID != rtID {
+			return false
+		}
+	}
+	return true
+}
+
+func redactResidentsNik(residents []*Resident, ac *auth.AuthContext, rtID string) []*Resident {
+	if canViewNik(ac, rtID) {
+		return residents
+	}
+	for _, r := range residents {
+		if r != nil {
+			r.Nik = nil
+		}
+	}
+	return residents
+}
+
+func redactResidentNik(resident *Resident, ac *auth.AuthContext, rtID string) *Resident {
+	if resident == nil || canViewNik(ac, rtID) {
+		return resident
+	}
+	resident.Nik = nil
+	return resident
+}
+
+func redactHouseholdsNik(households []*Household, ac *auth.AuthContext, rtID string) []*Household {
+	if canViewNik(ac, rtID) {
+		return households
+	}
+	for _, h := range households {
+		if h != nil {
+			h.Nik = nil
+			if h.HeadResident != nil {
+				h.HeadResident.Nik = nil
+			}
+		}
+	}
+	return households
+}
+
+func redactHouseholdNik(household *Household, ac *auth.AuthContext, rtID string) *Household {
+	if household == nil || canViewNik(ac, rtID) {
+		return household
+	}
+	household.Nik = nil
+	if household.HeadResident != nil {
+		household.HeadResident.Nik = nil
+	}
+	return household
 }

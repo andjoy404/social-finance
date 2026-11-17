@@ -119,16 +119,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
         automaticallyImplyLeading: false,
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Lokasi Dana'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.invalidate(fundLocationsProvider);
-              ref.invalidate(fundTransfersProvider);
-              ref.invalidate(fundReconciliationProvider);
-            },
-          ),
-        ],
+
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -176,11 +167,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.add,
-                            size: 20,
-                            color: AppColors.accent,
-                          ),
+                          Icon(Icons.add, size: 20, color: AppColors.accent),
                           SizedBox(width: 4),
                           Icon(
                             Icons.account_balance,
@@ -277,6 +264,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.account_balance,
                       AppColors.accent,
                       isDark,
+                      subtitle: 'Total saldo seluruh rekening bank RT.',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -287,6 +275,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.lock_outline,
                       AppColors.success,
                       isDark,
+                      subtitle: 'Total saldo seluruh brankas fisik RT.',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -297,6 +286,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.payments_outlined,
                       AppColors.warning,
                       isDark,
+                      subtitle: 'Total saldo kas di tangan (COH) RT.',
                     ),
                   ),
                 ],
@@ -316,55 +306,34 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
               ),
               const SizedBox(height: AppSpacing.md),
 
-              // Action Toolbar: Transfer button (subtle neon badge style)
+              // Action Toolbar: Transfer button
               if (_canManage(ref)) ...[
                 Row(
                   children: [
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.accent
-                              .withValues(alpha: isDark ? 0.08 : 0.06),
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          border: Border.all(
-                            color: AppColors.accent.withValues(alpha: 0.35),
-                            width: 0.5,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark
+                              ? AppColors.accent
+                              : AppColors.accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.accent
-                                  .withValues(alpha: isDark ? 0.15 : 0.10),
-                              blurRadius: 4,
-                              spreadRadius: 0,
-                              offset: const Offset(0, 0),
-                            ),
-                          ],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
                         ),
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: isDark
-                                ? Colors.white
-                                : AppColors.accent,
-                            side: BorderSide.none,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.sm),
-                            ),
-                          ),
-                          onPressed: () =>
-                              _showTransferDialog(context, locations),
-                          icon: Icon(Icons.swap_horiz,
-                              color: isDark ? Colors.white : AppColors.accent,
-                              size: 16),
-                          label: Text(
-                            'Transfer Antar Lokasi',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : AppColors.accent,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
+                        onPressed: () =>
+                            _showTransferDialog(context, locations),
+                        icon: Icon(Icons.swap_horiz, size: 16),
+                        label: Text(
+                          'Transfer Antar Lokasi',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
                           ),
                         ),
                       ),
@@ -437,67 +406,181 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     );
   }
 
+  void _showSummaryCardDetail({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSummaryCard(
     String title,
     String amount,
     IconData icon,
     Color color,
-    bool isDark,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(
-          color: color.withValues(alpha: isDark ? 0.25 : 0.15),
-          width: 1,
-        ),
+    bool isDark, {
+    String? subtitle,
+  }) {
+    return InkWell(
+      onTap: () => _showSummaryCardDetail(
+        context: context,
+        title: title,
+        value: amount,
+        color: color,
+        icon: icon,
+        subtitle: subtitle,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: isDark ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
-                ),
-                child: Icon(icon, size: 12, color: color),
-              ),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMutedColor(context),
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: isDark ? 0.08 : 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(
+            color: color.withValues(alpha: isDark ? 0.25 : 0.15),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  child: Icon(icon, size: 12, color: color),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              amount,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-              maxLines: 1,
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                amount,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -591,9 +674,24 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
           children: [
             if (loc.category == FundLocationCategory.rekening &&
                 loc.bankName != null) ...[
-              Text(
-                '${loc.bankName} • ${loc.accountNumber ?? "-"} (${loc.accountHolder ?? "-"})',
-                style: const TextStyle(fontSize: 12),
+              Row(
+                children: [
+                  Text(
+                    '${loc.bankName}  •  ',
+                    style: const TextStyle(fontSize: 12, color: AppColors.info),
+                  ),
+                  Text(
+                    loc.accountNumber ?? "-",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                  Text(
+                    '  (${loc.accountHolder ?? "-"})',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
               ),
             ] else ...[
               Text(loc.category.label, style: const TextStyle(fontSize: 12)),
@@ -641,7 +739,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   children: [
                     Icon(Icons.edit_outlined, size: 18),
                     SizedBox(width: 8),
-                    Text('Edit Lokasi'),
+                    Text('Ubah Lokasi'),
                   ],
                 ),
               ),
@@ -913,65 +1011,75 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                           child: SizedBox(
                             height: 48,
                             child: OutlinedButton(
-                              onPressed: saving ? null : () async {
-                                final name = nameCtrl.text.trim();
-                                if (name.isEmpty) {
-                                  setDialogState(
-                                    () => error = 'Nama lokasi wajib diisi.',
-                                  );
-                                  return;
-                                }
-                                setDialogState(() {
-                                  saving = true;
-                                  error = null;
-                                });
+                              onPressed: saving
+                                  ? null
+                                  : () async {
+                                      final name = nameCtrl.text.trim();
+                                      if (name.isEmpty) {
+                                        setDialogState(
+                                          () => error =
+                                              'Nama lokasi wajib diisi.',
+                                        );
+                                        return;
+                                      }
+                                      setDialogState(() {
+                                        saving = true;
+                                        error = null;
+                                      });
 
-                                try {
-                                  final repo = ref.read(
-                                    fundLocationRepositoryProvider,
-                                  );
-                                  await repo.createLocation(
-                                    name: name,
-                                    category: category,
-                                    bankName: category == 'rekening'
-                                        ? bankNameCtrl.text.trim()
-                                        : null,
-                                    accountNumber: category == 'rekening'
-                                        ? accNoCtrl.text.trim()
-                                        : null,
-                                    accountHolder: category == 'rekening'
-                                        ? accHolderCtrl.text.trim()
-                                        : null,
-                                  );
+                                      try {
+                                        final repo = ref.read(
+                                          fundLocationRepositoryProvider,
+                                        );
+                                        await repo.createLocation(
+                                          name: name,
+                                          category: category,
+                                          bankName: category == 'rekening'
+                                              ? bankNameCtrl.text.trim()
+                                              : null,
+                                          accountNumber: category == 'rekening'
+                                              ? accNoCtrl.text.trim()
+                                              : null,
+                                          accountHolder: category == 'rekening'
+                                              ? accHolderCtrl.text.trim()
+                                              : null,
+                                        );
 
-                                  if (context.mounted) {
-                                    Navigator.pop(dialogCtx);
-                                    ref.invalidate(fundLocationsProvider);
-                                    ref.invalidate(fundReconciliationProvider);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Lokasi dana berhasil ditambahkan',
-                                        ),
-                                        backgroundColor: AppColors.success,
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  final repo = ref.read(
-                                    fundLocationRepositoryProvider,
-                                  );
-                                  setDialogState(() {
-                                    saving = false;
-                                    error = repo.mapDioError(e).message;
-                                  });
-                                }
-                              },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                                        if (context.mounted) {
+                                          Navigator.pop(dialogCtx);
+                                          ref.invalidate(fundLocationsProvider);
+                                          ref.invalidate(
+                                            fundReconciliationProvider,
+                                          );
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Lokasi dana berhasil ditambahkan',
+                                              ),
+                                              backgroundColor:
+                                                  AppColors.success,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        final repo = ref.read(
+                                          fundLocationRepositoryProvider,
+                                        );
+                                        setDialogState(() {
+                                          saving = false;
+                                          error = repo.mapDioError(e).message;
+                                        });
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.success,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: saving
@@ -981,13 +1089,15 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         backgroundColor: Colors.transparent,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.accent,
-                                        ),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              AppColors.success,
+                                            ),
                                       ),
                                     )
                                   : const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.save_outlined, size: 18),
                                         SizedBox(width: 6),
@@ -1001,16 +1111,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
-                              onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                            child: ElevatedButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(dialogCtx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: const Row(
@@ -1050,7 +1161,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Edit Lokasi Dana'),
+              title: const Text('Ubah Lokasi Dana'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1101,68 +1212,80 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
-                              onPressed: saving ? null : () async {
-                                final name = nameCtrl.text.trim();
-                                if (name.isEmpty) {
-                                  setDialogState(
-                                    () => error = 'Nama lokasi tidak boleh kosong.',
-                                  );
-                                  return;
-                                }
-                                setDialogState(() {
-                                  saving = true;
-                                  error = null;
-                                });
+                            child: ElevatedButton(
+                              onPressed: saving
+                                  ? null
+                                  : () async {
+                                      final name = nameCtrl.text.trim();
+                                      if (name.isEmpty) {
+                                        setDialogState(
+                                          () => error =
+                                              'Nama lokasi tidak boleh kosong.',
+                                        );
+                                        return;
+                                      }
+                                      setDialogState(() {
+                                        saving = true;
+                                        error = null;
+                                      });
 
-                                try {
-                                  final repo = ref.read(
-                                    fundLocationRepositoryProvider,
-                                  );
-                                  await repo.updateLocation(
-                                    id: loc.id,
-                                    name: name,
-                                    bankName:
-                                        loc.category == FundLocationCategory.rekening
-                                        ? bankNameCtrl.text.trim()
-                                        : null,
-                                    accountNumber:
-                                        loc.category == FundLocationCategory.rekening
-                                        ? accNoCtrl.text.trim()
-                                        : null,
-                                    accountHolder:
-                                        loc.category == FundLocationCategory.rekening
-                                        ? accHolderCtrl.text.trim()
-                                        : null,
-                                  );
+                                      try {
+                                        final repo = ref.read(
+                                          fundLocationRepositoryProvider,
+                                        );
+                                        await repo.updateLocation(
+                                          id: loc.id,
+                                          name: name,
+                                          bankName:
+                                              loc.category ==
+                                                  FundLocationCategory.rekening
+                                              ? bankNameCtrl.text.trim()
+                                              : null,
+                                          accountNumber:
+                                              loc.category ==
+                                                  FundLocationCategory.rekening
+                                              ? accNoCtrl.text.trim()
+                                              : null,
+                                          accountHolder:
+                                              loc.category ==
+                                                  FundLocationCategory.rekening
+                                              ? accHolderCtrl.text.trim()
+                                              : null,
+                                        );
 
-                                  if (context.mounted) {
-                                    Navigator.pop(dialogCtx);
-                                    ref.invalidate(fundLocationsProvider);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Lokasi dana berhasil diperbarui',
-                                        ),
-                                        backgroundColor: AppColors.success,
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  final repo = ref.read(
-                                    fundLocationRepositoryProvider,
-                                  );
-                                  setDialogState(() {
-                                    saving = false;
-                                    error = repo.mapDioError(e).message;
-                                  });
-                                }
-                              },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                                        if (context.mounted) {
+                                          Navigator.pop(dialogCtx);
+                                          ref.invalidate(fundLocationsProvider);
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Lokasi dana berhasil diperbarui',
+                                              ),
+                                              backgroundColor:
+                                                  AppColors.success,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        final repo = ref.read(
+                                          fundLocationRepositoryProvider,
+                                        );
+                                        setDialogState(() {
+                                          saving = false;
+                                          error = repo.mapDioError(e).message;
+                                        });
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.success,
+                                foregroundColor: Colors.white,
+                                // side removed for solid style
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: saving
@@ -1172,13 +1295,15 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         backgroundColor: Colors.transparent,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.accent,
-                                        ),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              AppColors.success,
+                                            ),
                                       ),
                                     )
                                   : const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.save_outlined, size: 18),
                                         SizedBox(width: 6),
@@ -1192,16 +1317,19 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
-                              onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                            child: ElevatedButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(dialogCtx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
+                                // side removed for solid style
+                                // foregroundColor: AppColors.danger removed
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: const Row(
@@ -1278,7 +1406,9 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
   }
 
   void _showTransferDialog(BuildContext context, List<FundLocation> locations) {
-    final activeLocs = locations.where((l) => l.isActive).toList();
+    final activeLocs = locations.where((l) => l.isActive).toList()
+      ..sort((a, b) => b.balanceRupiah.compareTo(a.balanceRupiah));
+
     if (activeLocs.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1291,6 +1421,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
       return;
     }
 
+    // Default to location with highest balance as "Dari Lokasi"
     String? fromId = activeLocs.first.id;
     String? toId = activeLocs.length > 1 ? activeLocs[1].id : null;
     final amountCtrl = TextEditingController();
@@ -1330,8 +1461,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       items: activeLocs.map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Text(
-                            '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       }).toList(),
@@ -1371,7 +1511,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         labelText: 'Nominal Transfer',
                         hintText: 'Rp 0',
                         helperText:
-                            'Maksimal: ${formatRupiah(fromLoc.balanceRupiah)}',
+                            'Maks: ${formatRupiah(fromLoc.balanceRupiah)}',
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                       ),
                       keyboardType: TextInputType.number,
                       inputFormatters: const [
@@ -1396,12 +1540,15 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving
                                   ? null
                                   : () async {
                                       final amount =
-                                          parseRupiahInput(amountCtrl.text.trim()) ?? 0;
+                                          parseRupiahInput(
+                                            amountCtrl.text.trim(),
+                                          ) ??
+                                          0;
                                       if (amount <= 0) {
                                         setDialogState(
                                           () => error =
@@ -1411,7 +1558,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       }
                                       if (amount > fromLoc.balanceRupiah) {
                                         setDialogState(
-                                          () => error = 'Saldo tidak mencukupi.',
+                                          () =>
+                                              error = 'Saldo tidak mencukupi.',
                                         );
                                         return;
                                       }
@@ -1436,7 +1584,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                           fromLocationId: fromId!,
                                           toLocationId: toId!,
                                           amountRupiah: amount,
-                                          notes: notesCtrl.text.trim().isNotEmpty
+                                          notes:
+                                              notesCtrl.text.trim().isNotEmpty
                                               ? notesCtrl.text.trim()
                                               : null,
                                           idempotencyKey: _generateUuid(),
@@ -1446,13 +1595,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                           Navigator.pop(dialogCtx);
                                           ref.invalidate(fundLocationsProvider);
                                           ref.invalidate(fundTransfersProvider);
-                                          ref.invalidate(fundReconciliationProvider);
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ref.invalidate(
+                                            fundReconciliationProvider,
+                                          );
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
                                                 'Transfer dana berhasil dilakukan.',
                                               ),
-                                              backgroundColor: AppColors.success,
+                                              backgroundColor:
+                                                  AppColors.success,
                                             ),
                                           );
                                         }
@@ -1466,11 +1620,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                         });
                                       }
                                     },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.accent,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: saving
@@ -1480,17 +1636,25 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         backgroundColor: Colors.transparent,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.accent,
-                                        ),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              AppColors.accent,
+                                            ),
                                       ),
                                     )
                                   : const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.swap_horiz, size: 18),
                                         SizedBox(width: 6),
-                                        Text('Transfer'),
+                                        Flexible(
+                                          child: Text(
+                                            'Transfer',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),
@@ -1500,16 +1664,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
-                              onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                            child: ElevatedButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(dialogCtx),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
                                 ),
                               ),
                               child: const Row(

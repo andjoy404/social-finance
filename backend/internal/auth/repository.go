@@ -72,37 +72,41 @@ func UsersFindByEmail(ctx context.Context, tx *sql.Tx, email string) (*UserWithH
 	return &u, nil
 }
 
-// NormalizePhone converts Indonesian phone input to canonical +62 format.
-// Accepts: 081234567890, 6281234567890, +6281234567890
-// Returns: +6281234567890
+// NormalizePhone converts Indonesian phone input to standard local 08 format.
+// Accepts: 081234567890, 6281234567890, +6281234567890 (with optional spaces/dashes)
+// Returns: 081234567890
 func NormalizePhone(phone string) (string, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
 		return "", fmt.Errorf("phone is required")
 	}
-	canon := trimmed
-	if strings.HasPrefix(canon, "+62") {
-		if len(canon) > 3 && canon[3] == '0' {
-			canon = "+62" + canon[4:]
-		}
-	} else if strings.HasPrefix(canon, "08") {
-		canon = "+62" + canon[1:]
-	} else if strings.HasPrefix(canon, "62") {
-		canon = "+" + canon
-	} else {
-		return "", fmt.Errorf("phone number format is invalid")
-	}
 	var sb strings.Builder
-	for _, c := range canon {
+	for _, c := range trimmed {
 		if (c >= '0' && c <= '9') || c == '+' {
 			sb.WriteByte(byte(c))
 		}
 	}
-	return sb.String(), nil
+	cleaned := sb.String()
+	if strings.HasPrefix(cleaned, "+62") {
+		cleaned = cleaned[3:]
+	} else if strings.HasPrefix(cleaned, "62") {
+		cleaned = cleaned[2:]
+	}
+	if !strings.HasPrefix(cleaned, "0") {
+		cleaned = "0" + cleaned
+	}
+	if !strings.HasPrefix(cleaned, "08") {
+		return "", fmt.Errorf("phone number format is invalid")
+	}
+	if len(cleaned) < 10 || len(cleaned) > 15 {
+		return "", fmt.Errorf("phone number must be between 10 and 15 digits")
+	}
+	return cleaned, nil
 }
 
 // UsersFindByPhone finds a user by phone number.
-// Supports both canonical (+62...) and standard local (08...) formats.
+// Supports both standard local (08...) and legacy canonical (+62...) formats.
+// Falls back to residents.phone for backwards compatibility with accounts imported before users.phone was populated.
 func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithHash, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
@@ -110,33 +114,35 @@ func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithH
 	}
 
 	variants := []string{trimmed}
-	if canon, err := NormalizePhone(trimmed); err == nil && canon != "" {
-		if canon != trimmed {
-			variants = append(variants, canon)
+	if norm, err := NormalizePhone(trimmed); err == nil && norm != "" {
+		if norm != trimmed {
+			variants = append(variants, norm)
 		}
-		if strings.HasPrefix(canon, "+62") && len(canon) > 3 {
-			local := "0" + canon[3:]
-			variants = append(variants, local)
+		if strings.HasPrefix(norm, "0") {
+			variants = append(variants, "+62"+norm[1:], "62"+norm[1:])
 		}
 	}
 
 	var clauses []string
 	var args []interface{}
 	for i, v := range variants {
-		clauses = append(clauses, fmt.Sprintf("phone = $%d", i+1))
+		clauses = append(clauses, fmt.Sprintf("u.phone = $%d OR r.phone = $%d", i+1, i+1))
 		args = append(args, v)
 	}
 	query := fmt.Sprintf(`
-		SELECT id, system_role, full_name, email, phone, password_hash, is_active
-		FROM users
+		SELECT u.id, u.system_role, u.full_name, u.email, COALESCE(u.phone, r.phone) AS phone, u.password_hash, u.is_active
+		FROM users u
+		LEFT JOIN residents r ON r.user_id = u.id
 		WHERE (%s)
+		ORDER BY (CASE WHEN u.phone IS NOT NULL THEN 0 ELSE 1 END)
 		LIMIT 1
 	`, strings.Join(clauses, " OR "))
 
 	var u UserWithHash
 	var sysRole sql.NullString
+	var userPhone sql.NullString
 	err := tx.QueryRowContext(ctx, query, args...).Scan(
-		&u.ID, &sysRole, &u.Fullname, &u.Email, &u.Phone, &u.PasswordHash, &u.IsActive,
+		&u.ID, &sysRole, &u.Fullname, &u.Email, &userPhone, &u.PasswordHash, &u.IsActive,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -146,6 +152,9 @@ func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithH
 	}
 	if sysRole.Valid {
 		u.SystemRole = SystemRole(sysRole.String)
+	}
+	if userPhone.Valid {
+		u.Phone = &userPhone.String
 	}
 	return &u, nil
 }
@@ -472,23 +481,25 @@ func FindRTDetailsByID(ctx context.Context, tx *sql.Tx, rtID string) (name strin
 
 // UserForMe returns user info plus their active RT details for the /me endpoint.
 type UserForMe struct {
-	ID                   string          `json:"id"`
-	Fullname             string          `json:"full_name"`
-	Email                string          `json:"email"` // NOT NULL after migration
-	Phone                *string         `json:"phone,omitempty"`
-	HouseNumber          *string         `json:"house_number,omitempty"`
-	TenantRole           Role            `json:"role"`
-	SystemRole           string          `json:"system_role,omitempty"` // "super_admin" if present
-	Jabatan              *string         `json:"jabatan"`               // RT organizational position, null if not assigned
-	EffectivePermissions []string        `json:"effective_permissions"`
-	RTID                 string          `json:"rt_id"`
-	RTName               string          `json:"rt_name"`
-	RT_rw                int             `json:"rt_rw"`
-	RT_rt                string          `json:"rt_rt"`
-	RW                   int             `json:"rw"`
-	RWID                 *string         `json:"rw_id,omitempty"`
-	RWName               *string         `json:"rw_name,omitempty"`
-	RWMemberships        []RWMembership  `json:"rw_memberships,omitempty"`
+	ID                   string         `json:"id"`
+	Fullname             string         `json:"full_name"`
+	Email                string         `json:"email"` // NOT NULL after migration
+	Phone                *string        `json:"phone,omitempty"`
+	HouseNumber          *string        `json:"house_number,omitempty"`
+	AvatarPath           *string        `json:"avatar_path,omitempty"`
+	AvatarThumbPath      *string        `json:"avatar_thumb_path,omitempty"`
+	TenantRole           Role           `json:"role"`
+	SystemRole           string         `json:"system_role,omitempty"` // "super_admin" if present
+	Jabatan              *string        `json:"jabatan"`               // RT organizational position, null if not assigned
+	EffectivePermissions []string       `json:"effective_permissions"`
+	RTID                 string         `json:"rt_id"`
+	RTName               string         `json:"rt_name"`
+	RT_rw                int            `json:"rt_rw"`
+	RT_rt                string         `json:"rt_rt"`
+	RW                   int            `json:"rw"`
+	RWID                 *string        `json:"rw_id,omitempty"`
+	RWName               *string        `json:"rw_name,omitempty"`
+	RWMemberships        []RWMembership `json:"rw_memberships,omitempty"`
 }
 
 // GetProfile returns user info plus their active RT details for the /me endpoint.
@@ -496,7 +507,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
 			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name,
-			h.house_number
+			h.house_number, avatar.avatar_path, avatar.avatar_thumb_path
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
@@ -518,6 +529,20 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, ho.created_at DESC
 			LIMIT 1
 		) h ON true
+		LEFT JOIN LATERAL (
+			SELECT r.avatar_path, r.avatar_thumb_path
+			FROM residents r
+			WHERE (
+				r.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(r.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					r.phone = u.phone
+					OR regexp_replace(r.phone, '^(\+62|62|0)', '') = regexp_replace(u.phone, '^(\+62|62|0)', '')
+				))
+			) AND r.rt_id = rt.id AND r.is_active = true
+			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, r.updated_at DESC
+			LIMIT 1
+		) avatar ON true
 		WHERE u.id = $1 AND u.is_active = true
 		AND urm.is_active = true AND rt.is_active = true
 		LIMIT 1
@@ -527,10 +552,12 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	var jabatanStr sql.NullString
 	var roleStr string
 	var houseNum sql.NullString
+	var avatarPath sql.NullString
+	var avatarThumbPath sql.NullString
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
 		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
-		&u.RWID, &u.RWName, &houseNum,
+		&u.RWID, &u.RWName, &houseNum, &avatarPath, &avatarThumbPath,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -550,6 +577,14 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	if houseNum.Valid && strings.TrimSpace(houseNum.String) != "" {
 		hn := strings.TrimSpace(houseNum.String)
 		u.HouseNumber = &hn
+	}
+	if avatarPath.Valid && strings.TrimSpace(avatarPath.String) != "" {
+		av := strings.TrimSpace(avatarPath.String)
+		u.AvatarPath = &av
+	}
+	if avatarThumbPath.Valid && strings.TrimSpace(avatarThumbPath.String) != "" {
+		avThumb := strings.TrimSpace(avatarThumbPath.String)
+		u.AvatarThumbPath = &avThumb
 	}
 
 	// Load all active RW memberships for this user.
@@ -622,7 +657,26 @@ func UpdateUserProfile(ctx context.Context, tx *sql.Tx, userID, fullName string,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND is_active = true
 	`
-	_, _ = tx.ExecContext(ctx, syncQuery, userID, strings.TrimSpace(fullName), phone, email)
+	resSync, _ := tx.ExecContext(ctx, syncQuery, userID, strings.TrimSpace(fullName), phone, email)
+	if rows, _ := resSync.RowsAffected(); rows == 0 {
+		// If no resident record is directly linked by user_id, link and update unlinked resident in active RT
+		linkQuery := `
+			UPDATE residents r
+			SET user_id = $1,
+			    full_name = CASE WHEN $2 != '' THEN $2 ELSE r.full_name END,
+			    phone = COALESCE($3, r.phone),
+			    email = COALESCE(NULLIF($4, ''), r.email),
+			    updated_at = NOW()
+			FROM user_rt_memberships m
+			WHERE m.user_id = $1 AND m.is_active = true
+			  AND r.rt_id = m.rt_id AND r.user_id IS NULL AND r.is_active = true
+			  AND (
+			      (r.phone IS NOT NULL AND $3::text IS NOT NULL AND r.phone = $3::text)
+			      OR (r.email IS NOT NULL AND $4::text IS NOT NULL AND lower(r.email) = lower($4::text))
+			  )
+		`
+		_, _ = tx.ExecContext(ctx, linkQuery, userID, strings.TrimSpace(fullName), phone, email)
+	}
 
 	return nil
 }

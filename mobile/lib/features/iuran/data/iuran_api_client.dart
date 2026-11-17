@@ -689,3 +689,15 @@ class IuranApiClient {
     }
   }
 }
+
+extension IuranApiClientOverdueExt on IuranApiClient {
+  /// GET /api/v1/bills/overdue-summary
+  Future<OverdueWarningSummary> getOverdueWarningSummary() async {
+    final response = await dio.get('/api/v1/bills/overdue-summary');
+    final data = response.data;
+    if (data is! Map) {
+      return OverdueWarningSummary.empty;
+    }
+    return OverdueWarningSummary.fromJson(data.cast<String, dynamic>());
+  }
+}

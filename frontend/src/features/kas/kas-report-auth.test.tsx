@@ -145,7 +145,7 @@ describe('KasReport authorization', () => {
   })
 
   it('Skenario 9: Warga + jabatan anggota = boleh akses (anggota bukan jabatan terlarang)', async () => {
-    // Hanya Keamanan (keamanan) dan Kebersihan/Pembangunan (kebersihan_pembangunan) yang ditolak.
+    // Hanya Keamanan (keamanan) dan Operasional (operasional) yang ditolak.
     // Anggota adalah jabatan biasa yang tidak ada larangan.
     const user = makeUser({ role: 'warga', jabatan: 'anggota' })
     renderKasReport(user)

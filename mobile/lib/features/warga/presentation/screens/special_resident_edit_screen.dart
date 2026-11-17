@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,8 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
@@ -26,9 +29,11 @@ class _SpecialResidentEditScreenState
     extends ConsumerState<SpecialResidentEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameCtrl = TextEditingController();
+  String? _avatarPath;
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
   String _jabatan = '';
   bool _hasJabatan = false;
@@ -59,6 +64,7 @@ class _SpecialResidentEditScreenState
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -79,6 +85,7 @@ class _SpecialResidentEditScreenState
       final mapped = MappedResident.fromBackend(resident, null);
 
       setState(() {
+        _avatarPath = mapped.avatarPath;
         _fullNameCtrl.text = mapped.name;
         _nikCtrl.text = mapped.nik ?? '';
         _phoneCtrl.text = mapped.phoneNumber ?? '';
@@ -137,6 +144,12 @@ class _SpecialResidentEditScreenState
       errors.add('Format email tidak valid.');
     }
 
+    // Password opsional pada edit: kosong = pertahankan password lama
+    final pwd = _passwordCtrl.text.trim();
+    if (pwd.isNotEmpty && pwd.length < 8) {
+      errors.add('Kata sandi baru minimal 8 karakter.');
+    }
+
     setState(() => _validationErrors = errors);
     return errors.isEmpty;
   }
@@ -154,6 +167,7 @@ class _SpecialResidentEditScreenState
 
       if (_hasJabatan) {
         // Special resident (has jabatan) — use the special endpoint
+        final pwd = _passwordCtrl.text.trim();
         final request = UpdateSpecialResidentRequest(
           fullName: _fullNameCtrl.text.trim().isEmpty
               ? null
@@ -163,11 +177,13 @@ class _SpecialResidentEditScreenState
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
           jabatan: _jabatan.isEmpty ? null : _jabatan,
           isActive: _isActive,
+          password: pwd.isEmpty ? null : pwd,
         );
 
         await repo.updateSpecialResident(widget.residentId, request: request);
       } else {
         // Regular resident (no jabatan) — use the regular endpoint
+        final pwd = _passwordCtrl.text.trim();
         final request = UpdateResidentRequest(
           fullName: _fullNameCtrl.text.trim().isEmpty
               ? null
@@ -176,13 +192,17 @@ class _SpecialResidentEditScreenState
           phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
           isActive: _isActive,
+          password: pwd.isEmpty ? null : pwd,
         );
 
         await repo.updateResident(widget.residentId, request: request);
       }
 
-      // Refresh warga list
+      await ref.read(authRepositoryProvider.notifier).reloadProfile();
+
+      // Refresh warga list & home dashboard organization chart
       await ref.read(wargaListProvider.notifier).refresh();
+      ref.invalidate(homeDashboardFutureProvider);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -216,11 +236,11 @@ class _SpecialResidentEditScreenState
             alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: OutlinedButton(
+              child: ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
@@ -232,33 +252,18 @@ class _SpecialResidentEditScreenState
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
                 ),
+                child: const Text('Ya, Batalkan'),
               ),
             ),
           ),
@@ -278,18 +283,14 @@ class _SpecialResidentEditScreenState
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -322,14 +323,23 @@ class _SpecialResidentEditScreenState
         await _confirmCancel();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.base),
             children: [
+              // Foto Profil Petugas
+              Center(
+                child: ResidentPhotoManage(
+                  residentId: widget.residentId,
+                  fullName: _fullNameCtrl.text,
+                  avatarPath: _avatarPath,
+                  onChanged: (newPath) => setState(() => _avatarPath = newPath),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+
               // Error message
               if (_error != null)
                 Container(
@@ -417,11 +427,15 @@ class _SpecialResidentEditScreenState
                       items: const [
                         DropdownMenuItem(
                           value: 'keamanan',
-                          child: Text('Seksi Keamanan'),
+                          child: Text('Keamanan'),
                         ),
                         DropdownMenuItem(
-                          value: 'kebersihan_pembangunan',
+                          value: 'operasional',
                           child: Text('Operasional'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'kebersihan',
+                          child: Text('Kebersihan'),
                         ),
                       ],
                       hint: const Text('Pilih jabatan'),
@@ -474,6 +488,15 @@ class _SpecialResidentEditScreenState
               ),
               const SizedBox(height: AppSpacing.lg),
 
+              // Kata Sandi Baru (Opsional): kosong = pertahankan password lama
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Kata Sandi Baru (Opsional)',
+                hintText: 'Kosongkan jika tidak ingin mengubah kata sandi',
+                obscureText: true,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
               // Status
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,96 +546,70 @@ class _SpecialResidentEditScreenState
               Row(
                 children: [
                   Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _save,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.accent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _save,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.accent),
-                            foregroundColor: AppColors.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: _saving
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.accent,
+                        ),
+                        child: _saving
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  backgroundColor: Colors.transparent,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.save_outlined, size: 18),
+                                  SizedBox(width: 6),
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text('Simpan'),
                                     ),
                                   ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.save_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Flexible(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text('Simpan Perubahan'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
+                                ],
+                              ),
                       ),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.danger.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _confirmCancel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.danger,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _confirmCancel,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: AppColors.danger),
-                            foregroundColor: AppColors.danger,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.close, size: 18),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('Batal'),
                               ),
                             ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.close, size: 18),
-                              SizedBox(width: 6),
-                              Flexible(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text('Batal'),
-                                ),
-                              ),
-                            ],
-                          ),
+                          ],
                         ),
                       ),
                     ),

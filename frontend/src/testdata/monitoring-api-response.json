@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "household_occupancy_id": "occupancy-a",
+      "house_number": "A-01",
+      "note": "Jadwal kunjungan pagi"
+    },
+    {
+      "household_occupancy_id": "occupancy-b",
+      "house_number": "B-07"
+    }
+  ],
+  "total": 2,
+  "eval_date": "2026-11-06"
+}
