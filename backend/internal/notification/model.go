@@ -36,6 +36,11 @@ const (
 	// RW notification event types
 	EventRWCashIn  = "rw_cash_in"
 	EventRWCashOut = "rw_cash_out"
+
+	// Security notification event types (paket & patroli)
+	EventPaketReceived    = "paket_received"
+	EventPaketPickedUp    = "paket_picked_up"
+	EventPatrolBundleSent = "patrol_bundle_submitted"
 )
 
 const (
@@ -74,6 +79,10 @@ func TriggerCategoryForEvent(eventType string) string {
 		return TriggerCategoryManualTrigger
 	case EventRWCashIn,
 		EventRWCashOut:
+		return TriggerCategoryManualTrigger
+	case EventPaketReceived,
+		EventPaketPickedUp,
+		EventPatrolBundleSent:
 		return TriggerCategoryManualTrigger
 	}
 	return ""

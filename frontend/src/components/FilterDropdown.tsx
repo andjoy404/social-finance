@@ -20,13 +20,25 @@ export function FilterDropdown<T extends string = string>({
   ariaLabel = 'Filter status',
 }: FilterDropdownProps<T>) {
   const [open, setOpen] = useState(false)
+  const [dropUp, setDropUp] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const isFiltered = Boolean(value && value !== 'semua')
   const triggerLabel = isFiltered ? 'Status' : 'Semua'
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setDropUp(false)
+      return
+    }
+    // Detect if menu would overflow viewport bottom — open upward instead
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const menuHeight = 200 // approximate max menu height
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      setDropUp(spaceBelow < menuHeight && spaceAbove > spaceBelow)
+    }
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -66,7 +78,7 @@ export function FilterDropdown<T extends string = string>({
       </button>
 
       <div
-        className={`sf-filter-dropdown-menu ${open ? 'sf-filter-dropdown-menu-open' : ''}`}
+        className={`sf-filter-dropdown-menu ${open ? 'sf-filter-dropdown-menu-open' : ''} ${dropUp ? 'sf-filter-dropdown-menu-dropup' : ''}`}
         role="listbox"
         aria-label={ariaLabel}
       >

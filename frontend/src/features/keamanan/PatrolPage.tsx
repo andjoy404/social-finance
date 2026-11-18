@@ -395,7 +395,7 @@ export function PatrolPage() {
       <div style={{
         display: 'flex',
         gap: 4,
-        margin: '16px 0 0 0',
+        margin: '4px 0 0 0',
         borderBottom: '1px solid var(--sf-border)',
         paddingBottom: 0,
       }}>

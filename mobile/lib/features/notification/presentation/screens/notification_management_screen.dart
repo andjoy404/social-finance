@@ -1571,10 +1571,20 @@ class _NotificationManagementScreenState
                     ? AppColors.darkTextMuted
                     : AppColors.lightTextMuted,
                 indicatorColor: AppColors.accent,
-                tabs: const [
-                  Tab(text: 'SISTEM'),
-                  Tab(text: 'RIWAYAT SAYA'),
-                ],
+                tabs: systemTypesAsync.when(
+                  data: (types) => [
+                    Tab(text: 'SISTEM (${types.length})'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                  loading: () => const [
+                    Tab(text: 'SISTEM'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                  error: (_, __) => const [
+                    Tab(text: 'SISTEM'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                ),
               ),
               Expanded(
                 child: TabBarView(
@@ -1611,17 +1621,32 @@ class _NotificationManagementScreenState
                     ? AppColors.darkTextMuted
                     : AppColors.lightTextMuted,
                 indicatorColor: AppColors.accent,
-                tabs: const [
-                  Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
-                  Tab(
-                    icon: Icon(Icons.bookmark_border_rounded, size: 14),
-                    text: 'KUSTOM',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.schedule_rounded, size: 14),
-                    text: 'PENJADWALAN',
-                  ),
-                ],
+                tabs: systemTypesAsync.when(
+                  data: (types) => [
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM (${types.length})',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
+                  ],
+                  loading: () => const [
+                    Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
+                    Tab(icon: Icon(Icons.bookmark_border_rounded, size: 14), text: 'KUSTOM'),
+                    Tab(icon: Icon(Icons.schedule_rounded, size: 14), text: 'PENJADWALAN'),
+                  ],
+                  error: (_, __) => const [
+                    Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
+                    Tab(icon: Icon(Icons.bookmark_border_rounded, size: 14), text: 'KUSTOM'),
+                    Tab(icon: Icon(Icons.schedule_rounded, size: 14), text: 'PENJADWALAN'),
+                  ],
+                ),
               ),
               Expanded(
                 child: TabBarView(

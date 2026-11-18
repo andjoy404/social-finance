@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth, canManageActivities } from '@/app/AuthContext'
-import { useNavigate } from 'react-router-dom'
+import { Modal } from 'antd'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import { Pagination } from '@/components/Pagination'
@@ -18,6 +18,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import {
   CommunityActivity,
@@ -27,11 +28,19 @@ import {
   apiDeleteActivity,
   getSessionPair,
 } from '@/app/api'
+import { CommunityImage } from '@/components/CommunityImage'
 import { ActivityModal } from './ActivityModal'
+
+function formatDateId(date: Date): string {
+  return date.toLocaleDateString('id-ID', { dateStyle: 'full' })
+}
+
+function formatTimeId(date: Date): string {
+  return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+}
 
 export function ActivityList() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [activities, setActivities] = useState<CommunityActivity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -43,6 +52,7 @@ export function ActivityList() {
   const [pageSize] = useState(10)
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [viewingActivity, setViewingActivity] = useState<CommunityActivity | null>(null)
 
   // Permission-driven gating (not role-name based).
   const canManage = canManageActivities(user)
@@ -165,7 +175,7 @@ export function ActivityList() {
   }, [activities, searchQuery])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       <PageHeader
         surface
         icon={<CalendarOutlined />}
@@ -215,24 +225,7 @@ export function ActivityList() {
             />
           </div>
 
-          <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {[
-              { id: 'all', label: 'Semua' },
-              { id: 'upcoming', label: 'Mendatang' },
-              { id: 'ongoing', label: 'Berlangsung' },
-              { id: 'completed', label: 'Selesai' },
-              { id: 'cancelled', label: 'Dibatalkan' },
-            ].map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className={`sf-btn ${statusFilter === opt.id ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-                onClick={() => handleStatusFilter(opt.id)}
-                style={{ padding: '6px 14px', fontSize: 12 }}
-              >
-                {opt.label}
-              </button>
-            ))}
+          <div className="sf-list-toolbar-right">
             <button
               type="button"
               className="sf-btn-secondary"
@@ -272,12 +265,12 @@ export function ActivityList() {
         {!loading && filteredActivities.length > 0 && (
           <>
             <div className="table-wrapper">
-              <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <table className="sf-warga-table sf-activity-table">
                 <thead>
                   <tr>
                     <th className="col-title">WAKTU & LOKASI</th>
                     <th className="col-title">JUDUL & DESKRIPSI</th>
-                    <th className="col-status">PENYELENGGARA</th>
+                    <th className="col-organizer">PENYELENGGARA</th>
                     <th className="col-status">STATUS</th>
                     {canManage && <th className="col-action">AKSI</th>}
                   </tr>
@@ -292,25 +285,22 @@ export function ActivityList() {
                     return (
                       <tr
                         key={act.id}
-                        role="link"
-                        aria-label={`Detail kegiatan ${act.title}`}
-                        tabIndex={0}
-                        onClick={() => navigate(`/kegiatan/${act.id}`)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') navigate(`/kegiatan/${act.id}`)
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest('.sf-btn-outline, .sf-btn-primary')) return
+                          setViewingActivity(act)
                         }}
                         style={{ cursor: 'pointer' }}
                       >
                         {/* 1. WAKTU & LOKASI */}
                         <td className="col-time">
                           <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: 2 }}>
-                            {start.toLocaleDateString('id-ID', { dateStyle: 'full' })}
+                            {formatDateId(start)}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
                             <ClockCircleOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
                             <span>
-                              {start.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
-                              {end && ` - ${end.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB`}
+                              {formatTimeId(start)} WIB
+                              {end && ` - ${formatTimeId(end)} WIB`}
                             </span>
                           </div>
                           {act.location && (
@@ -337,11 +327,11 @@ export function ActivityList() {
                         </td>
 
                         {/* 3. PENYELENGGARA */}
-                        <td className="col-status">
+                        <td className="col-organizer">
                           {act.organizer ? (
-                            <div style={{ fontSize: 12, color: 'var(--sf-text)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <UserOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
-                              <span>Penyelenggara: {act.organizer}</span>
+                            <div style={{ fontSize: 12, color: 'var(--sf-text)', display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+                              <UserOutlined style={{ color: 'var(--sf-accent)', fontSize: 12, flexShrink: 0 }} />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Penyelenggara: {act.organizer}</span>
                             </div>
                           ) : (
                             <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>—</span>
@@ -359,8 +349,18 @@ export function ActivityList() {
 
                         {/* 5. AKSI */}
                         {canManage && (
-                          <td className="col-action" onClick={(e) => e.stopPropagation()}>
+                          <td className="col-action" onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button
+                                type="button"
+                                className="sf-btn-outline"
+                                onClick={() => setViewingActivity(act)}
+                                style={{ padding: '4px 8px', fontSize: 12 }}
+                                title="Lihat Detail"
+                                aria-label="Lihat Detail"
+                              >
+                                <EyeOutlined />
+                              </button>
                               {(isDraft || (!isCancelled)) && (
                                 <button
                                   type="button"
@@ -433,6 +433,101 @@ export function ActivityList() {
           </>
         )}
       </div>
+
+      {/* Detail Modal */}
+      <Modal
+        open={!!viewingActivity}
+        onCancel={() => setViewingActivity(null)}
+        footer={null}
+        closable
+        width={600}
+        styles={{ body: { padding: 0 } }}
+        destroyOnClose
+      >
+        {viewingActivity && (
+          <div style={{ padding: '0 24px 24px 24px', color: 'var(--sf-text)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  {getStatusBadge(viewingActivity.status)}
+                  {viewingActivity.publication_status === 'draft' && <Badge variant="amber">DRAF</Badge>}
+                  {viewingActivity.show_on_banner && <Badge variant="blue">BANNER</Badge>}
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
+                  {viewingActivity.title}
+                </h2>
+              </div>
+            </div>
+
+            {viewingActivity.poster_url && (
+              <div
+                style={{
+                  width: '100%',
+                  maxHeight: 280,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  background: 'var(--sf-surface-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                  border: '1px solid var(--sf-border-subtle)',
+                }}
+              >
+                <CommunityImage
+                  src={viewingActivity.poster_url}
+                  alt={viewingActivity.title}
+                  style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--sf-text)' }}>
+                <ClockCircleOutlined style={{ color: 'var(--sf-accent)', fontSize: 14 }} />
+                <span>
+                  {formatDateId(new Date(viewingActivity.starts_at))} —{' '}
+                  {formatTimeId(new Date(viewingActivity.starts_at))} WIB
+                  {viewingActivity.ends_at && ` — ${formatTimeId(new Date(viewingActivity.ends_at))} WIB`}
+                </span>
+              </div>
+              {viewingActivity.location && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--sf-text)' }}>
+                  <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 14 }} />
+                  <span>{viewingActivity.location}</span>
+                </div>
+              )}
+              {viewingActivity.organizer && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--sf-text)' }}>
+                  <UserOutlined style={{ color: 'var(--sf-accent)', fontSize: 14 }} />
+                  <span>Penyelenggara: {viewingActivity.organizer}</span>
+                </div>
+              )}
+            </div>
+
+            {viewingActivity.description && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sf-text-muted)', marginBottom: 4 }}>
+                  DESKRIPSI
+                </div>
+                <p style={{ margin: 0, fontSize: 14, color: 'var(--sf-text)', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                  {viewingActivity.description}
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--sf-border)' }}>
+              <button
+                type="button"
+                className="sf-btn sf-btn-outline"
+                onClick={() => setViewingActivity(null)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Create / Edit Modal */}
       {showModal && (

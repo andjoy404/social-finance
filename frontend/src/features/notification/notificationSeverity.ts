@@ -59,6 +59,9 @@ const TRIGGER_CATEGORY_BY_SYSTEM_EVENTS = [
   'activity_updated',
   'activity_cancelled',
   'activity_completed',
+  'paket_received',
+  'paket_picked_up',
+  'patrol_bundle_submitted',
 ] as const
 
 const TRIGGER_CATEGORY_TERJADWAL_EVENTS = [

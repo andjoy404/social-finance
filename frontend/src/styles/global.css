@@ -666,6 +666,17 @@ input { font-family: inherit; }
   transform: translateY(0);
 }
 
+/* Open upward when near viewport bottom */
+.sf-filter-dropdown-menu.sf-filter-dropdown-menu-dropup {
+  top: auto;
+  bottom: calc(100% + 4px);
+  transform: translateY(4px);
+}
+
+.sf-filter-dropdown-menu.sf-filter-dropdown-menu-dropup.sf-filter-dropdown-menu-open {
+  transform: translateY(0);
+}
+
 .sf-filter-dropdown-item {
   display: flex;
   align-items: center;
@@ -2365,4 +2376,110 @@ input[type="file"].sf-form-file::-webkit-file-upload-button:active {
   .sf-no-print { display: none !important; }
   .sf-kas-doc-table thead { display: table-header-group; }
   @page { size: A4 portrait; margin: 12mm; }
+}
+
+/* ── Activity table: override sf-warga-table globals for wrap columns ── */
+
+.table-wrapper table.sf-warga-table.sf-activity-table {
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+
+/* Waktu & Lokasi column — allow multiline */
+.table-wrapper table.sf-warga-table.sf-activity-table th.col-time,
+.table-wrapper table.sf-warga-table.sf-activity-table td.col-time {
+  white-space: normal !important;
+  width: 28% !important;
+  min-width: 0 !important;
+}
+
+/* Judul & Deskripsi column — multiline with ellipsis for desc */
+.table-wrapper table.sf-warga-table.sf-activity-table th.col-title,
+.table-wrapper table.sf-warga-table.sf-activity-table td.col-title {
+  white-space: normal !important;
+  width: 35% !important;
+  min-width: 0 !important;
+}
+
+/* Penyelenggara column — allow multiline, truncate overflow */
+.table-wrapper table.sf-warga-table.sf-activity-table th.col-organizer,
+.table-wrapper table.sf-warga-table.sf-activity-table td.col-organizer {
+  white-space: normal !important;
+  width: 18% !important;
+  min-width: 120px !important;
+  max-width: 200px !important;
+  text-align: left !important;
+}
+
+/* Status column — allow badges to wrap */
+.table-wrapper table.sf-warga-table.sf-activity-table th.col-status,
+.table-wrapper table.sf-warga-table.sf-activity-table td.col-status {
+  white-space: normal !important;
+  width: 20% !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+/* Aksi column — prevent wrap */
+.table-wrapper table.sf-warga-table.sf-activity-table th.col-action,
+.table-wrapper table.sf-warga-table.sf-activity-table td.col-action {
+  white-space: nowrap !important;
+  width: 220px !important;
+  min-width: 220px !important;
+  max-width: 220px !important;
+  text-align: center !important;
+  padding: 10px 8px !important;
+}
+
+/* ── Announcement table: override sf-warga-table globals ── */
+
+.table-wrapper table.sf-warga-table.sf-announcement-table {
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+
+/* Judul & Ringkasan column — multiline, clickable */
+.table-wrapper table.sf-warga-table.sf-announcement-table th.col-ann-title,
+.table-wrapper table.sf-warga-table.sf-announcement-table td.col-ann-title {
+  white-space: normal !important;
+  width: 35% !important;
+  min-width: 0 !important;
+  cursor: pointer !important;
+}
+
+/* Jadwal & Tautan column — multiline */
+.table-wrapper table.sf-warga-table.sf-announcement-table th.col-ann-schedule,
+.table-wrapper table.sf-warga-table.sf-announcement-table td.col-ann-schedule {
+  white-space: normal !important;
+  width: 30% !important;
+  min-width: 0 !important;
+}
+
+/* Prioritas column — narrow */
+.table-wrapper table.sf-warga-table.sf-announcement-table th.col-ann-priority,
+.table-wrapper table.sf-warga-table.sf-announcement-table td.col-ann-priority {
+  white-space: nowrap !important;
+  width: 8% !important;
+  min-width: 70px !important;
+  text-align: center !important;
+}
+
+/* Status column — allow badges to wrap */
+.table-wrapper table.sf-warga-table.sf-announcement-table th.col-status,
+.table-wrapper table.sf-warga-table.sf-announcement-table td.col-status {
+  white-space: normal !important;
+  width: 17% !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+/* Aksi column — prevent wrap */
+.table-wrapper table.sf-warga-table.sf-announcement-table th.col-action,
+.table-wrapper table.sf-warga-table.sf-announcement-table td.col-action {
+  white-space: nowrap !important;
+  width: 220px !important;
+  min-width: 220px !important;
+  max-width: 220px !important;
+  text-align: center !important;
+  padding: 10px 8px !important;
 }

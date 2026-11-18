@@ -38,7 +38,6 @@ import {
   FileExcelOutlined,
   KeyOutlined,
   OrderedListOutlined,
-  PhoneOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -1172,7 +1171,6 @@ export function KelolaKeamananPage() {
           { key: 'attendance', label: 'Monitoring & Laporan Absensi', icon: <ScanOutlined /> },
           { key: 'corrections', label: 'Koreksi Absensi', icon: <EditOutlined /> },
           { key: 'devices', label: 'Perangkat Pos', icon: <KeyOutlined /> },
-          { key: 'guest_books', label: 'Buku Tamu', icon: <PhoneOutlined /> },
         ].map((tab) => (
           <button
             key={tab.key}

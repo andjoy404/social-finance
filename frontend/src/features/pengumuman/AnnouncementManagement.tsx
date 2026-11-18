@@ -211,7 +211,7 @@ export function AnnouncementManagement() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <PageHeader
         surface
         icon={<NotificationOutlined />}
@@ -240,7 +240,7 @@ export function AnnouncementManagement() {
           style={{
             display: 'flex',
             gap: 4,
-            margin: '16px 0 0 0',
+            margin: '0px 0 0 0',
             borderBottom: '1px solid var(--sf-border)',
           }}
         >
@@ -357,40 +357,7 @@ export function AnnouncementManagement() {
               />
             </div>
 
-            <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {/* Status filter buttons for canManage */}
-              {canManage && [
-                { value: 'all', label: 'Semua' },
-                { value: 'active', label: 'Aktif' },
-                { value: 'draft', label: 'Draf' },
-                { value: 'scheduled', label: 'Terjadwal' },
-                { value: 'archived', label: 'Diarsipkan' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`sf-btn ${statusFilter === opt.value ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-                  onClick={() => handleStatusFilter(opt.value)}
-                  style={{ padding: '6px 14px', fontSize: 12 }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-              {!canManage && [
-                { value: 'all', label: 'Semua' },
-                { value: 'active', label: 'Aktif' },
-                { value: 'history', label: 'Riwayat' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`sf-btn ${statusFilter === opt.value ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-                  onClick={() => handleStatusFilter(opt.value)}
-                  style={{ padding: '6px 14px', fontSize: 12 }}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="sf-list-toolbar-right">
               <button
                 type="button"
                 className="sf-btn-secondary"
@@ -430,12 +397,12 @@ export function AnnouncementManagement() {
           {!loading && sortedAnnouncements.length > 0 && (
             <>
               <div className="table-wrapper">
-              <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <table className="sf-warga-table sf-announcement-table">
                 <thead>
                   <tr>
-                    <th className="col-title">JUDUL & RINGKASAN</th>
-                    <th className="col-schedule">JADWAL & TAUTAN</th>
-                    <th className="col-priority">PRIORITAS</th>
+                    <th className="col-ann-title">JUDUL & RINGKASAN</th>
+                    <th className="col-ann-schedule">JADWAL & TAUTAN</th>
+                    <th className="col-ann-priority">PRIORITAS</th>
                     <th className="col-status">STATUS</th>
                     <th className="col-action">AKSI</th>
                   </tr>
@@ -448,8 +415,8 @@ export function AnnouncementManagement() {
                     const hasScheduleOrLink = Boolean(windowLabel || ann.deep_link)
                     return (
                       <tr key={ann.id}>
-                        {/* 1. JUDUL & RINGKASAN */}
-                        <td className="col-title">
+                        {/* 1. JUDUL & RINGKASAN — click to preview */}
+                        <td className="col-ann-title" style={{ cursor: 'pointer' }} onClick={() => setViewingAnnouncement(ann)}>
                           <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: ann.body ? 2 : 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span>{ann.title}</span>
                             {ann.image_url && (
@@ -482,7 +449,7 @@ export function AnnouncementManagement() {
                         </td>
 
                         {/* 2. JADWAL & TAUTAN */}
-                        <td className="col-schedule">
+                        <td className="col-ann-schedule">
                           {hasScheduleOrLink ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                               {windowLabel && (
@@ -514,7 +481,7 @@ export function AnnouncementManagement() {
                         </td>
 
                         {/* 3. PRIORITAS */}
-                        <td className="col-priority">
+                        <td className="col-ann-priority">
                           <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', fontWeight: 600 }}>
                             {ann.priority}
                           </span>

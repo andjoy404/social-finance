@@ -801,7 +801,7 @@ const knownEventNames: Record<string, string> = {
 
       {/* Tabs (Rendered for Admins only) */}
       {isAdmin ? (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginTop: 4, marginBottom: 16 }}>
           {/* Top-level tabs: TEMPLATES / RIWAYAT SISTEM / RIWAYAT SAYA */}
           <div
             style={{
