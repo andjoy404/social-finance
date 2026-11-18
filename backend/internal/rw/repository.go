@@ -1098,6 +1098,22 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 		}
 	}
 
+	// 4b. Resolve category name if expense_category is UUID or category_id provided
+	if in.ExpenseCategory != nil && *in.ExpenseCategory != "" {
+		var catName string
+		errCat := tx.QueryRowContext(ctx, `SELECT name FROM financial_categories WHERE id::text = $1`, *in.ExpenseCategory).Scan(&catName)
+		if errCat == nil && catName != "" {
+			in.CategoryID = in.ExpenseCategory
+			in.ExpenseCategory = &catName
+		}
+	} else if in.CategoryID != nil && *in.CategoryID != "" {
+		var catName string
+		errCat := tx.QueryRowContext(ctx, `SELECT name FROM financial_categories WHERE id::text = $1`, *in.CategoryID).Scan(&catName)
+		if errCat == nil && catName != "" {
+			in.ExpenseCategory = &catName
+		}
+	}
+
 	var occDate time.Time
 	if in.OccurredAt != nil && *in.OccurredAt != "" {
 		parsed, err := time.Parse(time.RFC3339, *in.OccurredAt)
@@ -1196,13 +1212,13 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
-		       t.category_id, c.name as category_name, t.status,
+		       t.category_id, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
+		       t.proof_path, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
-		LEFT JOIN financial_categories c ON t.category_id = c.id
+		LEFT JOIN financial_categories c ON (t.category_id = c.id OR c.id::text = t.expense_category OR c.name = t.expense_category)
 		WHERE t.status = 'posted' AND t.rw_id = $1`
 	args := []interface{}{rwID}
 	pos := 2
@@ -1390,13 +1406,13 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
-		       t.category_id, c.name as category_name, t.status,
+		       t.category_id, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
+		       t.proof_path, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
-		LEFT JOIN financial_categories c ON t.category_id = c.id
+		LEFT JOIN financial_categories c ON (t.category_id = c.id OR c.id::text = t.expense_category OR c.name = t.expense_category)
 		WHERE t.rw_id = $1 AND t.id = $2`
 
 	var entry TransactionEntry

@@ -161,6 +161,8 @@ String _parseDeliveryStatus(dynamic value) {
 class NotificationLogEntry {
   final String id;
   final String rtId;
+  final String? rwId;
+  final String? source;
   final String? userId;
   final String? templateId;
   final String eventType;
@@ -181,9 +183,13 @@ class NotificationLogEntry {
   final bool isRead;
   final DateTime? readAt;
 
+  bool get isRW => (source ?? '').toLowerCase() == 'rw' || (rwId != null && rwId!.isNotEmpty);
+
   const NotificationLogEntry({
     required this.id,
     required this.rtId,
+    this.rwId,
+    this.source,
     this.userId,
     this.templateId,
     required this.eventType,
@@ -209,6 +215,8 @@ class NotificationLogEntry {
     return NotificationLogEntry(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
+      rwId: json['rw_id'] as String?,
+      source: json['source'] as String?,
       userId: json['user_id'] as String?,
       templateId: json['template_id'] as String?,
       eventType: json['event_type'] as String? ?? '',
@@ -565,8 +573,9 @@ class UpdateNotificationScheduleInput {
     if (sendMinute != null) map['send_minute'] = sendMinute;
     if (timezone != null) map['timezone'] = timezone;
     if (activityId != null) map['activity_id'] = activityId;
-    if (executionAt != null)
+    if (executionAt != null) {
       map['execution_at'] = executionAt!.toUtc().toIso8601String();
+    }
     return map;
   }
 }

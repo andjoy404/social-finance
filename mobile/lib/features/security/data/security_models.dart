@@ -53,6 +53,7 @@ class SecuritySchedule {
   final DateTime? scheduledEndAt;
   final String? notes;
   final String status;
+  final bool isActive;
   final String? attendanceStatus;
   final String? attendanceStatusLabel;
   final DateTime? checkedInAt;
@@ -79,6 +80,7 @@ class SecuritySchedule {
     this.scheduledEndAt,
     this.notes,
     required this.status,
+    this.isActive = true,
     this.attendanceStatus,
     this.attendanceStatusLabel,
     this.checkedInAt,
@@ -108,6 +110,7 @@ class SecuritySchedule {
       scheduledEndAt: _tryParseDateTime(json['scheduled_end_at']),
       notes: json['notes']?.toString(),
       status: json['status']?.toString() ?? '',
+      isActive: json['is_active'] as bool? ?? true,
       attendanceStatus: json['attendance_status']?.toString(),
       attendanceStatusLabel: json['attendance_status_label']?.toString(),
       checkedInAt: _tryParseDateTime(json['checked_in_at']),
@@ -691,4 +694,276 @@ DateTime? _tryParseDateTime(dynamic raw) {
   final str = raw.toString().trim();
   if (str.isEmpty) return null;
   return DateTime.tryParse(str)?.toLocal();
+}
+
+class PatrolTemplate {
+  final String id;
+  final String rtid;
+  final String name;
+  final String locationLabel;
+  final bool isActive;
+  final DateTime createdAt;
+
+  const PatrolTemplate({
+    required this.id,
+    this.rtid = '',
+    required this.name,
+    this.locationLabel = '',
+    this.isActive = true,
+    required this.createdAt,
+  });
+
+  factory PatrolTemplate.fromJson(Map<String, dynamic> json) {
+    return PatrolTemplate(
+      id: json['id']?.toString() ?? '',
+      rtid: json['rt_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      locationLabel: json['location_label']?.toString() ?? '',
+      isActive: json['is_active'] as bool? ?? true,
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class PatrolPhoto {
+  final String id;
+  final String patrolBundleId;
+  final String patrolTemplateId;
+  final String templateName;
+  final String locationLabel;
+  final String imageKey;
+  final String imageUrl;
+  final DateTime capturedAt;
+  final DateTime createdAt;
+
+  const PatrolPhoto({
+    required this.id,
+    required this.patrolBundleId,
+    required this.patrolTemplateId,
+    this.templateName = '',
+    this.locationLabel = '',
+    required this.imageKey,
+    this.imageUrl = '',
+    required this.capturedAt,
+    required this.createdAt,
+  });
+
+  factory PatrolPhoto.fromJson(Map<String, dynamic> json) {
+    return PatrolPhoto(
+      id: json['id']?.toString() ?? '',
+      patrolBundleId: json['patrol_bundle_id']?.toString() ?? '',
+      patrolTemplateId: json['patrol_template_id']?.toString() ?? '',
+      templateName: json['template_name']?.toString() ?? '',
+      locationLabel: json['location_label']?.toString() ?? '',
+      imageKey: json['image_key']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString() ?? '',
+      capturedAt: _tryParseDateTime(json['captured_at']) ?? DateTime.now(),
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class PatrolBundle {
+  final String id;
+  final String rtid;
+  final String createdBy;
+  final String createdByName;
+  final String dutyOfficerName;
+  final DateTime submittedAt;
+  final String? notes;
+  final int photoCount;
+  final List<PatrolPhoto> photos;
+  final DateTime createdAt;
+
+  const PatrolBundle({
+    required this.id,
+    this.rtid = '',
+    required this.createdBy,
+    this.createdByName = '',
+    this.dutyOfficerName = '',
+    required this.submittedAt,
+    this.notes,
+    this.photoCount = 0,
+    this.photos = const [],
+    required this.createdAt,
+  });
+
+  factory PatrolBundle.fromJson(Map<String, dynamic> json) {
+    final list = json['photos'] as List? ?? [];
+    return PatrolBundle(
+      id: json['id']?.toString() ?? '',
+      rtid: json['rt_id']?.toString() ?? '',
+      createdBy: json['created_by']?.toString() ?? '',
+      createdByName: json['created_by_name']?.toString() ?? '',
+      dutyOfficerName: json['duty_officer_name']?.toString() ?? '',
+      submittedAt: _tryParseDateTime(json['submitted_at']) ?? DateTime.now(),
+      notes: json['notes'] as String?,
+      photoCount: (json['photo_count'] as num?)?.toInt() ?? list.length,
+      photos: list.whereType<Map<String, dynamic>>().map(PatrolPhoto.fromJson).toList(),
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class MaskedWargaSearchResult {
+  final String id;
+  final String fullName;
+  final String houseNumber;
+
+  const MaskedWargaSearchResult({
+    required this.id,
+    required this.fullName,
+    required this.houseNumber,
+  });
+
+  factory MaskedWargaSearchResult.fromJson(Map<String, dynamic> json) {
+    return MaskedWargaSearchResult(
+      id: json['id']?.toString() ?? '',
+      fullName: json['full_name']?.toString() ?? '',
+      houseNumber: json['house_number']?.toString() ?? '',
+    );
+  }
+}
+
+class PaketPhoto {
+  final String id;
+  final String paketItemId;
+  final String paketReportId;
+  final String imageKey;
+  final String imageUrl;
+  final String photoType;
+  final DateTime capturedAt;
+  final DateTime createdAt;
+
+  const PaketPhoto({
+    required this.id,
+    this.paketItemId = '',
+    this.paketReportId = '',
+    required this.imageKey,
+    this.imageUrl = '',
+    required this.photoType,
+    required this.capturedAt,
+    required this.createdAt,
+  });
+
+  factory PaketPhoto.fromJson(Map<String, dynamic> json) {
+    return PaketPhoto(
+      id: json['id']?.toString() ?? '',
+      paketItemId: json['paket_item_id']?.toString() ?? '',
+      paketReportId: json['paket_report_id']?.toString() ?? '',
+      imageKey: json['image_key']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString() ?? '',
+      photoType: json['photo_type']?.toString() ?? 'paket',
+      capturedAt: _tryParseDateTime(json['captured_at']) ?? DateTime.now(),
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class PaketItem {
+  final String id;
+  final String paketReportId;
+  final String? description;
+  final String status; // 'dititipkan', 'sudah_diambil', 'dibatalkan'
+  final DateTime? statusChangedAt;
+  final String? changedByName;
+  final List<PaketPhoto> photos;
+  final DateTime createdAt;
+
+  const PaketItem({
+    required this.id,
+    required this.paketReportId,
+    this.description,
+    required this.status,
+    this.statusChangedAt,
+    this.changedByName,
+    this.photos = const [],
+    required this.createdAt,
+  });
+
+  factory PaketItem.fromJson(Map<String, dynamic> json) {
+    final list = json['photos'] as List? ?? [];
+    return PaketItem(
+      id: json['id']?.toString() ?? '',
+      paketReportId: json['paket_report_id']?.toString() ?? '',
+      description: json['description'] as String?,
+      status: json['status']?.toString() ?? 'dititipkan',
+      statusChangedAt: _tryParseDateTime(json['status_changed_at']),
+      changedByName: json['changed_by_name'] as String?,
+      photos: list.whereType<Map<String, dynamic>>().map(PaketPhoto.fromJson).toList(),
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class PaketReport {
+  final String id;
+  final String rtid;
+  final String receiverWargaId;
+  final String receiverName;
+  final String receiverHouseNumber;
+  final String createdBy;
+  final String createdByName;
+  final String overallStatus;
+  final List<PaketItem> items;
+  final DateTime createdAt;
+
+  const PaketReport({
+    required this.id,
+    this.rtid = '',
+    required this.receiverWargaId,
+    this.receiverName = '',
+    this.receiverHouseNumber = '',
+    required this.createdBy,
+    this.createdByName = '',
+    required this.overallStatus,
+    this.items = const [],
+    required this.createdAt,
+  });
+
+  factory PaketReport.fromJson(Map<String, dynamic> json) {
+    final list = json['items'] as List? ?? [];
+    return PaketReport(
+      id: json['id']?.toString() ?? '',
+      rtid: json['rt_id']?.toString() ?? '',
+      receiverWargaId: json['receiver_warga_id']?.toString() ?? '',
+      receiverName: json['receiver_name']?.toString() ?? '',
+      receiverHouseNumber: json['receiver_house_number']?.toString() ?? '',
+      createdBy: json['created_by']?.toString() ?? '',
+      createdByName: json['created_by_name']?.toString() ?? '',
+      overallStatus: json['overall_status']?.toString() ?? 'dititipkan',
+      items: list.whereType<Map<String, dynamic>>().map(PaketItem.fromJson).toList(),
+      createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
+    );
+  }
+}
+
+class SecurityAlertsData {
+  final int pendingCorrections;
+  final int recentPatrols;
+  final int pendingCorrectionsUnread;
+  final int patrolUnread;
+  final int paketUnread;
+  final bool hasAlert;
+
+  const SecurityAlertsData({
+    this.pendingCorrections = 0,
+    this.recentPatrols = 0,
+    this.pendingCorrectionsUnread = 0,
+    this.patrolUnread = 0,
+    this.paketUnread = 0,
+    this.hasAlert = false,
+  });
+
+  factory SecurityAlertsData.fromJson(Map<String, dynamic> json) {
+    return SecurityAlertsData(
+      pendingCorrections: (json['pending_corrections'] as num?)?.toInt() ?? 0,
+      recentPatrols: (json['recent_patrols'] as num?)?.toInt() ?? 0,
+      pendingCorrectionsUnread:
+          (json['pending_corrections_unread'] as num?)?.toInt() ?? 0,
+      patrolUnread: (json['patrol_unread'] as num?)?.toInt() ?? 0,
+      paketUnread: (json['paket_unread'] as num?)?.toInt() ?? 0,
+      hasAlert: json['has_alert'] as bool? ?? false,
+    );
+  }
 }

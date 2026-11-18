@@ -112,7 +112,7 @@ void main() {
       expect(find.text('keamanan@example.com'), findsNothing);
     });
 
-    testWidgets('3. AppRole.pengurus sees phone and email for all residents', (tester) async {
+    testWidgets('3. AppRole.pengurus with jabatan sekretaris does NOT see phone and email (Ketua RT only privacy)', (tester) async {
       await tester.pumpWidget(
         _buildRoleTestApp(
           residents: [regularResident],
@@ -128,8 +128,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('081298765432'), findsOneWidget);
-      expect(find.text('siti@example.com'), findsOneWidget);
+      expect(find.text('081298765432'), findsNothing);
+      expect(find.text('siti@example.com'), findsNothing);
     });
 
     testWidgets('4. Ketua RT with role AppRole.warga and jabatan ketua sees phone and email', (tester) async {

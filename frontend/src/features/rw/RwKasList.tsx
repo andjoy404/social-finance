@@ -163,9 +163,9 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           search: search.trim() || undefined,
           categoryId: filterCategoryId === 'all' ? undefined : filterCategoryId,
         }),
-        apiListRWLocations(token, rwId, { is_active: true }),
-        apiListRWRTRs(token, rwId),
-        apiListCategories(token, true),
+        canWrite ? apiListRWLocations(token, rwId, { is_active: true }) : Promise.resolve([]),
+        canWrite ? apiListRWRTRs(token, rwId) : Promise.resolve([]),
+        canWrite ? apiListCategories(token, true) : Promise.resolve([]),
       ])
 
       setKasReport(report)
@@ -601,24 +601,26 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               <option value="expense">Pengeluaran (-)</option>
             </select>
 
-            {/* Filter Kategori */}
-            <select
-              className="sf-form-select"
-              value={filterCategoryId}
-              onChange={(e) => {
-                setFilterCategoryId(e.target.value)
-                setPage(1)
-              }}
-              style={{ fontSize: 13, height: 34, padding: '4px 10px', width: 'auto', minWidth: 150 }}
-              aria-label="Filter Kategori"
-            >
-              <option value="all">Semua Kategori</option>
-              {expenseCategories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            {/* Filter Kategori (hanya ditampilkan jika ada data kategori / write access) */}
+            {canWrite && expenseCategories.length > 0 && (
+              <select
+                className="sf-form-select"
+                value={filterCategoryId}
+                onChange={(e) => {
+                  setFilterCategoryId(e.target.value)
+                  setPage(1)
+                }}
+                style={{ fontSize: 13, height: 34, padding: '4px 10px', width: 'auto', minWidth: 150 }}
+                aria-label="Filter Kategori"
+              >
+                <option value="all">Semua Kategori</option>
+                {expenseCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             {/* Search */}
             <div style={{ minWidth: 200, maxWidth: 320 }}>

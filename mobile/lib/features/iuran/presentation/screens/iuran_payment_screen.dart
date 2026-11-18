@@ -1,9 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
 import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -798,6 +795,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
               // ── Nominal Pembayaran ──
               AppTextField(
+                key: const Key('payment-amount-field'),
                 controller: _nominalCtrl,
                 label: 'Nominal Pembayaran',
                 hintText: 'Masukkan nominal',
@@ -1425,7 +1423,7 @@ class _RekeningBar extends ConsumerWidget {
         final bank = (first.bankName ?? '').trim();
         final number = (first.accountNumber ?? '').trim();
         final holder = (first.accountHolder ?? '').trim();
-        final name = bank.isNotEmpty ? bank : (first.name ?? 'Rekening RT');
+        final name = bank.isNotEmpty ? bank : (first.name.isNotEmpty ? first.name : 'Rekening RT');
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -1504,7 +1502,7 @@ class _RekeningBar extends ConsumerWidget {
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 }

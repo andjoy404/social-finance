@@ -10,6 +10,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
@@ -48,6 +49,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   bool _isDateRangeActive = false;
   DateTime? _dateRangeStart;
   DateTime? _dateRangeEnd;
+  int _displayLimit = 20;
 
   String get _periodKey {
     if (_isAllPeriods) return 'all';
@@ -163,6 +165,15 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         endDate: endDate,
       );
 
+      final user = ref.read(authRepositoryProvider)?.valueOrNull;
+      final canCreate = _canCreateRw(user);
+      final rtsFuture = canCreate
+          ? api.getRTRs(widget.rwId)
+          : Future.value(<RwRtInfo>[]);
+      final catFuture = canCreate
+          ? api.getCategories(isActive: true)
+          : Future.value(<RwFinancialCategory>[]);
+
       final results = await Future.wait([
         api.getKasReportDetail(
           widget.rwId,
@@ -171,8 +182,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           endDate: endDate,
         ),
         txsFuture,
-        api.getRTRs(widget.rwId),
-        api.getCategories(isActive: true),
+        rtsFuture,
+        catFuture,
       ]);
       if (mounted) {
         setState(() {
@@ -663,7 +674,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             if (_error != null) _buildErrorBanner(),
             if (_isLoading) const _LoadingBanner(),
             if (!_isLoading && _transactions.isEmpty) const _EmptyBanner(),
-            if (!_isLoading && _filteredTransactions.isNotEmpty) _buildTransactionsTable(),
+            if (!_isLoading && _filteredTransactions.isNotEmpty) _buildTransactionsList(),
           ],
         ),
       ),
@@ -828,24 +839,56 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             if (v != null) setState(() => _filterMetode = v);
           },
         ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _filterCategoryId,
-          decoration: const InputDecoration(
-            labelText: 'Kategori',
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            border: OutlineInputBorder(),
+        if (_allCategories.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _filterCategoryId,
+            decoration: const InputDecoration(
+              labelText: 'Kategori',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem(value: 'all', child: Text('Semua Kategori')),
+              ..._allCategories.map(
+                (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+              ),
+            ],
+            onChanged: (v) {
+              if (v != null) setState(() => _filterCategoryId = v);
+            },
           ),
-          items: [
-            const DropdownMenuItem(value: 'all', child: Text('Semua Kategori')),
-            ..._allCategories.map(
-              (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _buildArusChip(
+                label: 'Semua (${_transactions.length})',
+                value: 'all',
+                isSelected: _filterArus == 'all',
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildArusChip(
+                label: 'Masuk (${_transactions.where((t) => t.type == 'income').length})',
+                value: 'income',
+                isSelected: _filterArus == 'income',
+                activeColor: AppColors.success,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildArusChip(
+                label: 'Keluar (${_transactions.where((t) => t.type == 'expense').length})',
+                value: 'expense',
+                isSelected: _filterArus == 'expense',
+                activeColor: AppColors.danger,
+              ),
             ),
           ],
-          onChanged: (v) {
-            if (v != null) setState(() => _filterCategoryId = v);
-          },
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
@@ -862,7 +905,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             DropdownMenuItem(value: 'expense', child: Text('Pengeluaran (-)')),
           ],
           onChanged: (v) {
-            if (v != null) setState(() => _filterArus = v);
+            if (v != null) {
+              setState(() {
+                _filterArus = v;
+                _displayLimit = 20;
+              });
+            }
           },
         ),
         const SizedBox(height: 8),
@@ -982,94 +1030,153 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
-  Widget _buildTransactionsTable() {
-    final txs = _filteredTransactions;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 750),
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(AppColors.lightTextMuted.withValues(alpha: 0.05)),
-          columns: [
-            DataColumn(label: Text('TANGGAL', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-            DataColumn(label: Text('SUMBER / TUJUAN', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-            DataColumn(label: Text('LOKASI DANA', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-            DataColumn(label: Text('KETERANGAN', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-            DataColumn(label: Text('ARUS', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-            DataColumn(label: Text('PEMASUKAN (+)', style: const TextStyle(fontSize: 10, color: AppColors.success))),
-            DataColumn(label: Text('PENGELUARAN (-)', style: const TextStyle(fontSize: 10, color: AppColors.danger))),
-            DataColumn(label: Text('AKSI', style: TextStyle(fontSize: 10, color: AppColors.textMutedColor(context)))),
-          ],
-          rows: txs.map((t) {
-            final isIncome = t.type == 'income';
-            final sourceDisplay = t.sourceRtName?.isNotEmpty == true
-                ? 'RT ${t.sourceRtName}'
-                : (t.rtName.isNotEmpty ? t.rtName : 'Kas RW');
-
-            return DataRow(cells: [
-              DataCell(Text(_formatDate(t.occurredAt), style: TextStyle(fontSize: 12, color: AppColors.textMutedColor(context)))),
-              DataCell(Text(
-                sourceDisplay,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-              )),
-              DataCell(Text(t.locationName ?? '—', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
-              DataCell(
-                InkWell(
-                  onTap: () => _showTransactionDetailDialog(context, t),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (t.referenceNo != null && t.referenceNo!.isNotEmpty)
-                        Text(
-                          t.referenceNo!,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontFamily: 'monospace',
-                            color: AppColors.textMutedColor(context),
-                          ),
-                        ),
-                      Text(
-                        t.description,
-                        style: const TextStyle(fontSize: 13, color: AppColors.accent, fontWeight: FontWeight.w500),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              DataCell(
-                Builder(builder: (context) {
-                  final isDark = Theme.of(context).brightness == Brightness.dark;
-                  final badgeStyle = isIncome
-                      ? RwBadgeStyle.success(isDark: isDark)
-                      : RwBadgeStyle.danger(isDark: isDark);
-                  return AppBadge(
-                    label: isIncome ? '↓ Masuk' : '↑ Keluar',
-                    backgroundColor: badgeStyle.background,
-                    textColor: badgeStyle.text,
-                  );
-                }),
-              ),
-              DataCell(Text(isIncome ? RupiahFormatter.format(RupiahFormatter.parseMoneyString(t.amount)) : '—',
-                  style: TextStyle(fontSize: 13, color: isIncome ? AppColors.success : AppColors.lightTextMuted,
-                      fontWeight: isIncome ? FontWeight.w600 : FontWeight.normal))),
-              DataCell(Text(!isIncome ? RupiahFormatter.format(RupiahFormatter.parseMoneyString(t.amount)) : '—',
-                  style: TextStyle(fontSize: 13, color: !isIncome ? AppColors.danger : AppColors.lightTextMuted,
-                      fontWeight: !isIncome ? FontWeight.w600 : FontWeight.normal))),
-              DataCell(
-                IconButton(
-                  icon: const Icon(Icons.info_outline, size: 18),
-                  tooltip: 'Detail Transaksi',
-                  onPressed: () => _showTransactionDetailDialog(context, t),
-                ),
-              ),
-            ]);
-          }).toList(),
+  Widget _buildArusChip({
+    required String label,
+    required String value,
+    required bool isSelected,
+    Color activeColor = AppColors.accent,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _filterArus = value;
+          _displayLimit = 20;
+        });
+      },
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: isDark ? 0.25 : 0.12)
+              : (isDark ? AppColors.darkSurface : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected
+                ? activeColor
+                : (isDark ? AppColors.darkText : AppColors.lightText),
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
+  }
+
+  Widget _buildTransactionsList() {
+    final allTxs = _filteredTransactions;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final visibleTxs = allTxs.take(_displayLimit).toList();
+    final hasMore = allTxs.length > _displayLimit;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Daftar Transaksi (${allTxs.length})',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (_filterArus != 'all')
+                Text(
+                  _filterArus == 'income' ? 'KAS Masuk' : 'KAS Keluar',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: _filterArus == 'income'
+                        ? AppColors.success
+                        : AppColors.danger,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: visibleTxs.length,
+          separatorBuilder: (context, index) =>
+              const SizedBox(height: AppSpacing.xs),
+          itemBuilder: (context, index) {
+            final t = visibleTxs[index];
+            return RwKasTransactionCard(
+              transaction: t,
+              isDark: isDark,
+              onTap: () => _showTransactionDetailDialog(context, t),
+            );
+          },
+        ),
+        if (hasMore) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.expand_more, size: 16),
+              label: Text(
+                'Muat Lebih Banyak (${allTxs.length - _displayLimit} lagi)',
+              ),
+              onPressed: () {
+                setState(() {
+                  _displayLimit += 20;
+                });
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _resolveCategoryName(RwTransaction t) {
+    if (t.categoryName != null && t.categoryName!.trim().isNotEmpty) {
+      return t.categoryName!.trim();
+    }
+    final raw = t.expenseCategory?.trim();
+    if (raw != null && raw.isNotEmpty) {
+      final isUuid = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(raw);
+      if (isUuid) {
+        final match = _allCategories.cast<RwFinancialCategory?>().firstWhere(
+          (c) => c?.id == raw,
+          orElse: () => null,
+        );
+        if (match != null && match.name.trim().isNotEmpty) {
+          return match.name.trim();
+        }
+        return 'Pengeluaran Kas';
+      }
+      return raw;
+    }
+    if (t.categoryId != null && t.categoryId!.trim().isNotEmpty) {
+      final match = _allCategories.cast<RwFinancialCategory?>().firstWhere(
+        (c) => c?.id == t.categoryId,
+        orElse: () => null,
+      );
+      if (match != null && match.name.trim().isNotEmpty) {
+        return match.name.trim();
+      }
+    }
+    return t.type == 'income' ? 'Pemasukan Kas' : 'Pengeluaran Kas';
   }
 
   void _showTransactionDetailDialog(BuildContext context, RwTransaction t) {
@@ -1091,8 +1198,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
               _buildDetailRow('No. Referensi:', t.referenceNo!),
             _buildDetailRow('Tanggal:', _formatDate(t.occurredAt)),
             _buildDetailRow('Jenis Transaksi:', isIncome ? 'Pemasukan (KAS Masuk)' : 'Pengeluaran (KAS Keluar)'),
-            if (t.expenseCategory != null && t.expenseCategory!.isNotEmpty)
-              _buildDetailRow('Kategori Kas Keluar:', t.expenseCategory!),
+            if (isIncome) ...[
+              if (t.categoryName != null && t.categoryName!.trim().isNotEmpty)
+                _buildDetailRow('Kategori Kas Masuk:', t.categoryName!.trim()),
+            ] else ...[
+              _buildDetailRow('Kategori Kas Keluar:', _resolveCategoryName(t)),
+            ],
             _buildDetailRow('Sumber / Tujuan:', sourceDisplay),
             _buildDetailRow('Lokasi Dana:', t.locationName ?? '—'),
             _buildDetailRow('Metode Pembayaran:', (t.paymentMethod ?? '—').toUpperCase()),
@@ -1612,8 +1723,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         'payment_method': paymentMethod,
                         if (isIncome && selectedSourceRtId != null)
                           'source_rt_id': selectedSourceRtId,
-                        if (!isIncome && selectedExpenseCategory != null)
-                          'expense_category': selectedExpenseCategory,
+                        if (!isIncome && selectedExpenseCategory != null) ...{
+                          'category_id': selectedExpenseCategory,
+                          'expense_category': expenseCategories.firstWhere(
+                            (c) => c.id == selectedExpenseCategory,
+                            orElse: () => RwFinancialCategory(id: selectedExpenseCategory!, name: selectedExpenseCategory!, type: 'expense', isActive: true),
+                          ).name,
+                        },
                       });
 
                       if (proofBytes != null && proofFile != null) {
@@ -1691,5 +1807,253 @@ class _LoadingBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.sm)),
       child: const Text('Memuat data KAS RW...',
           style: TextStyle(color: AppColors.lightTextMuted, fontSize: 13)));
+  }
+}
+
+class RwKasTransactionCard extends StatelessWidget {
+  final RwTransaction transaction;
+  final bool isDark;
+  final VoidCallback? onTap;
+
+  const RwKasTransactionCard({
+    super.key,
+    required this.transaction,
+    required this.isDark,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isIncome = transaction.type == 'income';
+    final accentColor = isIncome ? AppColors.success : AppColors.danger;
+    final icon = isIncome ? Icons.arrow_downward : Icons.arrow_upward;
+
+    final amt = RupiahFormatter.parseMoneyString(transaction.amount);
+    final nominalDisplay = isIncome
+        ? '+${RupiahFormatter.format(amt)}'
+        : '-${RupiahFormatter.format(amt)}';
+
+    final categoryLabel = (transaction.expenseCategory != null &&
+            transaction.expenseCategory!.isNotEmpty)
+        ? transaction.expenseCategory!
+        : (transaction.categoryName != null &&
+                transaction.categoryName!.isNotEmpty)
+            ? transaction.categoryName!
+            : (isIncome ? 'Pemasukan Kas' : 'Pengeluaran Kas');
+
+    final sourceDisplay = transaction.sourceRtName?.isNotEmpty == true
+        ? 'RT ${transaction.sourceRtName}'
+        : (transaction.rtName.isNotEmpty ? transaction.rtName : 'Kas RW');
+
+    final refNo = transaction.referenceNo?.trim() ?? '';
+    final refText = refNo.isNotEmpty ? refNo : sourceDisplay;
+
+    final paymentMethod = switch ((transaction.paymentMethod ?? '')
+        .trim()
+        .toUpperCase()) {
+      'CASH' || 'TUNAI' => (
+        label: 'Tunai',
+        icon: Icons.payments_outlined,
+        color: AppColors.info,
+      ),
+      'TRANSFER' || 'BANK' || 'BANK_TRANSFER' || 'QRIS' => (
+        label: 'Transfer',
+        icon: Icons.account_balance_outlined,
+        color: AppColors.accent,
+      ),
+      _ => (
+        label: (transaction.paymentMethod ?? 'Lainnya'),
+        icon: Icons.credit_card_outlined,
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    };
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: AppCard(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.base,
+          vertical: 12,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Direction icon + Ref/Source + Nominal
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: isDark ? 0.20 : 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(icon, size: 14, color: accentColor),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        refText,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (refNo.isNotEmpty && sourceDisplay != refText)
+                        Text(
+                          sourceDisplay,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.textMutedColor(context),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      nominalDisplay,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      isIncome ? 'masuk' : 'keluar',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: accentColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // Row 2: Description
+            Text(
+              transaction.description,
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? AppColors.darkText : AppColors.lightText,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+
+            // Row 3: Badges + Date
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      // Payment Method Icon
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: paymentMethod.color.withValues(
+                            alpha: isDark ? 0.20 : 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Tooltip(
+                          message: paymentMethod.label,
+                          child: Icon(
+                            paymentMethod.icon,
+                            size: 13,
+                            color: paymentMethod.color,
+                          ),
+                        ),
+                      ),
+                      // Jenis Badge
+                      AppBadge(
+                        label: isIncome ? 'Kas Masuk' : 'Kas Keluar',
+                        backgroundColor: isIncome
+                            ? AppColors.success.withValues(alpha: isDark ? 0.2 : 0.12)
+                            : AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.12),
+                        textColor: accentColor,
+                      ),
+                      // Category Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: isDark ? 0.15 : 0.08),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          categoryLabel,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.accent,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (transaction.locationName != null &&
+                          transaction.locationName!.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withValues(alpha: isDark ? 0.15 : 0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            transaction.locationName!,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.info,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Date
+                Text(
+                  _formatDate(transaction.occurredAt),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textMutedColor(context),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    const names = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    return '${dt.day.toString().padLeft(2, '0')} ${names[dt.month]} ${dt.year}';
   }
 }

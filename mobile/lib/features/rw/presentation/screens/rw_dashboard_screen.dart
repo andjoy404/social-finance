@@ -312,10 +312,31 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
     final name = _userName ?? '';
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
-    final rwMemberships = (user?['rw_memberships'] as List?)
+    final rawRwMemberships = (user?['rw_memberships'] as List?)
         ?.whereType<Map<String, dynamic>>()
         .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
         .toList() ?? <RWMembership>[];
+    List<RWMembership> rwMemberships = rawRwMemberships;
+    if (rwMemberships.isEmpty) {
+      final userRwId = (user?['rw_id'] ?? '').toString().trim();
+      final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+      final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+      final isAnggotaRT =
+          jab == 'anggota_rt' || (jab == 'anggota' && role == 'pengurus');
+      if (userRwId.isNotEmpty && (isAnggotaRT || jab.isNotEmpty)) {
+        rwMemberships = [
+          RWMembership(
+            rwId: userRwId,
+            rwName: user?['rw_name']?.toString(),
+            rwNumber: user?['rt_rw'] is num
+                ? (user!['rt_rw'] as num).toInt()
+                : int.tryParse(user?['rw']?.toString() ?? ''),
+            jabatan: jab.isNotEmpty ? jab : 'anggota_rt',
+            source: 'rt_inferred',
+          ),
+        ];
+      }
+    }
     final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
     final rwNumberText = currentMembership?.rwNumber != null
         ? currentMembership!.rwNumber!.toString().padLeft(3, '0')

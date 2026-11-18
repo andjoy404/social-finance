@@ -17,6 +17,7 @@ import 'package:social_finance/features/security/presentation/providers/security
 import 'package:social_finance/features/security/presentation/screens/pos_activation_screen.dart';
 import 'package:social_finance/features/security/presentation/screens/pos_kiosk_screen.dart';
 import 'package:social_finance/features/security/presentation/screens/security_absen_screen.dart';
+import 'package:social_finance/features/rw/data/rw_providers.dart';
 
 class _FakeAuthRepository
     extends StateNotifier<AsyncValue<Map<String, dynamic>?>?>
@@ -320,7 +321,7 @@ void main() {
       };
 
       final router = GoRouter(
-        initialLocation: '/home/warga',
+        initialLocation: '/home/patroli',
         routes: [
           ShellRoute(
             builder: (context, state, child) =>
@@ -332,11 +333,19 @@ void main() {
               ),
               GoRoute(
                 path: '/home/absen',
-                builder: (context, state) => const Text('Halaman Absen'),
+                builder: (context, state) => const Text('Halaman Absensi'),
+              ),
+              GoRoute(
+                path: '/home/patroli',
+                builder: (context, state) => const Text('Halaman Patroli'),
               ),
               GoRoute(
                 path: '/home/notifikasi',
-                builder: (context, state) => const Text('Halaman Notifikasi'),
+                builder: (context, state) => const Text('Halaman Sampah'),
+              ),
+              GoRoute(
+                path: '/home/paket',
+                builder: (context, state) => const Text('Halaman Paket'),
               ),
               GoRoute(
                 path: '/home/profile',
@@ -353,6 +362,12 @@ void main() {
             authRepositoryProvider.overrideWith(
               (_) => _FakeAuthRepository(AsyncData(securityUser)),
             ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith(
+              (ref) async => false,
+            ),
           ],
           child: MaterialApp.router(routerConfig: router),
         ),
@@ -360,26 +375,37 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Warga'), findsOneWidget);
-      expect(find.text('Absen'), findsOneWidget);
-      expect(find.text('Notifikasi'), findsOneWidget);
+      expect(find.text('Absensi'), findsOneWidget);
+      expect(find.text('Patroli'), findsOneWidget);
+      expect(find.text('Sampah'), findsOneWidget);
+      expect(find.text('Paket'), findsOneWidget);
       expect(find.text('Profil'), findsOneWidget);
-      expect(find.text('Sampah'), findsNothing);
       expect(find.text('Beranda'), findsNothing);
 
       expect(
         tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-absen'))).dx),
+        lessThan(tester.getCenter(find.byKey(const Key('nav-item-absensi'))).dx),
       );
       expect(
-        tester.getCenter(find.byKey(const Key('nav-item-absen'))).dx,
-        lessThan(
-          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-        ),
+        tester.getCenter(find.byKey(const Key('nav-item-absensi'))).dx,
+        lessThan(tester.getCenter(find.byKey(const Key('nav-item-patroli'))).dx),
+      );
+      expect(
+        tester.getCenter(find.byKey(const Key('nav-item-patroli'))).dx,
+        lessThan(tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx),
+      );
+      expect(
+        tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx,
+        lessThan(tester.getCenter(find.byKey(const Key('nav-item-paket'))).dx),
+      );
+      expect(
+        tester.getCenter(find.byKey(const Key('nav-item-paket'))).dx,
+        lessThan(tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx),
       );
 
-      await tester.tap(find.byKey(const Key('nav-item-absen')));
+      await tester.tap(find.byKey(const Key('nav-item-patroli')));
       await tester.pumpAndSettle();
-      expect(find.text('Halaman Absen'), findsOneWidget);
+      expect(find.text('Halaman Patroli'), findsOneWidget);
     },
   );
 
@@ -399,6 +425,12 @@ void main() {
           overrides: [
             authRepositoryProvider.overrideWith(
               (_) => _FakeAuthRepository(AsyncData(securityUser)),
+            ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith(
+              (ref) async => false,
             ),
             securityApiClientProvider.overrideWithValue(fakeApi),
           ],

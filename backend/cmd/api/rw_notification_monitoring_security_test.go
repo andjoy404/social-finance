@@ -218,6 +218,16 @@ func TestRWNotification_ReadOnlyExplicitDeniedMutations_NoSideEffects(t *testing
 	if w.Code != http.StatusOK {
 		t.Fatalf("explicit read-only list notifications: got %d body=%s", w.Code, w.Body.String())
 	}
+
+	// "Riwayat Notifikasi Saya" must be DENIED for read-only (requires rw.notification.write)
+	w = doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/notifications/mine", tokenRO, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("explicit read-only mine notifications: expected 403 Forbidden, got %d body=%s", w.Code, w.Body.String())
+	}
+	w = doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/notifications?scope=mine", tokenRO, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("explicit read-only mine notifications via scope: expected 403 Forbidden, got %d body=%s", w.Code, w.Body.String())
+	}
 }
 
 func TestRWNotification_KetuaBendaharaExplicitAllowedMutations(t *testing.T) {
@@ -227,8 +237,14 @@ func TestRWNotification_KetuaBendaharaExplicitAllowedMutations(t *testing.T) {
 	_, tokenKetua := createRWExplicitUserToken(t, pool, rwID, auth.RolePengurus, auth.JabatanKetua)
 	templateID := createRWTemplateForTest(t, pool, rwID)
 
+	// "Riwayat Notifikasi Saya" must be ALLOWED for ketua/bendahara
+	w := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/notifications/mine", tokenKetua, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ketua mine notifications: got %d body=%s", w.Code, w.Body.String())
+	}
+
 	beforeCount := countRWTemplates(t, pool, rwID)
-	w := doJSON(router, http.MethodPost, "/api/v1/rw/"+rwID+"/notifications/templates", tokenKetua, map[string]any{"name": "New", "event_type": "manual_push", "channel": "push", "title": "T2", "body": "B2"})
+	w = doJSON(router, http.MethodPost, "/api/v1/rw/"+rwID+"/notifications/templates", tokenKetua, map[string]any{"name": "New", "event_type": "manual_push", "channel": "push", "title": "T2", "body": "B2"})
 	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
 		t.Fatalf("ketua create template: got %d body=%s", w.Code, w.Body.String())
 	}
@@ -586,6 +602,19 @@ func TestRWMonitoring_KetuaReadOnlyEndpointCannotMutate(t *testing.T) {
 	rwID := createRWForNotifTest(t, pool)
 	_, router := setupRWNotifRouter(t, []string{rwID})
 	insertJabatanMonitoringPerms(t, pool, "ketua", "rw.monitoring.read")
+	// Ensure ketua does not have rw.monitoring.notes.write for this read-only test
+	_, _ = pool.Raw().ExecContext(context.Background(), `
+		DELETE FROM position_permissions
+		WHERE position = 'ketua'
+		AND permission_id = (SELECT id FROM permission_types WHERE code = 'rw.monitoring.notes.write')
+	`)
+	t.Cleanup(func() {
+		_, _ = pool.Raw().ExecContext(context.Background(), `
+			INSERT INTO position_permissions (position, permission_id)
+			SELECT 'ketua', id FROM permission_types WHERE code = 'rw.monitoring.notes.write'
+			ON CONFLICT (position, permission_id) DO NOTHING
+		`)
+	})
 	_, token := createRTKetuaUser(t, pool, rwMonRTUrena)
 	occupancyID := setupMonitoringData(t, pool, rwMonRTUrena, "")
 	beforeCount := countMonitoringNotes(t, pool, rwMonRTUrena)

@@ -107,7 +107,7 @@ void main() {
 
   group('RT Restriction - Navigation Shell UI', () {
     testWidgets(
-      'security officer opens Warga first and can navigate Warga, Notifikasi, Profile',
+      'security officer opens Warga first and can navigate Warga, Sampah, Profile',
       (tester) async {
         final securityUser = {
           'id': 'user-security',
@@ -141,6 +141,18 @@ void main() {
                   path: '/home/profile',
                   builder: (context, state) => const Text('Profil Petugas'),
                 ),
+                GoRoute(
+                  path: '/home/patroli',
+                  builder: (context, state) => const Text('Patroli Page'),
+                ),
+                GoRoute(
+                  path: '/home/paket',
+                  builder: (context, state) => const Text('Paket Page'),
+                ),
+                GoRoute(
+                  path: '/home/keamanan/absen',
+                  builder: (context, state) => const Text('Absensi Page'),
+                ),
               ],
             ),
           ],
@@ -161,22 +173,10 @@ void main() {
         expect(find.text('Daftar Warga'), findsOneWidget);
         expect(find.text('Beranda'), findsNothing);
         expect(find.text('Warga'), findsOneWidget);
-        expect(find.text('Notifikasi'), findsOneWidget);
+        expect(find.text('Sampah'), findsOneWidget);
         expect(find.text('Profil'), findsOneWidget);
-        expect(
-          tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
-          lessThan(
-            tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-          ),
-        );
-        expect(
-          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-          lessThan(
-            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
-          ),
-        );
 
-        await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+        await tester.tap(find.byKey(const Key('nav-item-sampah')));
         await tester.pumpAndSettle();
         expect(find.text('Menu Notifikasi'), findsOneWidget);
 

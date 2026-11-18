@@ -196,6 +196,30 @@ String normalizeNotificationTarget(
     return '$basePath$queryString';
   }
 
+  if (type == 'patrol_bundle_submitted' || title.contains('Laporan Patroli')) {
+    var bundleId = cleanString(payload?['bundle_id'] ?? existingQuery['bundle_id']);
+    if (bundleId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 && parts[0] == 'patrol') {
+        bundleId = parts[1];
+      }
+    }
+    final q = bundleId.isNotEmpty ? '&bundle_id=$bundleId' : '';
+    return '/home/security-management?tab=patrol&subtab=history$q';
+  }
+
+  if (type == 'paket_received' || title.contains('Laporan Paket') || title.contains('Paket Baru Dititipkan')) {
+    var reportId = cleanString(payload?['report_id'] ?? existingQuery['report_id']);
+    if (reportId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 && (parts[0] == 'paket_ketua' || parts[0] == 'paket_recv')) {
+        reportId = parts[1];
+      }
+    }
+    final q = reportId.isNotEmpty ? '&report_id=$reportId' : '';
+    return '/home/security-management?tab=paket&subtab=list$q';
+  }
+
   // 4. Explicit notification detail path or legacy /notifications path
   final notifDetailMatch = RegExp(
     r'^/(?:home/)?(?:notifikasi/detail|notifications/detail)(?:/([a-zA-Z0-9_-]+))?$',
@@ -247,6 +271,9 @@ String normalizeNotificationTarget(
       candidatePath == '/home/reports' ||
       candidatePath == '/home/profile' ||
       candidatePath == '/home/rw' ||
+      candidatePath == '/home/security-management' ||
+      candidatePath == '/home/patroli' ||
+      candidatePath == '/home/paket' ||
       candidatePath == '/home/notifikasi' ||
       candidatePath.startsWith('/home/notifikasi/');
 
@@ -263,7 +290,7 @@ String? securityOfficerHomeRedirect(String? jabatan, String location) {
   final normalizedJabatan = (jabatan ?? '').trim().toLowerCase();
   if (normalizedJabatan == 'keamanan' &&
       (location == '/login' || location == '/home')) {
-    return '/home/warga';
+    return '/home/patroli';
   }
   return null;
 }
@@ -376,17 +403,23 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       return '/home';
     }
 
+    final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    if ((jab == 'sosial' || jab == 'operasional') &&
+        (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
+      return '/home';
+    }
+
     if (loc.startsWith('/home/lokasi-dana')) {
       final role = user?['role'] as AppRole?;
       final systemRole = user?['system_role'] as String?;
       final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+      if (jabatan == 'sekretaris') return '/home';
       final canAccess =
           systemRole == 'super_admin' ||
           role == AppRole.bendahara ||
           role == AppRole.pengurus ||
           jabatan == 'ketua' ||
           jabatan == 'wakil_ketua' ||
-          jabatan == 'sekretaris' ||
           jabatan == 'bendahara';
       if (!canAccess) {
         return '/home';
@@ -421,6 +454,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             ?.whereType<Map<String, dynamic>>()
             .toList() ??
         <Map<String, dynamic>>[];
+    // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
     final validMemberships = rawMemberships.where((m) {
       if (isSuperAdmin) return true;
       final jabatan = (m['jabatan'] ?? '').toString().toLowerCase();
@@ -429,8 +463,19 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         'wakil_ketua',
         'sekretaris',
         'bendahara',
+        'anggota',
+        'anggota_rt',
       ].contains(jabatan);
     }).toList();
+
+    final userRwId = (user['rw_id'] ?? '').toString().trim();
+    if (validMemberships.isEmpty && userRwId.isNotEmpty) {
+      final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+      if (segments.length >= 2 && segments[0] == 'rw') {
+        return segments[1] == userRwId;
+      }
+      return true;
+    }
 
     if (validMemberships.isEmpty) return false;
     final segments = path.split('/').where((s) => s.isNotEmpty).toList();
@@ -786,11 +831,15 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   .toSet() ??
               <String>{};
           if (loc == '/home/security-management' &&
+              (jabatan == 'sekretaris' || (
+              jabatan != 'keamanan' &&
               !perms.contains('security.schedule.read') &&
               !perms.contains('security.schedule.write') &&
               !perms.contains('security.device.manage') &&
               !perms.contains('security.correction') &&
-              !perms.contains('security.guest_book')) {
+              !perms.contains('security.guest_book') &&
+              !perms.contains('patrol.read') &&
+              !perms.contains('paket.read')))) {
             return '/home';
           }
           if (loc == '/home/security-guestbook' &&
@@ -801,6 +850,57 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (securityLanding != null) return securityLanding;
           final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
           if (cleaningLanding != null) return cleaningLanding;
+          // Anggota RT: redirect to RW Dashboard, not Beranda.
+          final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+          final isPengurus = user?['role'] == AppRole.pengurus || role == 'pengurus';
+          final isAnggotaRT =
+              jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
+          if (isAnggotaRT) {
+            final rwMemberships =
+                (user?['rw_memberships'] as List?)
+                    ?.whereType<Map<String, dynamic>>()
+                    .toList() ??
+                <Map<String, dynamic>>[];
+            String rwId = '';
+            if (rwMemberships.isNotEmpty) {
+              final firstRw = rwMemberships.first;
+              rwId = firstRw['rw_id'] as String? ?? '';
+            }
+            if (rwId.isEmpty) {
+              rwId = (user?['rw_id'] ?? '').toString().trim();
+            }
+            if (rwId.isNotEmpty) {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/rw/$rwId/keuangan?tab=beranda';
+              }
+              // Allow staying on rw paths, rw-data, warga, notifikasi, and profile
+              if (loc.startsWith('/rw/') ||
+                  loc == '/home/rw-data' ||
+                  loc.startsWith('/home/rw-data/') ||
+                  loc == '/home/warga' ||
+                  loc.startsWith('/home/warga/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/rw/$rwId/keuangan?tab=beranda';
+            } else {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/home/warga';
+              }
+              if (loc == '/home/warga' ||
+                  loc.startsWith('/home/warga/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/home/warga';
+            }
+          }
           if (loc == '/login') return '/home';
           // A restored session or system Back can land on /home; route
           // security officers to their first authorized tab instead.
@@ -825,17 +925,21 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
+          if ((jabatan == 'sosial' || jabatan == 'operasional') &&
+              (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
+            return '/home';
+          }
           if (loc.startsWith('/home/lokasi-dana')) {
             final role = user?['role'] as AppRole?;
             final systemRole = user?['system_role'] as String?;
             final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+            if (jabatan == 'sekretaris') return '/home';
             final canAccess =
                 systemRole == 'super_admin' ||
                 role == AppRole.bendahara ||
                 role == AppRole.pengurus ||
                 jabatan == 'ketua' ||
                 jabatan == 'wakil_ketua' ||
-                jabatan == 'sekretaris' ||
                 jabatan == 'bendahara';
             if (!canAccess) {
               return '/home';
@@ -1065,7 +1169,36 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/security-management',
               name: 'security_management',
-              builder: (context, state) => const SecurityManagementScreen(),
+              builder: (context, state) {
+                final tab = state.uri.queryParameters['tab'];
+                final subtab = state.uri.queryParameters['subtab'];
+                final bundleId = state.uri.queryParameters['bundle_id'];
+                final reportId = state.uri.queryParameters['report_id'];
+                int initialTop = 0;
+                if (tab == 'patrol') initialTop = 3;
+                if (tab == 'paket') initialTop = 4;
+                if (tab == 'absen') initialTop = 1;
+                return SecurityManagementScreen(
+                  initialTopTabIndex: initialTop,
+                  mode: SecurityManagementMode.full,
+                  initialSubTab: subtab,
+                  targetId: bundleId ?? reportId,
+                );
+              },
+            ),
+            GoRoute(
+              path: '/home/patroli',
+              name: 'security_patroli',
+              builder: (context, state) => const SecurityManagementScreen(
+                mode: SecurityManagementMode.officerPatrol,
+              ),
+            ),
+            GoRoute(
+              path: '/home/paket',
+              name: 'security_paket',
+              builder: (context, state) => const SecurityManagementScreen(
+                mode: SecurityManagementMode.officerPaket,
+              ),
             ),
             GoRoute(
               path: '/home/security-guestbook',

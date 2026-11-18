@@ -12,6 +12,10 @@ import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/overdue_warning_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
+import 'package:social_finance/features/notification/data/notification_repository.dart';
+import 'package:social_finance/features/rw/data/rw_providers.dart';
+import 'package:social_finance/features/security/data/security_models.dart';
+import 'package:social_finance/features/security/presentation/providers/security_providers.dart';
 
 bool isDirectlyOnTopLevelTab(
   String currentLocation,
@@ -119,6 +123,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.qr_code_scanner_outlined,
     activeIcon: Icons.qr_code_scanner,
   );
+  static const _keamananAbsenTab = _NavRoute(
+    path: '/home/absen',
+    label: 'Absensi',
+    icon: Icons.qr_code_scanner_outlined,
+    activeIcon: Icons.qr_code_scanner,
+  );
   static const _securityManagementTab = _NavRoute(
     path: '/home/security-management',
     label: 'Keamanan',
@@ -130,6 +140,24 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     label: 'Buku Tamu',
     icon: Icons.menu_book_outlined,
     activeIcon: Icons.menu_book,
+  );
+  static const _patroliTab = _NavRoute(
+    path: '/home/patroli',
+    label: 'Patroli',
+    icon: Icons.local_police_outlined,
+    activeIcon: Icons.local_police,
+  );
+  static const _paketTab = _NavRoute(
+    path: '/home/paket',
+    label: 'Paket',
+    icon: Icons.inventory_2_outlined,
+    activeIcon: Icons.inventory_2,
+  );
+  static const _keamananSampahTab = _NavRoute(
+    path: '/home/notifikasi',
+    label: 'Sampah',
+    icon: Icons.checklist_outlined,
+    activeIcon: Icons.checklist,
   );
 
   bool _canAccessKeuangan(Map<String, dynamic>? user) {
@@ -152,19 +180,37 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   bool _canAccessLokasiDana(Map<String, dynamic>? user) {
     if (user == null) return false;
     if (isSuperAdminUser(user)) return true;
-    final role = user['role'] as AppRole?;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'sekretaris') return false;
+    final roleVal = user['role'];
+    final role = roleVal is AppRole
+        ? roleVal
+        : (roleVal?.toString() == 'pengurus'
+            ? AppRole.pengurus
+            : (roleVal?.toString() == 'bendahara'
+                ? AppRole.bendahara
+                : (roleVal?.toString() == 'warga'
+                    ? AppRole.warga
+                    : null)));
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
         isKetuaRTUser(user) ||
         jabatan == 'bendahara' ||
         jabatan == 'ketua' ||
-        jabatan == 'wakil_ketua' ||
-        jabatan == 'sekretaris';
+        jabatan == 'wakil_ketua';
   }
 
   bool _canAccessNotifikasi(Map<String, dynamic>? user) {
     return canUserAccessNotificationMenu(user);
+  }
+
+  bool _canAccessIuran(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'sosial' || jabatan == 'operasional') return false;
+    // Sekretaris RT can access Iuran personal view (own bills/payments).
+    // Admin Iuran operations are blocked by backend authorization.
+    return true;
   }
 
   List<RWMembership> _getValidRWMemberships(Map<String, dynamic>? user) {
@@ -181,7 +227,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
             .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
             .toList() ??
         <RWMembership>[];
-    return rawList
+    // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
+    final filtered = rawList
         .where(
           (m) =>
               isSuperAdmin ||
@@ -191,9 +238,41 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                     'wakil_ketua',
                     'sekretaris',
                     'bendahara',
+                    'anggota',
+                    'anggota_rt',
                   ].contains(m.jabatan!.toLowerCase())),
         )
         .toList();
+    if (filtered.isNotEmpty) return filtered;
+
+    // Fallback if rw_memberships was empty or omitted: derive from user's rw_id / rt_rw
+    final rwId = (user['rw_id'] ?? '').toString().trim();
+    final jab = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    final isEligible = isSuperAdmin ||
+        [
+          'ketua',
+          'wakil_ketua',
+          'sekretaris',
+          'bendahara',
+          'anggota_rt',
+        ].contains(jab) ||
+        (jab == 'anggota' && role == 'pengurus');
+    if (rwId.isNotEmpty && isEligible) {
+      final rwName = user['rw_name']?.toString();
+      final rwNum = user['rt_rw'] is num
+          ? (user['rt_rw'] as num).toInt()
+          : int.tryParse(user['rw']?.toString() ?? '');
+      return [
+        RWMembership(
+          rwId: rwId,
+          rwNumber: rwNum,
+          rwName: rwName,
+          jabatan: jab.isNotEmpty ? jab : 'anggota_rt',
+          source: 'rt_inferred',
+        ),
+      ];
+    }
+    return [];
   }
 
   List<_NavRoute> _getActiveTabs() {
@@ -201,9 +280,16 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final user = authState?.valueOrNull;
     final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
 
-    // Security officers use Warga, Absen (QR attendance), Notifikasi (waste-truck), and Profil.
+    // Petugas Keamanan: strictly 6 menus: Warga, Absensi, Patroli, Sampah, Paket, Profil.
     if (jabatan == 'keamanan') {
-      return [_wargaTab, _absenTab, _notifikasiTab, _profileTab];
+      return [
+        _wargaTab,
+        _keamananAbsenTab,
+        _patroliTab,
+        _keamananSampahTab,
+        _paketTab,
+        _profileTab,
+      ];
     }
 
     // Kebersihan keeps Monitoring and also has Profile/logout access.
@@ -211,15 +297,37 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       return [_monitoringTab, _profileTab];
     }
 
-    final canSecurityManage =
+    // Anggota RT: navigation — exactly 4 menus: Data RW, Warga, Notifikasi, and Profil.
+    final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+    final isPengurus = user?['role'] == AppRole.pengurus || role == 'pengurus';
+    final isAnggotaRT =
+        jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
+    if (isAnggotaRT) {
+      return [
+        _rwDataTab,
+        _wargaTab,
+        _notifikasiTab,
+        _profileTab,
+      ];
+    }
+
+    final isSekretaris = jabatan == 'sekretaris';
+    final canSecurityManage = !isSekretaris && (
         userHasPermission(user, 'security.schedule.read') ||
         userHasPermission(user, 'security.schedule.write') ||
         userHasPermission(user, 'security.device.manage') ||
-        userHasPermission(user, 'security.correction');
+        userHasPermission(user, 'security.correction') ||
+        userHasPermission(user, 'patrol.read') ||
+        userHasPermission(user, 'paket.read'));
     final canGuestBook = userHasPermission(user, 'security.guest_book');
     final canNotifikasi = _canAccessNotifikasi(user);
     final canKeuangan = _canAccessKeuangan(user);
+    final canIuran = _canAccessIuran(user);
     final rwMemberships = _getValidRWMemberships(user);
+    final isSosialOrOperasional =
+        jabatan == 'sosial' || jabatan == 'operasional';
+    final canKas = !isSosialOrOperasional;
+    final canIuranEffective = canIuran && !isSosialOrOperasional;
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
       final canMonitoring =
@@ -229,9 +337,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       return [
         _homeTab,
         if (canKeuangan) _keuanganTab,
-        _kasTab,
+        if (canKas) _kasTab,
         if (canLokasiDana) _lokasiTab,
-        _iuranTab,
+        if (canIuranEffective) _iuranTab,
         _wargaTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canMonitoring && jabatan != 'ketua') _monitoringTab,
@@ -248,7 +356,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                   highlightWhenSelected: true,
                 ),
         if (canSecurityManage) _securityManagementTab,
-        if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
+        if (canGuestBook) _securityGuestBookTab,
         _pengumumanTab,
         _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,
@@ -270,22 +378,52 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final user = authState?.valueOrNull;
     final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
 
+    // Petugas Keamanan: strictly 6 menus: Warga, Absensi, Patroli, Sampah, Paket, Profil.
     if (jabatan == 'keamanan') {
-      return [_wargaTab, _absenTab, _notifikasiTab, _profileTab];
+      return [
+        _wargaTab,
+        _keamananAbsenTab,
+        _patroliTab,
+        _keamananSampahTab,
+        _paketTab,
+        _profileTab,
+      ];
     }
     if (jabatan == 'kebersihan') {
       return [_monitoringTab, _profileTab];
     }
 
-    final canSecurityManage =
+    // Anggota RT: navigation — exactly 4 menus: Data RW, Warga, Notifikasi, and Profil.
+    final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+    final isPengurus = user?['role'] == AppRole.pengurus || role == 'pengurus';
+    final isAnggotaRT =
+        jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
+    if (isAnggotaRT) {
+      return [
+        _rwDataTab,
+        _wargaTab,
+        _notifikasiTab,
+        _profileTab,
+      ];
+    }
+
+    final isSekretaris = jabatan == 'sekretaris';
+    final canSecurityManage = !isSekretaris && (
         userHasPermission(user, 'security.schedule.read') ||
         userHasPermission(user, 'security.schedule.write') ||
         userHasPermission(user, 'security.device.manage') ||
-        userHasPermission(user, 'security.correction');
+        userHasPermission(user, 'security.correction') ||
+        userHasPermission(user, 'patrol.read') ||
+        userHasPermission(user, 'paket.read'));
     final canGuestBook = userHasPermission(user, 'security.guest_book');
     final canNotifikasi = _canAccessNotifikasi(user);
     final canKeuangan = _canAccessKeuangan(user);
+    final canIuran = _canAccessIuran(user);
     final rwMemberships = _getValidRWMemberships(user);
+    final isSosialOrOperasional =
+        jabatan == 'sosial' || jabatan == 'operasional';
+    final canKas = !isSosialOrOperasional;
+    final canIuranEffective = canIuran && !isSosialOrOperasional;
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
       final canMonitoring =
@@ -295,9 +433,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       return [
         _homeTab,
         if (canKeuangan) _keuanganTab,
-        _kasTab,
+        if (canKas) _kasTab,
         if (canLokasiDana) _lokasiTab,
-        _iuranTab,
+        if (canIuranEffective) _iuranTab,
         _wargaTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canMonitoring && jabatan != 'ketua') _monitoringTab,
@@ -314,7 +452,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                   highlightWhenSelected: true,
                 ),
         if (canSecurityManage) _securityManagementTab,
-        if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
+        if (canGuestBook) _securityGuestBookTab,
         _pengumumanTab,
         _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,
@@ -379,6 +517,16 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(notificationUnreadCountProvider.notifier).refresh();
+      }
+    });
+  }
+
+  @override
   void didUpdateWidget(MainNavigationShell oldWidget) {
     super.didUpdateWidget(oldWidget);
     final tabs = _getActiveTabs();
@@ -403,6 +551,59 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     _currentMatch = currentMatch;
 
     final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    final unreadCount = ref.watch(notificationUnreadCountProvider);
+    final hasUnreadNotification = unreadCount > 0;
+
+    final hasSecurityAlert =
+        ref.watch(securityAlertsProvider).valueOrNull ?? false;
+    final alertsData =
+        ref.watch(securityAlertsDataProvider).valueOrNull ??
+        const SecurityAlertsData();
+    final effectiveSecurityAlert = hasSecurityAlert || alertsData.hasAlert;
+
+    final rwMemberships = _getValidRWMemberships(user);
+    final rwId = rwMemberships.isNotEmpty
+        ? rwMemberships.first.rwId
+        : (user?['rw_id'] ?? '').toString().trim();
+    final rwUnreadCount = rwId.isNotEmpty
+        ? (ref.watch(rwUnreadCountProvider(rwId)).valueOrNull ?? 0)
+        : 0;
+    final isActualRwExec =
+        rwMemberships.any(
+          (m) =>
+              m.source != 'rt_inferred' &&
+              (m.jabatan == 'ketua' || m.jabatan == 'bendahara'),
+        ) ||
+        userHasPermission(user, 'rw.notification.write');
+    final hasRwUnread = isActualRwExec && rwUnreadCount > 0;
+
+    bool tabHasBadge(String path) {
+      if (jabatan == 'keamanan') return false;
+      if (path == '/home/notifikasi') return hasUnreadNotification;
+      if (path == '/home/rw-data') return hasRwUnread;
+      if (path == '/home/security-management' || path == '/home/absen') {
+        return effectiveSecurityAlert;
+      }
+      if (path == '/home/patroli') {
+        return alertsData.patrolUnread > 0;
+      }
+      if (path == '/home/paket') {
+        return alertsData.paketUnread > 0;
+      }
+      return false;
+    }
+
+    Key tabBadgeKey(String path) {
+      if (path == '/home/rw-data') return const Key('rw-unread-dot');
+      if (path == '/home/patroli') return const Key('patrol-unread-dot');
+      if (path == '/home/paket') return const Key('paket-unread-dot');
+      if (path == '/home/security-management' || path == '/home/absen') {
+        return const Key('security-unread-dot');
+      }
+      return const Key('notification-unread-dot');
+    }
+
     final profileStatus = user?['profile_status'] as String?;
     final showOfflineSyncBanner =
         profileStatus == 'stale' || profileStatus == 'error';
@@ -475,6 +676,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           tabs: drawerTabs,
           currentMatch: drawerMatch,
           user: user,
+          unreadCount: unreadCount,
+          hasRwUnread: hasRwUnread,
+          hasSecurityAlert: alertsData.hasAlert,
           onSelectTab: (index) => _onTabTapped(drawerTabs, index, context),
         ),
         bottomNavigationBar: BottomAppBar(
@@ -484,14 +688,19 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: List.generate(
                     tabs.length,
-                    (index) => Expanded(
-                      child: _NavRailItem(
-                        key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
-                        tab: tabs[index],
-                        isSelected: index == _currentMatch,
-                        onTap: () => _onTabTapped(tabs, index, context),
-                      ),
-                    ),
+                    (index) {
+                      final tab = tabs[index];
+                      return Expanded(
+                        child: _NavRailItem(
+                          key: Key('nav-item-${tab.label.toLowerCase()}'),
+                          tab: tab,
+                          isSelected: index == _currentMatch,
+                          showBadge: tabHasBadge(tab.path),
+                          badgeKey: tabBadgeKey(tab.path),
+                          onTap: () => _onTabTapped(tabs, index, context),
+                        ),
+                      );
+                    },
                   ),
                 )
               : LayoutBuilder(
@@ -506,17 +715,22 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: List.generate(
                           tabs.length,
-                          (index) => Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: _NavRailItem(
-                              key: Key(
-                                'nav-item-${tabs[index].label.toLowerCase()}',
+                          (index) {
+                            final tab = tabs[index];
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: _NavRailItem(
+                                key: Key(
+                                  'nav-item-${tab.label.toLowerCase()}',
+                                ),
+                                tab: tab,
+                                isSelected: index == _currentMatch,
+                                showBadge: tabHasBadge(tab.path),
+                                badgeKey: tabBadgeKey(tab.path),
+                                onTap: () => _onTabTapped(tabs, index, context),
                               ),
-                              tab: tabs[index],
-                              isSelected: index == _currentMatch,
-                              onTap: () => _onTabTapped(tabs, index, context),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -540,8 +754,21 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         final authState = ref.read(authRepositoryProvider);
         final user = authState?.valueOrNull;
         final rwMemberships = _getValidRWMemberships(user);
+        final currentRwId = rwMemberships.isNotEmpty
+            ? rwMemberships.first.rwId
+            : (user?['rw_id'] ?? '').toString().trim();
+        if (currentRwId.isNotEmpty) {
+          ref.invalidate(rwUnreadCountProvider(currentRwId));
+        }
 
-        if (rwMemberships.isEmpty) return;
+        if (rwMemberships.isEmpty) {
+          final rwId = (user?['rw_id'] ?? '').toString().trim();
+          if (rwId.isNotEmpty) {
+            final destination = '/rw/$rwId/dashboard';
+            await _confirmAndGo(tapContext, currentLocation, destination);
+          }
+          return;
+        }
 
         if (rwMemberships.length == 1) {
           final destination = '/rw/${rwMemberships.first.rwId}/dashboard';
@@ -580,6 +807,24 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           await _confirmAndGo(tapContext, currentLocation, destination);
         }
         return;
+      }
+
+      if (tab.path == '/home/notifikasi') {
+        ref.read(notificationUnreadCountProvider.notifier).refresh();
+      }
+      if (tab.path == '/home/security-management' || tab.path == '/home/absen') {
+        ref.invalidate(securityAlertsProvider);
+        ref.invalidate(securityAlertsDataProvider);
+      }
+      if (tab.path == '/home/patroli') {
+        ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
+        ref.invalidate(securityAlertsProvider);
+        ref.invalidate(securityAlertsDataProvider);
+      }
+      if (tab.path == '/home/paket') {
+        ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
+        ref.invalidate(securityAlertsProvider);
+        ref.invalidate(securityAlertsDataProvider);
       }
 
       // If currently on a guarded form page, always ask for confirmation
@@ -664,12 +909,16 @@ class _NavRoute {
 class _NavRailItem extends StatelessWidget {
   final _NavRoute tab;
   final bool isSelected;
+  final bool showBadge;
+  final Key? badgeKey;
   final VoidCallback onTap;
 
   const _NavRailItem({
     super.key,
     required this.tab,
     required this.isSelected,
+    this.showBadge = false,
+    this.badgeKey,
     required this.onTap,
   });
 
@@ -724,10 +973,33 @@ class _NavRailItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isSelected ? tab.activeIcon : tab.icon,
-              size: isProminent ? 24 : 22,
-              color: iconColor,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isSelected ? tab.activeIcon : tab.icon,
+                  size: isProminent ? 24 : 22,
+                  color: iconColor,
+                ),
+                if (showBadge)
+                  Positioned(
+                    top: -1,
+                    right: -1,
+                    child: Container(
+                      key: badgeKey ?? const Key('notification-unread-dot'),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AppColors.danger,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: theme.scaffoldBackgroundColor,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 2),
             Text(
@@ -754,12 +1026,18 @@ class _AppDrawer extends StatelessWidget {
   final List<_NavRoute> tabs;
   final int currentMatch;
   final Map<String, dynamic>? user;
+  final int unreadCount;
+  final bool hasRwUnread;
+  final bool hasSecurityAlert;
   final void Function(int index) onSelectTab;
 
   const _AppDrawer({
     required this.tabs,
     required this.currentMatch,
     required this.user,
+    this.unreadCount = 0,
+    this.hasRwUnread = false,
+    this.hasSecurityAlert = false,
     required this.onSelectTab,
   });
 
@@ -875,14 +1153,47 @@ class _AppDrawer extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final tab = tabs[index];
                   final isSelected = index == currentMatch;
+                  final isNotif = tab.path == '/home/notifikasi';
+                  final showDrawerBadge = jabatan != 'keamanan' &&
+                      ((isNotif && unreadCount > 0) ||
+                          (tab.path == '/home/rw-data' && hasRwUnread) ||
+                          ((tab.path == '/home/security-management' || tab.path == '/home/absen') && hasSecurityAlert));
+                  final drawerBadgeKey = tab.path == '/home/rw-data'
+                      ? const Key('drawer-rw-unread-dot')
+                      : (tab.path == '/home/security-management' || tab.path == '/home/absen'
+                          ? const Key('drawer-security-unread-dot')
+                          : const Key('drawer-notification-unread-dot'));
                   return ListTile(
-                    leading: Icon(
-                      isSelected ? tab.activeIcon : tab.icon,
-                      color: isSelected
-                          ? AppColors.seed
-                          : (tab.isProminent
-                                ? AppColors.accent
-                                : theme.colorScheme.onSurfaceVariant),
+                    leading: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          isSelected ? tab.activeIcon : tab.icon,
+                          color: isSelected
+                              ? AppColors.seed
+                              : (tab.isProminent
+                                    ? AppColors.accent
+                                    : theme.colorScheme.onSurfaceVariant),
+                        ),
+                        if (showDrawerBadge)
+                          Positioned(
+                            top: -1,
+                            right: -1,
+                            child: Container(
+                              key: drawerBadgeKey,
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: AppColors.danger,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: theme.colorScheme.surface,
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     title: Text(
                       tab.label,

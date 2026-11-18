@@ -747,8 +747,20 @@ func (r *inMemoryRepo) RecordRWDedup(ctx context.Context, rwID, userID, eventTyp
 	return true, nil
 }
 
+func (r *inMemoryRepo) RecordRWDedupWithStatus(ctx context.Context, rwID, userID, eventType, dedupKey, title, body, status string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
 func (r *inMemoryRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return nil, 0, nil
+}
+
+func (r *inMemoryRepo) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
+}
+
+func (r *inMemoryRepo) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	return 0, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {

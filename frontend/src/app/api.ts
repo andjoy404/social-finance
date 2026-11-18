@@ -1868,7 +1868,9 @@ export interface ApiUpdateNotificationTemplateInput {
 
 export interface ApiNotificationLog {
   id: string
-  rt_id: string
+  rt_id?: string
+  rw_id?: string | null
+  source?: 'rt' | 'rw'
   user_id?: string | null
   event_type: string
   dedup_key: string

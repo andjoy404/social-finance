@@ -38,10 +38,10 @@ const Set<String> kPetugasKhususJabatan = {
 
 /// Jabatan pengurus RT yang memiliki akses tulis warga (position_permissions).
 /// Must not include AppRole.petugas or kPetugasKhususJabatan entries.
+/// Sekretaris RT is strictly revoked from creating/modifying warga data.
 const Set<String> kWargaWriteJabatans = {
   'ketua',
   'wakil_ketua',
-  'sekretaris',
   'bendahara',
 };
 
@@ -566,21 +566,20 @@ class _ResidentCard extends ConsumerWidget {
         .toLowerCase();
     final systemRole = user?['system_role']?.toString();
     final isSuperAdmin = systemRole == 'super_admin';
-    final isPengurus =
-        userRole == AppRole.pengurus ||
-        userRole == AppRole.bendahara ||
-        kWargaWriteJabatans.contains(userJabatan);
+    final isKetua = userJabatan == 'ketua';
 
+    // Sensitive data privacy: phone and email are restricted strictly to Ketua RT (and Super Admin).
+    // Keamanan phone is publicly visible for emergency contact.
     final showPhone = (() {
       if (user == null) return false;
-      if (isSuperAdmin || isPengurus) return true;
+      if (isSuperAdmin || isKetua) return true;
       final jabatan = (resident.jabatan ?? '').trim().toLowerCase();
       return jabatan == 'keamanan';
     })();
-    // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+    // Warga, sekretaris, and other roles can NEVER see email — only Ketua RT and Super Admin.
     final showEmail = (() {
       if (user == null) return false;
-      if (isSuperAdmin || isPengurus) return true;
+      if (isSuperAdmin || isKetua) return true;
       return false;
     })();
 

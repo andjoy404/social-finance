@@ -1210,6 +1210,10 @@ func (h *Handler) DeleteRWTemplate(w http.ResponseWriter, r *http.Request) {
 
 // ListNotifications handles GET /api/v1/rw/{rwId}/notifications
 func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
+	if strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope"))) == "mine" {
+		h.ListMyNotifications(w, r)
+		return
+	}
 	rwID := chi.URLParam(r, "rwId")
 	ac := auth.GetAuthContext(r)
 	if ac == nil {
@@ -1240,6 +1244,56 @@ func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
 			"total_pages": totalPages,
 		},
 	})
+}
+
+// ListMyNotifications handles GET /api/v1/rw/{rwId}/notifications/mine
+func (h *Handler) ListMyNotifications(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	page, pageSize := parsePagination(r)
+	eventType := r.URL.Query().Get("event_type")
+
+	logs, total, err := h.svc.ListMyNotifications(r.Context(), ac, rwID, eventType, page, pageSize)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if logs == nil {
+		logs = []notification.NotificationLogEntry{}
+	}
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": logs,
+		"pagination": map[string]any{
+			"page":        page,
+			"per_page":    pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+// GetUnreadCount handles GET /api/v1/rw/{rwId}/notifications/unread-count
+func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	count, err := h.svc.GetUnreadCount(r.Context(), ac, rwID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]int{"unread_count": count}})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

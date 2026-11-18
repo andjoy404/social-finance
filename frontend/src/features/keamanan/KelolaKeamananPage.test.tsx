@@ -140,13 +140,14 @@ describe('KelolaKeamananPage', () => {
     })
   })
 
-  it('opens schedule form with inclusive start and end date fields', async () => {
+  it('opens schedule form with shift, officer, and active status fields without dates', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({ user: ketuaUser, loading: false, login: vi.fn(), logout: vi.fn(), refreshUser: vi.fn() } as never)
     render(<KelolaKeamananPage />)
     fireEvent.click(await screen.findByText('Jadwal Petugas'))
     fireEvent.click(await screen.findByText('Tambah Jadwal'))
-    expect(screen.getByText('Tanggal Mulai Tugas')).toBeInTheDocument()
-    expect(screen.getByText('Tanggal Berakhir Tugas')).toBeInTheDocument()
+    expect(await screen.findByText('Status Penugasan')).toBeInTheDocument()
+    expect(screen.queryByText(/Tanggal Mulai Tugas/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tanggal Berakhir Tugas/)).not.toBeInTheDocument()
     expect(screen.queryByText('Ubah Warga')).not.toBeInTheDocument()
   }, 15000)
 
@@ -516,70 +517,38 @@ describe('KelolaKeamananPage - Ubah Jadwal date normalization', () => {
     })
   })
 
-  it('opens Ubah Jadwal with YYYY-MM-DD dates and saves unchanged dates as YYYY-MM-DD', async () => {
+  it('opens Ubah Jadwal with date-independent shift assignment and saves without dates', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({ user: ketuaUser, loading: false, login: vi.fn(), logout: vi.fn(), refreshUser: vi.fn() } as never)
     render(<KelolaKeamananPage />)
     fireEvent.click(await screen.findByText('Jadwal Petugas'))
     await waitFor(() => expect(screen.getByText('Pak Budi Satpam')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Ubah'))
     await waitFor(() => expect(screen.getByText('Ubah Jadwal Petugas Keamanan')).toBeInTheDocument())
-    // Dates should render without crash in formatted inputs
-    expect(screen.getByDisplayValue('13/11/2026')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('20/11/2026')).toBeInTheDocument()
+    expect(screen.getByText('Status Penugasan')).toBeInTheDocument()
+    expect(screen.queryByText(/Tanggal Mulai Tugas/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('Simpan Perubahan'))
     await waitFor(() => expect(SecurityApi.apiUpdateSecuritySchedule).toHaveBeenCalledTimes(1))
     const [id, payload] = vi.mocked(SecurityApi.apiUpdateSecuritySchedule).mock.calls[0]
     expect(id).toBe('sch-1')
-    expect(payload.start_date).toBe('2026-11-13')
-    expect(payload.end_date).toBe('2026-11-20')
-    expect(JSON.stringify(payload)).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
+    expect(payload.user_id).toBe('sec-1')
+    expect(payload.shift_config_id).toBe('shift-1')
+    expect(payload.is_active).toBe(true)
+    expect(JSON.stringify(payload)).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   })
 
-  it('opens Ubah Jadwal with ISO timestamp dates without crash and keeps calendar day', async () => {
-    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({ user: ketuaUser, loading: false, login: vi.fn(), logout: vi.fn(), refreshUser: vi.fn() } as never)
-    vi.mocked(SecurityApi.apiListSecuritySchedules).mockResolvedValue({
-      data: [{
-        id: 'sch-iso', assignment_id: 'asg-iso', assignment_start_date: '2026-11-13T17:00:00.000Z', assignment_end_date: '2026-11-20T17:00:00.000Z',
-        rt_id: 'rt-002', user_id: 'sec-1', officer_name: 'Pak Budi Satpam', membership_id: 'mem-1', shift_config_id: 'shift-1', shift_version: 1,
-        shift_date: '2026-11-13', shift_name: 'Shift Pagi', start_time: '08:00', end_time: '16:00', crosses_midnight: false, lateness_tolerance_minutes: 15,
-        scheduled_start_at: '2026-11-13T01:00:00Z', scheduled_end_at: '2026-11-13T09:00:00Z', status: 'scheduled', attendance_status: 'belum_hadir',
-      } as SecurityApi.SecuritySchedule],
-      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
-    })
-    vi.mocked(SecurityApi.apiGetSecuritySchedule).mockResolvedValue([{
-      id: 'sch-iso', assignment_id: 'asg-iso', assignment_start_date: '2026-11-13T17:00:00.000Z', assignment_end_date: '2026-11-20T17:00:00.000Z',
-      rt_id: 'rt-002', user_id: 'sec-1', officer_name: 'Pak Budi Satpam', membership_id: 'mem-1', shift_config_id: 'shift-1', shift_version: 1,
-      shift_date: '2026-11-13', shift_name: 'Shift Pagi', start_time: '08:00', end_time: '16:00', crosses_midnight: false, lateness_tolerance_minutes: 15,
-      scheduled_start_at: '2026-11-13T01:00:00Z', scheduled_end_at: '2026-11-13T09:00:00Z', status: 'scheduled', attendance_status: 'belum_hadir',
-    } as SecurityApi.SecuritySchedule])
-    render(<KelolaKeamananPage />)
-    fireEvent.click(await screen.findByText('Jadwal Petugas'))
-    await waitFor(() => expect(screen.getByText('Pak Budi Satpam')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Ubah'))
-    await waitFor(() => expect(screen.getByText('Ubah Jadwal Petugas Keamanan')).toBeInTheDocument())
-    // Calendar date must not shift
-    expect(screen.getByDisplayValue('13/11/2026')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('20/11/2026')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Simpan Perubahan'))
-    await waitFor(() => expect(SecurityApi.apiUpdateSecuritySchedule).toHaveBeenCalled())
-    const [, payload] = vi.mocked(SecurityApi.apiUpdateSecuritySchedule).mock.calls[0]
-    expect(payload.start_date).toBe('2026-11-13')
-    expect(payload.end_date).toBe('2026-11-20')
-  })
-
-  it('opens Ubah Jadwal safely when dates are empty/null and does not crash', async () => {
+  it('opens Ubah Jadwal safely when schedule is continuous assignment without dates', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({ user: ketuaUser, loading: false, login: vi.fn(), logout: vi.fn(), refreshUser: vi.fn() } as never)
     vi.mocked(SecurityApi.apiGetSecuritySchedule).mockResolvedValue([{
-      id: 'sch-null', assignment_id: 'asg-null', assignment_start_date: '' as unknown as string, assignment_end_date: null as unknown as string,
+      id: 'sch-cont', assignment_id: '', assignment_start_date: '', assignment_end_date: '',
       rt_id: 'rt-002', user_id: 'sec-1', officer_name: 'Pak Budi Satpam', membership_id: 'mem-1', shift_config_id: 'shift-1', shift_version: 1,
       shift_date: '', shift_name: 'Shift Pagi', start_time: '08:00', end_time: '16:00', crosses_midnight: false, lateness_tolerance_minutes: 15,
-      scheduled_start_at: '', scheduled_end_at: '', status: 'scheduled',
+      scheduled_start_at: '', scheduled_end_at: '', status: 'scheduled', is_active: true,
     } as SecurityApi.SecuritySchedule])
     render(<KelolaKeamananPage />)
     fireEvent.click(await screen.findByText('Jadwal Petugas'))
     await waitFor(() => expect(screen.getByText('Pak Budi Satpam')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Ubah'))
     await waitFor(() => expect(screen.getByText('Ubah Jadwal Petugas Keamanan')).toBeInTheDocument())
-    // No crash and modal open; required validation will block save but form is usable
+    expect(screen.getByText('Status Penugasan')).toBeInTheDocument()
   })
 })

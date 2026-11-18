@@ -42,8 +42,9 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     expect(rtPositionLabel('kebersihan')).toBe('Kebersihan')
 
     expect(positionVariant('keamanan')).toBe('red')
-    expect(positionVariant('operasional')).toBe('blue')
-    expect(positionVariant('kebersihan')).toBe('green')
+    expect(positionVariant('operasional')).toBe('teal')
+    expect(positionVariant('kebersihan')).toBe('chartreuse')
+    expect(positionVariant('sosial')).toBe('pink')
     expect(positionVariant('kebersihan_pembangunan')).toBe('default')
   })
 
@@ -142,6 +143,7 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     )
 
     const select = (await screen.findByLabelText(/Jenis Petugas/i)) as HTMLSelectElement
+    await waitFor(() => expect(screen.getByDisplayValue('Andi Operasional')).toBeInTheDocument())
     expect(select.value).toBe('operasional')
 
     const options = Array.from(select.options).map((o) => ({ value: o.value, label: o.text }))
@@ -152,7 +154,9 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     ])
 
     fireEvent.change(select, { target: { value: 'kebersihan' } })
-    expect(select.value).toBe('kebersihan')
+    await waitFor(() => {
+      expect(select.value).toBe('kebersihan')
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }))
 
     await waitFor(() => {

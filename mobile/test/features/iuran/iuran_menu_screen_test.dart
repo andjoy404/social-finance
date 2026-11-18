@@ -157,7 +157,7 @@ void main() {
         id: 'resident-bill',
         householdName: 'Tagihan Warga Lain',
         iuranType: 'IPL',
-        periode: 'Oktober 2026',
+        periode: '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}',
         nominal: 50000,
       );
 
@@ -189,8 +189,8 @@ void main() {
       expect(sayaX, lessThan(wargaX));
       expect(wargaX, lessThan(kelolaX));
 
-      // Default landing page is Iuran Saya: only the personal bill is listed
-      expect(find.text('Tagihan Pribadi'), findsOneWidget);
+      // Default landing page is Iuran Saya: only the personal bill is listed (householdName is hidden on Iuran Saya)
+      expect(find.text('IPL'), findsOneWidget);
       expect(find.text('Tagihan Warga Lain'), findsNothing);
 
       // D1: + Buat Tagihan FAB must not exist on main Iuran screen
@@ -199,7 +199,7 @@ void main() {
       // Tapping Iuran Warga navigates to the resident-wide list
       await tester.tap(find.text('Iuran Warga'));
       await tester.pumpAndSettle();
-      expect(find.text('Iuran Warga destination'), findsOneWidget);
+      expect(find.text('Tagihan Warga Lain'), findsOneWidget);
     },
   );
 
@@ -237,6 +237,8 @@ void main() {
       expect(find.text('OKTOBER 2026'), findsOneWidget);
 
       // D3: Filter by Jenis Iuran (Reguler vs Sukarela)
+      await tester.tap(find.text('Filter'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('kelola-iuran-jenis-filter')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sukarela').last);

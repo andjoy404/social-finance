@@ -234,8 +234,9 @@ class UpdateHouseholdRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
-    if (startDate != null && startDate!.isNotEmpty)
+    if (startDate != null && startDate!.isNotEmpty) {
       data['start_date'] = startDate;
+    }
     if (endDate != null) data['end_date'] = endDate;
     if (address != null) data['address'] = address;
     if (isActive != null) data['is_active'] = isActive;
@@ -348,8 +349,9 @@ class UpdateResidentRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (isActive != null) data['is_active'] = isActive;
-    if (startDate != null && startDate!.isNotEmpty)
+    if (startDate != null && startDate!.isNotEmpty) {
       data['start_date'] = startDate;
+    }
     if (endDate != null) data['end_date'] = endDate;
     if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;

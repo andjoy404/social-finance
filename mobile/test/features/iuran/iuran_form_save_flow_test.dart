@@ -48,6 +48,7 @@ class _FakeIuranApiClient implements IuranApiClient {
     DueType? dueType,
     int? year,
   }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     return const BackendDue(
       id: 'due-created-success',
       rtId: 'rt-002',
@@ -264,8 +265,14 @@ Widget _buildApp(IuranRepository repository, GlobalKey<NavigatorState> navigator
         navigatorKey: navigatorKey,
         routes: [
           GoRoute(
-            path: '/home/iuran/form',
-            pageBuilder: (context, state) => MaterialPage(child: IuranFormScreen()),
+            path: '/home/iuran',
+            builder: (context, state) => const Scaffold(body: Text('Iuran Root')),
+            routes: [
+              GoRoute(
+                path: 'form',
+                pageBuilder: (context, state) => MaterialPage(child: IuranFormScreen()),
+              ),
+            ],
           ),
         ],
       ),
@@ -328,7 +335,7 @@ void main() {
 
       expect(_simpanButton(), findsOneWidget);
       await tester.tap(_simpanButton());
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       // Spinner muncul
       expect(find.byType(CircularProgressIndicator), findsWidgets);
@@ -387,7 +394,7 @@ void main() {
 
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byType(IuranFormScreen), findsOneWidget);
-      expect(find.textContaining('Permintaan gagal diproses'), findsOneWidget);
+      expect(find.textContaining('Terjadi kesalahan pada server', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('Setelah save gagal, Batal menampilkan dialog', (tester) async {

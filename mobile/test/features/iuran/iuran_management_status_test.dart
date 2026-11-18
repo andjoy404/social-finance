@@ -102,7 +102,7 @@ Widget _buildScreen(_FakeDueRepository repository) {
 Future<void> _openEditDialog(WidgetTester tester) async {
   await tester.tap(find.byIcon(Icons.edit_outlined).first);
   await tester.pumpAndSettle();
-  expect(find.text('Edit Iuran'), findsOneWidget);
+  expect(find.text('Ubah Iuran'), findsOneWidget);
 }
 
 void main() {
@@ -119,7 +119,13 @@ void main() {
     await _openEditDialog(tester);
 
     expect(find.byKey(const ValueKey('edit-due-status')), findsOneWidget);
-    expect(find.text('Aktif'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('edit-due-status')),
+        matching: find.text('Aktif'),
+      ),
+      findsOneWidget,
+    );
 
     final statusField = find.byKey(const ValueKey('edit-due-status'));
     await tester.ensureVisible(statusField);

@@ -1,20 +1,14 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
-  Table,
   Button,
-  Modal,
   message,
-  TableProps,
-  Space,
-  Typography,
-  Input,
-  Empty,
 } from 'antd'
 import {
   FileExcelOutlined,
   FilePdfOutlined,
   EditOutlined,
   PrinterOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { useAuth, hasPermission } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
@@ -25,10 +19,9 @@ import {
   apiExportMonitoringPDF,
   type ApiMonitoringHousehold,
 } from '@/app/api'
+import { Pagination } from '@/components/Pagination'
 import { createPortal } from 'react-dom'
 import './MonitoringScreen.css'
-
-const { TextArea } = Input
 
 export function MonitoringScreen() {
   const { user } = useAuth()
@@ -56,6 +49,9 @@ export function MonitoringScreen() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null)
+  const [page, setPage] = useState(1)
+  const pageSize = 20
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [editingHousehold, setEditingHousehold] = useState<ApiMonitoringHousehold | null>(null)
   const [noteText, setNoteText] = useState('')
@@ -87,10 +83,16 @@ export function MonitoringScreen() {
     return () => window.removeEventListener('beforeprint', updatePrintTime)
   }, [])
 
+  const handlePageChange = (p: number) => {
+    setPage(p)
+    // Server-side pagination handled by API via offset
+  }
+
   const handleUpdateNote = async (householdOccupancyId: string, note: string) => {
     try {
       await apiUpdateMonitoringNote(token, rtId, householdOccupancyId, note)
       message.success('Catatan diperbarui')
+      setNoteModalOpen(false)
       await fetchHouseholds()
     } catch (err: any) {
       message.error(err?.message || 'Gagal memperbarui catatan')
@@ -139,74 +141,27 @@ export function MonitoringScreen() {
 
   const handlePrint = () => window.print()
 
-  const columns: TableProps<ApiMonitoringHousehold>['columns'] = [
-    {
-      title: 'No.',
-      key: 'index',
-      width: 60,
-      render: (_: any, _row: any, index: number) => index + 1,
-      align: 'center',
-    },
-    {
-      title: 'No. Rumah',
-      dataIndex: 'house_number',
-      key: 'house_number',
-      width: 120,
-    },
-    {
-      title: 'Catatan Operasional',
-      dataIndex: 'note',
-      key: 'note',
-      width: 200,
-      render: (note: string, record: ApiMonitoringHousehold) => (
-        <span
-          onClick={() => {
-            setNoteText(note || '')
-            setEditingHousehold(record)
-            setNoteModalOpen(true)
-          }}
-          style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--sf-accent)' }}
-        >
-          {note || '—'}
-        </span>
-      ),
-    },
-    {
-      title: 'Aksi',
-      key: 'action',
-      width: 100,
-      render: (_: any, record: ApiMonitoringHousehold) => (
-        <Space>
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => {
-              setNoteText(record.note || '')
-              setEditingHousehold(record)
-              setNoteModalOpen(true)
-            }}
-          >
-            Edit Catatan
-          </Button>
-        </Space>
-      ),
-    },
-  ]
+  const displayedHouseholds = households.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <>
-      <div className="monitoring-page">
-        <div className="monitoring-screen-content">
-      <div className="monitoring-header">
-        <div>
-          <Typography.Title level={2}>Sampah</Typography.Title>
-          <Typography.Text style={{ color: 'var(--sf-text-muted)' }}>
-            {rtLabel}{rwLabel ? ` | ${rwLabel}` : ''}
-          </Typography.Text>
+      {/* Page Header */}
+      <div className="sf-page-header-surface">
+        <div className="sf-page-header-left">
+          <div className="sf-page-header-icon">
+            <SafetyCertificateOutlined />
+          </div>
+          <div className="sf-page-header-copy">
+            <div className="sf-page-header-title-text">Sampah</div>
+            <div className="sf-page-header-subtitle">
+              {rtLabel}{rwLabel ? ` | ${rwLabel}` : ''}
+            </div>
+          </div>
         </div>
-        <Space className="monitoring-actions">
+        <div className="sf-page-header-actions">
           {canExport && (
             <Button
+              type="primary"
               style={{ backgroundColor: 'var(--sf-success)', borderColor: 'var(--sf-success)', color: '#111' }}
               icon={<FileExcelOutlined />}
               onClick={handleExportExcel}
@@ -218,6 +173,7 @@ export function MonitoringScreen() {
           )}
           {canExport && (
             <Button
+              type="primary"
               style={{ backgroundColor: 'var(--sf-danger)', borderColor: 'var(--sf-danger)', color: '#111' }}
               icon={<FilePdfOutlined />}
               onClick={handleExportPDF}
@@ -228,6 +184,7 @@ export function MonitoringScreen() {
             </Button>
           )}
           <Button
+            type="primary"
             style={{ backgroundColor: '#6b7280', borderColor: '#6b7280', color: '#fff' }}
             icon={<PrinterOutlined />}
             onClick={handlePrint}
@@ -235,100 +192,197 @@ export function MonitoringScreen() {
           >
             Cetak
           </Button>
-        </Space>
-      </div>
-
-      <Table
-        dataSource={households}
-        columns={columns}
-        rowKey="household_occupancy_id"
-        loading={loading}
-        pagination={{
-          pageSize: 20,
-          total,
-          showTotal: () => `Total ${total} rumah`,
-        }}
-        scroll={{ x: 1200 }}
-        locale={{ emptyText: <Empty description="Tidak ada rumah dalam monitoring" /> }}
-      />
         </div>
       </div>
+
+      {/* Content Surface */}
+      <div className="sf-content-surface sf-content-surface-padding">
+        <div className="sf-list-toolbar">
+          <div className="sf-list-toolbar-left">
+            <span className="sf-list-toolbar-label">Daftar pemantauan sampah</span>
+          </div>
+          <div className="sf-list-toolbar-right" />
+        </div>
+
+        <div className="table-wrapper">
+          <table className="sf-warga-table">
+            <thead>
+              <tr>
+                <th className="col-index" style={{ width: 60, minWidth: 60 }}>No.</th>
+                <th className="col-house-number" style={{ width: 120, minWidth: 120 }}>No. Rumah</th>
+                <th className="col-note" style={{ width: 200, minWidth: 200 }}>Catatan Operasional</th>
+                <th className="sf-table-action" style={{ width: 100, minWidth: 100 }}>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 40, color: 'var(--sf-text-muted)' }}>
+                    Memuat data...
+                  </td>
+                </tr>
+              ) : displayedHouseholds.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 40, color: 'var(--sf-text-muted)' }}>
+                    Tidak ada rumah dalam monitoring
+                  </td>
+                </tr>
+              ) : (
+                displayedHouseholds.map((household, index) => (
+                  <tr key={household.household_occupancy_id}>
+                    <td>{(page - 1) * pageSize + index + 1}</td>
+                    <td>{household.house_number}</td>
+                    <td
+                      onClick={() => {
+                        setNoteText(household.note || '')
+                        setEditingHousehold(household)
+                        setNoteModalOpen(true)
+                      }}
+                      style={{ cursor: 'pointer', color: 'var(--sf-accent)', textDecoration: 'underline' }}
+                    >
+                      {household.note || '—'}
+                    </td>
+                    <td>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => {
+                          setNoteText(household.note || '')
+                          setEditingHousehold(household)
+                          setNoteModalOpen(true)
+                        }}
+                      >
+                        Edit Catatan
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {!loading && total > 0 && (
+          <div className="sf-pagination-wrapper">
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              onPageSizeChange={() => {}}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Print Portal */}
       {createPortal(
         <section className="monitoring-print-report" aria-label="Laporan Monitoring Kebersihan">
-        <header className="monitoring-report-header">
-          <h1>LAPORAN MONITORING KEBERSIHAN</h1>
-          <p>{rtLabel}{rwLabel ? ` | ${rwLabel}` : ''}</p>
-          <p className="monitoring-report-date">
-            Dicetak: {printedAt.toLocaleString('id-ID')}
+          <header className="monitoring-report-header">
+            <h1>LAPORAN MONITORING KEBERSIHAN</h1>
+            <p>{rtLabel}{rwLabel ? ` | ${rwLabel}` : ''}</p>
+            <p className="monitoring-report-date">
+              Dicetak: {printedAt.toLocaleString('id-ID')}
+            </p>
+          </header>
+          <p className="monitoring-report-summary">
+            Total rumah yang memiliki tunggakan: <strong>{total}</strong>
           </p>
-        </header>
-        <p className="monitoring-report-summary">
-          Total rumah yang memiliki tunggakan: <strong>{total}</strong>
-        </p>
-        <table className="monitoring-report-table">
-          <thead>
-            <tr>
-              <th scope="col">No.</th>
-              <th scope="col">No. Rumah</th>
-              <th scope="col">Catatan Operasional</th>
-            </tr>
-          </thead>
-          <tbody>
-            {households.length === 0 ? (
+          <table className="monitoring-report-table">
+            <thead>
               <tr>
-                <td colSpan={3} className="monitoring-report-empty">
-                  Tidak ada rumah dalam monitoring.
-                </td>
+                <th scope="col">No.</th>
+                <th scope="col">No. Rumah</th>
+                <th scope="col">Catatan Operasional</th>
               </tr>
-            ) : households.map((household, index) => (
-              <tr key={household.household_occupancy_id}>
-                <td className="monitoring-report-number">{index + 1}</td>
-                <td>{household.house_number}</td>
-                <td>{household.note || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <footer className="monitoring-report-footer">
-          Dokumen laporan Monitoring Kebersihan
-        </footer>
+            </thead>
+            <tbody>
+              {households.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="monitoring-report-empty">
+                    Tidak ada rumah dalam monitoring.
+                  </td>
+                </tr>
+              ) : households.map((household, index) => (
+                <tr key={household.household_occupancy_id}>
+                  <td className="monitoring-report-number">{index + 1}</td>
+                  <td>{household.house_number}</td>
+                  <td>{household.note || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <footer className="monitoring-report-footer">
+            Dokumen laporan Monitoring Kebersihan
+          </footer>
         </section>,
         document.body,
       )}
 
       {/* Note Modal */}
-      <Modal
-        title={`Catatan Lapangan - ${editingHousehold?.house_number || ''}`}
-        open={noteModalOpen}
-        onCancel={() => setNoteModalOpen(false)}
-        confirmLoading={false}
-        width={500}
-      >
-        <TextArea
-          value={noteText}
-          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNoteText(e.target.value)}
-          rows={4}
-          placeholder="Masukkan catatan lapangan..."
-          autoSize={{ minRows: 4, maxRows: 6 }}
-        />
-        <div style={{ marginTop: 16, textAlign: 'right' }}>
-          <Button onClick={() => setNoteModalOpen(false)}>Batal</Button>
-          <Button
-            type="primary"
-            onClick={() => {
-              if (!editingHousehold) return
-              if (noteText.trim() === '') return
-              if (editingHousehold.note === noteText) {
-                setNoteModalOpen(false)
-                return
-              }
-              handleUpdateNote(editingHousehold.household_occupancy_id, noteText)
-            }}
+      {noteModalOpen && (
+        <div className="sf-modal-overlay" onClick={() => setNoteModalOpen(false)}>
+          <div
+            className="sf-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 520, width: '92%' }}
+            role="dialog"
+            aria-modal="true"
           >
-            Simpan
-          </Button>
+            <div className="sf-modal-header">
+              <div className="sf-modal-header-copy">
+                <div className="sf-modal-title">Catatan Lapangan</div>
+                <div className="sf-modal-subtitle">No. Rumah {editingHousehold?.house_number || ''}</div>
+              </div>
+              <button
+                type="button"
+                className="sf-modal-close"
+                onClick={() => setNoteModalOpen(false)}
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+            <div className="sf-modal-body">
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                rows={4}
+                placeholder="Masukkan catatan lapangan..."
+                style={{ width: '100%', padding: 10, border: '1px solid var(--sf-border)', borderRadius: 8, fontFamily: 'inherit', fontSize: 14 }}
+              />
+              <div className="sf-modal-footer">
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-ghost"
+                  onClick={() => setNoteModalOpen(false)}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-primary"
+                  disabled={noteText.trim() === '' || editingHousehold?.note === noteText}
+                  onClick={() => {
+                    if (!editingHousehold) return
+                    if (noteText.trim() === '') return
+                    if (editingHousehold.note === noteText) {
+                      setNoteModalOpen(false)
+                      return
+                    }
+                    handleUpdateNote(editingHousehold.household_occupancy_id, noteText)
+                  }}
+                >
+                  Simpan
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
     </>
   )
 }

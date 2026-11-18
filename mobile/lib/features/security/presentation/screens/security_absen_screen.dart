@@ -477,7 +477,9 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                     )
                   else ...[
                     Text(
-                      '${currentSchedule.shiftName} · ${currentSchedule.shiftDate}',
+                      currentSchedule.shiftDate.isNotEmpty
+                          ? '${currentSchedule.shiftName} · ${currentSchedule.shiftDate}'
+                          : currentSchedule.shiftName,
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -485,7 +487,7 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Jam Tugas: ${currentSchedule.startTime.substring(0, 5)} - ${currentSchedule.endTime.substring(0, 5)} WIB',
+                      'Jam Tugas: ${currentSchedule.startTime.length >= 5 ? currentSchedule.startTime.substring(0, 5) : currentSchedule.startTime} - ${currentSchedule.endTime.length >= 5 ? currentSchedule.endTime.substring(0, 5) : currentSchedule.endTime} WIB',
                     ),
                     if (currentRecord != null) ...[
                       const SizedBox(height: 8),
@@ -618,9 +620,13 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   leading: const Icon(Icons.calendar_today_outlined),
-                  title: Text('${s.shiftDate} · ${s.shiftName}'),
+                  title: Text(
+                    s.shiftDate.isNotEmpty
+                        ? '${s.shiftDate} · ${s.shiftName}'
+                        : s.shiftName,
+                  ),
                   subtitle: Text(
-                    '${s.startTime.substring(0, 5)} - ${s.endTime.substring(0, 5)} WIB · Periode ${s.assignmentStartDate} – ${s.assignmentEndDate}',
+                    '${s.startTime.length >= 5 ? s.startTime.substring(0, 5) : s.startTime} - ${s.endTime.length >= 5 ? s.endTime.substring(0, 5) : s.endTime} WIB',
                   ),
                   trailing: TextButton.icon(
                     onPressed: () => _openSwapDialog(s),

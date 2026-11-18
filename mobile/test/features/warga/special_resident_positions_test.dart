@@ -46,8 +46,8 @@ void main() {
       expect(sosial.displayJabatan, equals('Seksi Sosial'));
 
       expect(keamanan.jabatanColor, equals(AppColors.danger));
-      expect(operasional.jabatanColor, equals(AppColors.info));
-      expect(kebersihan.jabatanColor, equals(AppColors.success));
+      expect(operasional.jabatanColor, equals(AppColors.teal));
+      expect(kebersihan.jabatanColor, equals(AppColors.chartreuse));
     });
 
     testWidgets('SpecialResidentCreateScreen dropdown displays Keamanan, Operasional, and Kebersihan', (tester) async {

@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 
 interface BadgeProps {
   children: ReactNode
-  variant?: 'violet' | 'deepPurple' | 'lightPurple' | 'green' | 'red' | 'amber' | 'blue' | 'gray' | 'default'
+  variant?: 'violet' | 'deepPurple' | 'lightPurple' | 'green' | 'red' | 'amber' | 'blue' | 'gray' | 'teal' | 'chartreuse' | 'pink' | 'default'
   style?: React.CSSProperties
 }
 
@@ -46,6 +46,24 @@ const variantStyles: Record<string, React.CSSProperties> = {
     color: `color-mix(in srgb, #6B7280 ${65}%, var(--sf-text))`,
     borderColor: `color-mix(in srgb, #969BA5 ${70}%, var(--sf-border))`,
     background: `linear-gradient(145deg, color-mix(in srgb, #6B7280 ${50}%, var(--sf-bg)), color-mix(in srgb, #6B7280 ${30}%, var(--sf-bg)))`,
+  },
+  // ── Teal: used for "Operasional" position (matches Android AppColors.teal) ──
+  teal: {
+    color: `color-mix(in srgb, #009688 ${82}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #009688 ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #009688 ${17}%, var(--sf-bg)), color-mix(in srgb, #009688 ${9}%, var(--sf-bg)))`,
+  },
+  // ── Chartreuse: used for "Kebersihan" position (matches Android AppColors.chartreuse) ──
+  chartreuse: {
+    color: `color-mix(in srgb, #9AC531 ${82}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #9AC531 ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #9AC531 ${17}%, var(--sf-bg)), color-mix(in srgb, #9AC531 ${9}%, var(--sf-bg)))`,
+  },
+  // ── Pink: used for "Sosial" position (matches Android AppColors.lightPink) ──
+  pink: {
+    color: `color-mix(in srgb, #FADADD ${82}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #FADADD ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #FADADD ${17}%, var(--sf-bg)), color-mix(in srgb, #FADADD ${9}%, var(--sf-bg)))`,
   },
   default: {
     color: `var(--sf-text-muted)`,

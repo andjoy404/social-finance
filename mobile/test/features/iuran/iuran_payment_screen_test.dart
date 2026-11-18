@@ -71,7 +71,8 @@ Future<void> _scrollToVisible(WidgetTester tester, Finder target) async {
   final elements = target.evaluate();
   if (elements.isEmpty) return;
   final element = elements.first;
-  final scrollable = Scrollable.of(element);
+  final scrollable = Scrollable.maybeOf(element);
+  if (scrollable == null) return;
   final position = scrollable.position;
   final maxScroll = position.maxScrollExtent;
   final currentScroll = position.pixels;
@@ -122,16 +123,16 @@ void main() {
       'renders date, method, amount, and notes fields',
       (tester) async {
         await _pumpPage(tester);
-        expect(find.text('Tanggal Pembayaran'), findsOneWidget);
+        expect(find.text('Tanggal Pembayaran', skipOffstage: false), findsOneWidget);
         expect(find.text('Metode Pembayaran', skipOffstage: false), findsOneWidget);
         expect(find.text('Tunai', skipOffstage: false), findsOneWidget);
         expect(find.text('Transfer', skipOffstage: false), findsOneWidget);
         // SegmentedButton requires widgetPredicate in this Flutter version.
         expect(_findSegmentedButton(), findsOneWidget);
-        expect(find.text('Nominal Pembayaran'), findsOneWidget);
-        expect(find.text('Catatan Pembayaran'), findsOneWidget);
+        expect(find.text('Nominal Pembayaran', skipOffstage: false), findsOneWidget);
+        expect(find.text('Catatan Pembayaran', skipOffstage: false), findsOneWidget);
         // 2 TextFields: nominal + notes
-        expect(find.byType(TextField), findsNWidgets(2));
+        expect(find.byType(TextField, skipOffstage: false), findsNWidgets(2));
       },
     );
 

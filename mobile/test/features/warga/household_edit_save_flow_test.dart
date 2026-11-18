@@ -23,7 +23,9 @@ import 'package:social_finance/features/warga/presentation/screens/household_edi
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
 class _FakeWargaRepository extends WargaRepository {
-  _FakeWargaRepository() : super(client: ApiClient(baseUrl: 'http://test.local'));
+  final bool shouldFail;
+  _FakeWargaRepository({this.shouldFail = false})
+      : super(client: ApiClient(baseUrl: 'http://test.local'));
 
   @override
   Future<PaginatedResponse<MappedResident>> fetchResidentsWithHouseholds({
@@ -70,6 +72,7 @@ class _FakeWargaRepository extends WargaRepository {
     required UpdateHouseholdRequest request,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (shouldFail) throw Exception('Simpan gagal');
   }
 
   @override
@@ -87,11 +90,12 @@ Widget _buildApp({
   required GlobalKey<NavigatorState> navigatorKey,
   required String householdId,
   bool isSuperAdmin = false,
+  bool shouldFail = false,
 }) {
   return ProviderScope(
     key: ValueKey('household-edit-save-test-${DateTime.now().millisecondsSinceEpoch}'),
     overrides: [
-      wargaRepositoryProvider.overrideWithValue(_FakeWargaRepository()),
+      wargaRepositoryProvider.overrideWithValue(_FakeWargaRepository(shouldFail: shouldFail)),
       wargaListProvider.overrideWith(
         () => _StaticWargaListNotifier(),
       ),
@@ -102,10 +106,16 @@ Widget _buildApp({
         navigatorKey: navigatorKey,
         routes: [
           GoRoute(
-            path: '/home/warga/edit/:householdId',
-            pageBuilder: (context, state) => MaterialPage(
-              child: HouseholdEditScreen(householdId: householdId),
-            ),
+            path: '/home/warga',
+            builder: (context, state) => const Scaffold(body: Text('Warga List')),
+            routes: [
+              GoRoute(
+                path: 'edit/:householdId',
+                pageBuilder: (context, state) => MaterialPage(
+                  child: HouseholdEditScreen(householdId: householdId),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -169,6 +179,7 @@ void main() {
         await tester.pumpWidget(_buildApp(
           navigatorKey: navigatorKey,
           householdId: 'mock-household',
+          shouldFail: true,
         ));
         await tester.pumpAndSettle();
 
@@ -192,6 +203,7 @@ void main() {
         await tester.pumpWidget(_buildApp(
           navigatorKey: navigatorKey,
           householdId: 'mock-household',
+          shouldFail: true,
         ));
         await tester.pumpAndSettle();
 

@@ -303,8 +303,8 @@ describe('IuranList - warga cannot reach manager tabs', () => {
     })
 
     // No manager tabs, and the data request stays scoped to the warga's own bills.
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'IURAN WARGA' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'KELOLA IURAN' })).toBeNull()
     await waitFor(() => {
       const lastCall = (api.apiListBills as any).mock.calls.at(-1)[1]
       expect(lastCall.my_bills).toBe(true)

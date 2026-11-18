@@ -776,13 +776,28 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 		return nil, fmt.Errorf("get rt info: %w", err)
 	}
 
-	// 2. Query active positions and members
+	// 2. Query active positions and members (with avatar from residents)
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
-		       CASE WHEN $2 = true THEN u.phone ELSE NULL END AS phone,
-		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email
+		       CASE WHEN ($2 = true OR lower(trim(m.jabatan)) = 'keamanan') THEN u.phone ELSE NULL END AS phone,
+		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
+		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m
 		JOIN users u ON m.user_id = u.id
+		LEFT JOIN LATERAL (
+			SELECT r.avatar_thumb_path, r.avatar_path
+			FROM residents r
+			WHERE (
+				r.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(r.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					r.phone = u.phone
+					OR regexp_replace(r.phone, '^(\\+62|62|0)', '') = regexp_replace(u.phone, '^(\\+62|62|0)', '')
+				))
+			) AND r.rt_id = $1 AND r.is_active = true
+			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, r.updated_at DESC
+			LIMIT 1
+		) r ON true
 		WHERE m.rt_id = $1 AND m.is_active = true AND u.is_active = true AND m.jabatan IS NOT NULL
 		ORDER BY m.created_at ASC
 	`
@@ -796,7 +811,8 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	for rows.Next() {
 		var memID, userID, fullName, jab string
 		var phone, email sql.NullString
-		if err := rows.Scan(&memID, &userID, &fullName, &jab, &phone, &email); err != nil {
+		var avatarThumbPath sql.NullString
+		if err := rows.Scan(&memID, &userID, &fullName, &jab, &phone, &email, &avatarThumbPath); err != nil {
 			return nil, fmt.Errorf("scan org member: %w", err)
 		}
 		om := OrgMember{
@@ -807,6 +823,10 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 		}
 		if phone.Valid && phone.String != "" {
 			om.Phone = &phone.String
+		}
+		if avatarThumbPath.Valid && avatarThumbPath.String != "" {
+			avatarURL := avatarThumbPath.String
+			om.AvatarURL = &avatarURL
 		}
 		membersByJabatan[jab] = append(membersByJabatan[jab], om)
 	}

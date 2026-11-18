@@ -557,6 +557,26 @@ export async function apiGetRWNotifications(
   }
 }
 
+export async function apiGetRWMyNotifications(
+  token: string,
+  rwId: string,
+  page?: number,
+  pageSize?: number,
+  eventType?: string,
+): Promise<{ data: any[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
+  const params = new URLSearchParams()
+  params.set('page', String(page ?? 1))
+  params.set('page_size', String(pageSize ?? 20))
+  if (eventType) params.set('event_type', eventType)
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/mine?${params.toString()}`
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  return {
+    data: body.data ?? [],
+    pagination: body.pagination ?? { page: 1, page_size: 20, total: 0, total_pages: 0 },
+  }
+}
+
 /** POST /api/v1/rw/{rwId}/notifications/manual — send manual push notification */
 export async function apiSendRWManualPush(
   token: string,

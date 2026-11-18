@@ -659,6 +659,16 @@ class RwNotificationLog {
   final String? status;
   final String? triggeredBy;
   final DateTime? createdAt;
+  final int recipientsCount;
+  final int sentCount;
+  final int failedCount;
+  final bool deliveryCountsAvailable;
+  final String? imageUrl;
+  final String? source;
+  final Map<String, dynamic>? payload;
+  final String? url;
+  final bool isRead;
+  final DateTime? readAt;
 
   const RwNotificationLog({
     required this.id,
@@ -670,6 +680,16 @@ class RwNotificationLog {
     this.status,
     this.triggeredBy,
     this.createdAt,
+    this.recipientsCount = 0,
+    this.sentCount = 0,
+    this.failedCount = 0,
+    this.deliveryCountsAvailable = false,
+    this.imageUrl,
+    this.source,
+    this.payload,
+    this.url,
+    this.isRead = false,
+    this.readAt,
   });
 
   factory RwNotificationLog.fromJson(Map<String, dynamic> json) {
@@ -681,6 +701,10 @@ class RwNotificationLog {
       }
       return null;
     }
+    final rawPayload = (json['payload'] as Map?)?.cast<String, dynamic>();
+    final linkUrl = rawPayload?['deep_link']?.toString() ??
+        rawPayload?['url']?.toString() ??
+        json['url']?.toString();
     return RwNotificationLog(
       id: (json['id'] ?? '').toString(),
       rwId: json['rw_id']?.toString(),
@@ -691,6 +715,16 @@ class RwNotificationLog {
       status: json['status']?.toString(),
       triggeredBy: (json['triggered_by'] ?? json['created_by'])?.toString(),
       createdAt: parseDate(json['created_at']),
+      recipientsCount: (json['recipients_count'] as num?)?.toInt() ?? 0,
+      sentCount: (json['sent_count'] as num?)?.toInt() ?? 0,
+      failedCount: (json['failed_count'] as num?)?.toInt() ?? 0,
+      deliveryCountsAvailable: json['delivery_counts_available'] as bool? ?? false,
+      imageUrl: (json['image_url'] ?? json['imageUrl'])?.toString(),
+      source: json['source']?.toString(),
+      payload: rawPayload,
+      url: linkUrl,
+      isRead: json['is_read'] as bool? ?? false,
+      readAt: parseDate(json['read_at']),
     );
   }
 }

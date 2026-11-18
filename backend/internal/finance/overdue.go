@@ -166,6 +166,35 @@ func CalculateOutstandingCents(bill BillEvaluationInput) int64 {
 // FormatRupiahDisplay formats cents (int64) into Indonesian Rupiah display string (e.g. "Rp 450.000").
 func FormatRupiahDisplay(cents int64) string {
 	rupiah := cents / 100
+	return FormatRupiahFromInt(rupiah)
+}
+
+// FormatRupiahFromString parses a decimal string (e.g. "500000.00" from NUMERIC DB column)
+// and formats it as Indonesian Rupiah display string (e.g. "Rp 500.000").
+// It truncates the fractional part (no cents in display) and handles empty/invalid input.
+func FormatRupiahFromString(amountStr string) string {
+	amountStr = strings.TrimSpace(amountStr)
+	if amountStr == "" {
+		return "Rp 0"
+	}
+	// Parse the integer part before the decimal point.
+	intPart := amountStr
+	if idx := strings.Index(amountStr, "."); idx >= 0 {
+		intPart = amountStr[:idx]
+	}
+	if intPart == "" || intPart == "-" {
+		return "Rp 0"
+	}
+	var rupiah int64
+	_, err := fmt.Sscanf(intPart, "%d", &rupiah)
+	if err != nil || rupiah < 0 {
+		return "Rp 0"
+	}
+	return FormatRupiahFromInt(rupiah)
+}
+
+// FormatRupiahFromInt formats an integer rupiah value into Indonesian Rupiah display string.
+func FormatRupiahFromInt(rupiah int64) string {
 	if rupiah <= 0 {
 		return "Rp 0"
 	}

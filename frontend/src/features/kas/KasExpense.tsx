@@ -4,7 +4,7 @@ import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
-import { hasWargaWriteAccess } from '@/app/wargaAuth'
+import { hasKasWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
@@ -47,7 +47,7 @@ export function KasExpense() {
 
   if (!user) return null
 
-  const canWrite = hasWargaWriteAccess(user)
+  const canWrite = hasKasWriteAccess(user)
 
   const handleClose = () => navigate('/kas')
 

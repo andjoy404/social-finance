@@ -1782,16 +1782,24 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                     backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: AppColors.danger),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
                     ),
                   ),
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.close, size: 18),
-                      SizedBox(width: 6),
-                      Text('Batal'),
+                      Icon(Icons.close, size: 16),
+                      SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'Batal',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1807,7 +1815,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -1827,10 +1835,16 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         )
                       : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.save_outlined, size: 18),
-                            SizedBox(width: 6),
-                            Text('Simpan'),
+                            Icon(Icons.save_outlined, size: 16),
+                            SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Simpan',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         ),
                 ),

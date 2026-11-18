@@ -35,6 +35,7 @@ import { useAuth } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import {
   apiGetRWNotifications,
+  apiGetRWMyNotifications,
   apiSendRWManualPush,
   apiListRWNotificationTemplates,
   apiCreateRWNotificationTemplate,
@@ -63,6 +64,13 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
   const [page, setPage] = useState(1)
   const pageSize = 20
   const [total, setTotal] = useState(0)
+
+  // Sub-tabs for notifications: System vs Mine (Mine only for canManage)
+  const [historyTab, setHistoryTab] = useState<'system' | 'mine'>('system')
+  const [myLogs, setMyLogs] = useState<any[]>([])
+  const [myTotal, setMyTotal] = useState(0)
+  const [myPage, setMyPage] = useState(1)
+  const [myLoading, setMyLoading] = useState(false)
 
   // Modals
   const [showManualPush, setShowManualPush] = useState(false)
@@ -134,10 +142,32 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
     }
   }, [rwId, canRead])
 
+  const loadMyNotifications = useCallback(async () => {
+    if (!canManage) return
+    setMyLoading(true)
+    try {
+      const pair = getSessionPair()
+      if (!pair) return
+      const res = await apiGetRWMyNotifications(pair.accessToken, rwId, myPage, pageSize)
+      setMyLogs(res.data)
+      setMyTotal(res.pagination.total)
+    } catch (err: any) {
+      message.error(err?.message ?? 'Gagal memuat riwayat notifikasi saya')
+    } finally {
+      setMyLoading(false)
+    }
+  }, [rwId, myPage, pageSize, canManage])
+
   useEffect(() => {
     loadNotifications()
     loadTemplates()
   }, [loadNotifications, loadTemplates])
+
+  useEffect(() => {
+    if (canManage && historyTab === 'mine') {
+      loadMyNotifications()
+    }
+  }, [loadMyNotifications, canManage, historyTab])
 
   const handleManualPush = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -158,6 +188,7 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
       setPushTitle('')
       setPushBody('')
       loadNotifications()
+      loadMyNotifications()
     } catch (err: any) {
       message.error(err?.message ?? 'Gagal mengirim notifikasi manual')
     } finally {
@@ -268,6 +299,7 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
       message.success(`Notifikasi berhasil dikirim (${res.sent_count} penerima)`)
       setSendTemplate(null)
       loadNotifications()
+      loadMyNotifications()
     } catch (err: any) {
       message.error(err?.message ?? 'Gagal mengirim notifikasi dari template')
     } finally {
@@ -482,11 +514,79 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
         </div>
 
         <div style={{ flex: 1, border: '1px solid var(--sf-border)', borderRadius: 'var(--sf-radius-md)', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', background: 'var(--sf-surface)', borderBottom: '1px solid var(--sf-border)' }}>
-            <Text style={{ fontWeight: 600 }}>Riwayat Notifikasi</Text>
+          <div style={{ padding: '12px 16px', background: 'var(--sf-surface)', borderBottom: '1px solid var(--sf-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontWeight: 600 }}>
+              {historyTab === 'mine' ? 'Riwayat Notifikasi Saya' : 'Riwayat Notifikasi Sistem'}
+            </Text>
+            {canManage && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button
+                  size="small"
+                  type={historyTab === 'system' ? 'primary' : 'default'}
+                  onClick={() => setHistoryTab('system')}
+                >
+                  Sistem
+                </Button>
+                <Button
+                  size="small"
+                  type={historyTab === 'mine' ? 'primary' : 'default'}
+                  onClick={() => setHistoryTab('mine')}
+                >
+                  Saya
+                </Button>
+              </div>
+            )}
           </div>
           <div style={{ borderTop: '1px solid var(--sf-border)' }}>
-            {logs.length === 0 ? (
+            {historyTab === 'mine' && canManage ? (
+              myLogs.length === 0 ? (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
+                  <Text>Belum ada notifikasi yang Anda kirimkan untuk RW ini.</Text>
+                </div>
+              ) : (
+                <Table
+                  dataSource={myLogs}
+                  rowKey="id"
+                  columns={[
+                    {
+                      title: 'Waktu',
+                      dataIndex: 'created_at',
+                      width: 170,
+                    },
+                    {
+                      title: 'Judul',
+                      dataIndex: 'title',
+                    },
+                    {
+                      title: 'Isi',
+                      dataIndex: 'body',
+                      render: (body: string) => renderNotificationBody(body),
+                    },
+                    {
+                      title: 'Penerima',
+                      width: 120,
+                      render: (_: any, r: any) =>
+                        r.delivery_counts_available
+                          ? `${r.sent_count ?? 0} / ${r.recipients_count ?? 0}`
+                          : '-',
+                    },
+                    {
+                      title: 'Status',
+                      dataIndex: 'status',
+                      width: 110,
+                      render: (text: string) => statusBadge(text),
+                    },
+                  ]}
+                  pagination={{
+                    current: myPage,
+                    pageSize,
+                    total: myTotal,
+                    onChange: (p) => setMyPage(p),
+                  }}
+                  loading={myLoading}
+                />
+              )
+            ) : logs.length === 0 ? (
               <div style={{ padding: 32, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
                 <Text>Belum ada notifikasi untuk RW ini.</Text>
               </div>

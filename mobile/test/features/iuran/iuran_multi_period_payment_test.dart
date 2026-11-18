@@ -247,7 +247,7 @@ void main() {
         await tester.drag(find.byType(ListView), const Offset(0, -500));
         await tester.pumpAndSettle();
 
-        final btn = tester.widget<OutlinedButton>(
+        final btn = tester.widget<ElevatedButton>(
           find.byKey(const Key('btn_save')),
         );
         expect(btn.onPressed, isNull);
@@ -284,7 +284,7 @@ void main() {
         await tester.drag(find.byType(ListView), const Offset(0, -600));
         await tester.pumpAndSettle();
 
-        final btn = tester.widget<OutlinedButton>(
+        final btn = tester.widget<ElevatedButton>(
           find.byKey(const Key('btn_save')),
         );
         expect(btn.onPressed, isNotNull);
@@ -344,7 +344,7 @@ void main() {
         await tester.drag(find.byType(ListView), const Offset(0, -300));
         await tester.pumpAndSettle();
 
-        final btn = tester.widget<OutlinedButton>(
+        final btn = tester.widget<ElevatedButton>(
           find.byKey(const Key('btn_save')),
         );
         expect(btn.onPressed, isNull);

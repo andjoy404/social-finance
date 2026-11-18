@@ -126,13 +126,7 @@ void main() {
         findsOneWidget,
       );
 
-      // Scroll to save button and check it is disabled
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('btn_save')),
-        500,
-        scrollable: find.byType(Scrollable).first,
-      );
-      final btn = tester.widget<OutlinedButton>(find.byKey(const Key('btn_save')));
+      final btn = tester.widget<ElevatedButton>(find.byKey(const Key('btn_save')));
       expect(btn.onPressed, isNull);
     });
   });

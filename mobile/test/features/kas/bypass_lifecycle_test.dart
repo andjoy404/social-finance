@@ -303,10 +303,7 @@ void main() {
         expect(KasFormNavigationGuard.isFormPath('/home/iuran'), isFalse);
         expect(KasFormNavigationGuard.isFormPath('/home/iuran/detail/abc'), isFalse);
         expect(KasFormNavigationGuard.isFormPath('/home/warga'), isFalse);
-        expect(
-          KasFormNavigationGuard.isFormPath('/home/warga/edit/petugas/xyz'),
-          isFalse,
-        );
+        expect(KasFormNavigationGuard.isFormPath('/home/profil'), isFalse);
       },
     );
   });

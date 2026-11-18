@@ -85,6 +85,33 @@ export function Dashboard() {
   const orgNodes = data?.organization?.nodes ?? []
   const security = data?.security_on_duty
 
+  // Map RT position to Badge variant — matches Android _getJabatanColor
+  const getJabatanBadgeVariant = (position: string): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'teal' | 'chartreuse' | 'pink' | 'default' => {
+    const key = (position ?? '').trim().toLowerCase().replace(/\s+/g, '_')
+    switch (key) {
+      case 'ketua':
+      case 'ketua_rt': return 'violet'
+      case 'wakil_ketua':
+      case 'wakil_ketua_rt': return 'blue'
+      case 'sekretaris':
+      case 'sekretaris_rt': return 'green'
+      case 'bendahara':
+      case 'bendahara_rt': return 'amber'
+      case 'keamanan':
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt': return 'red'
+      case 'operasional':
+      case 'operasional_rt': return 'teal'
+      case 'kebersihan':
+      case 'kebersihan_rt': return 'chartreuse'
+      case 'sosial':
+      case 'sosial_rt':
+      case 'seksi_sosial': return 'pink'
+      default: return 'default'
+    }
+  }
+
   const handleBannerClick = (b: CommunityBanner) => {
     const title = (b.title ?? '').trim()
     if (title === 'Pengingat Iuran Warga' || b.source_type === 'iuran_reminder') {
@@ -628,39 +655,51 @@ export function Dashboard() {
                         boxSizing: 'border-box',
                       }}
                     >
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          color: lvl === 1 ? 'var(--sf-accent)' : lvl === 2 ? 'var(--sf-info)' : lvl === 3 ? 'var(--sf-success)' : 'var(--sf-text-muted)',
-                          letterSpacing: 0.5,
-                          marginBottom: 6,
-                        }}
-                      >
-                        {node.position_label}
-                      </div>
-
                       {node.members.length > 0 ? (
                         node.members.map((member) => (
-                          <div key={member.user_id} style={{ marginTop: 4 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sf-text)' }}>
-                              {member.full_name}
-                            </div>
-                            {member.phone && (
-                              <div
-                                style={{
-                                  fontSize: 12,
-                                  color: 'var(--sf-text-muted)',
-                                  marginTop: 2,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <PhoneOutlined style={{ fontSize: 11 }} /> {member.phone}
+                          <div
+                            key={member.user_id}
+                            style={{
+                              marginTop: 8,
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 12,
+                            }}
+                          >
+                            {/* Profile Avatar */}
+                            <ResidentAvatar
+                              name={member.full_name}
+                              avatarThumbPath={member.avatar_url}
+                              size={40}
+                            />
+
+                            {/* Member Info */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {member.jabatan && (
+                                <div style={{ marginBottom: 4 }}>
+                                  <Badge variant={getJabatanBadgeVariant(member.jabatan)}>
+                                    {member.jabatan.toUpperCase()}
+                                  </Badge>
+                                </div>
+                              )}
+                              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sf-text)' }}>
+                                {member.full_name}
                               </div>
-                            )}
+                              {member.phone && (
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: 'var(--sf-text-muted)',
+                                    marginTop: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <PhoneOutlined style={{ fontSize: 11 }} /> {member.phone}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ))
                       ) : (

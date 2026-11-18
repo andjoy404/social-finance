@@ -38,27 +38,68 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const [activeTab, setActiveTab] = useState<RwViewTab>('dashboard')
   const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
   const isSuperAdmin = user?.role === 'super_admin' || (user as any)?.systemRole === 'super_admin' || (user as any)?.system_role === 'super_admin'
-  const rwMemberships = rawRwMemberships.filter(
-    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].includes(m.jabatan.toLowerCase()))
-  )
-
-  // Sync tab with URL wildcard
-  useEffect(() => {
-    const rawSub = (params['*'] || '').split('/')[0]
-    if (rawSub === 'kas' || rawSub === 'lokasi-dana' || rawSub === 'notification') {
-      setActiveTab(rawSub)
-    } else if (rawSub === 'dashboard' || !rawSub) {
-      setActiveTab('dashboard')
+  const isAnggotaRT =
+    ((user?.jabatan ?? '').trim().toLowerCase() === 'anggota_rt' ||
+      (user?.jabatan ?? '').trim().toLowerCase() === 'anggota') &&
+    user?.role === 'pengurus'
+  // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
+  const filteredRwMemberships = rawRwMemberships.filter((m) => {
+    if (isSuperAdmin) return true
+    if (!m.jabatan) return false
+    const j = m.jabatan.toLowerCase()
+    if (['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota_rt'].includes(j)) {
+      return true
     }
-  }, [params])
+    if (j === 'anggota') {
+      return user?.role === 'pengurus'
+    }
+    return false
+  })
+  const rwMemberships = filteredRwMemberships.length > 0
+    ? filteredRwMemberships
+    : (isAnggotaRT && user?.rwId
+        ? [{
+            rw_id: user.rwId,
+            rw_name: user.rwName ?? undefined,
+            rw_number: user.rwNumber ?? undefined,
+            jabatan: 'anggota_rt',
+            source: 'rt_inferred' as const,
+          }]
+        : [])
 
   // Final Matrix permissions:
-  // Pengurus RT (rt_inferred): Beranda RW only. KAS, Lokasi Dana, Notifikasi are NO.
+  // Pengurus RT (rt_inferred): Beranda RW + KAS RW READ. Lokasi Dana dan Notifikasi are NO.
   // Pengurus RW (explicit, e.g. wakil_ketua, sekretaris): READ for all 4 features. WRITE is NO.
   // Ketua RW & Bendahara RW: READ + WRITE for all 4 features.
   // Super Admin: Full bypass.
   const canAccessFeatures = hasRwFeatureAccess(user, selectedRwId)
   const canWriteForSelected = hasRwWriteAccess(user, selectedRwId)
+
+  // Check if user has explicit RW membership (not rt_inferred).
+  // rt_inferred users get Beranda + KAS only; explicit RW members get all features.
+  const hasExplicitRwMembership = (() => {
+    if (!user || !selectedRwId) return false
+    if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
+    const membership = (user.rwMemberships ?? []).find((m) => m.rw_id === selectedRwId)
+    return membership?.source === 'explicit'
+  })()
+
+  // Sync tab with URL wildcard
+  useEffect(() => {
+    const rawSub = (params['*'] || '').split('/')[0]
+    if (rawSub === 'kas') {
+      setActiveTab('kas')
+    } else if (rawSub === 'lokasi-dana' || rawSub === 'notification') {
+      if (hasExplicitRwMembership) {
+        setActiveTab(rawSub as RwViewTab)
+      } else if (selectedRwId) {
+        setActiveTab('dashboard')
+        navigate(`/rw-view/${selectedRwId}/dashboard`, { replace: true })
+      }
+    } else if (rawSub === 'dashboard' || !rawSub) {
+      setActiveTab('dashboard')
+    }
+  }, [params, hasExplicitRwMembership, selectedRwId, navigate])
 
   const visibleTabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => {
     const base: { key: RwViewTab; label: string; icon: React.ReactNode }[] = [
@@ -68,12 +109,16 @@ export function RwDataView({ rwId }: { rwId?: string }) {
         icon: <DashboardOutlined />,
       },
     ]
+    // KAS tab: visible for all RT officials (rt_inferred) and explicit RW members.
     if (canAccessFeatures) {
       base.push({
         key: 'kas',
         label: 'KAS',
         icon: <WalletOutlined />,
       })
+    }
+    // Lokasi Dana and Notifikasi: only for explicit RW members.
+    if (hasExplicitRwMembership) {
       base.push({
         key: 'lokasi-dana',
         label: 'Lokasi Dana',
@@ -86,7 +131,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
       })
     }
     return base
-  }, [canAccessFeatures, canWriteForSelected])
+  }, [canAccessFeatures, canWriteForSelected, hasExplicitRwMembership])
   const tabs = visibleTabs
 
   // Initialize selected RW from URL param or auto-select single membership

@@ -948,6 +948,12 @@ func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, 
 		{code: "security.correction", roleAllows: false},
 		{code: "security.guest_book", roleAllows: false},
 		{code: "resident.profile_photo.manage", roleAllows: false},
+		{code: "patrol.create", roleAllows: false},
+		{code: "patrol.read", roleAllows: false},
+		{code: "patrol.template.manage", roleAllows: false},
+		{code: "paket.create", roleAllows: false},
+		{code: "paket.read", roleAllows: false},
+		{code: "paket.status_change", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)

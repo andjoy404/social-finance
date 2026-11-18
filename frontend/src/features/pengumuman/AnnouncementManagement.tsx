@@ -4,6 +4,8 @@ import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import { CommunityImage } from '@/components/CommunityImage'
 import { Pagination } from '@/components/Pagination'
+import { SearchBox } from '@/components/SearchBox'
+import { FilterDropdown } from '@/components/FilterDropdown'
 import {
   NotificationOutlined,
   PlusOutlined,
@@ -50,18 +52,30 @@ export function AnnouncementManagement() {
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editingAnnouncement, setEditingAnnouncement] = useState<CommunityAnnouncement | null>(null)
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] = useState<BannerTemplate | null>(null)
   const [viewingAnnouncement, setViewingAnnouncement] = useState<CommunityAnnouncement | null>(null)
   const sortedAnnouncements = useMemo(() => {
-    return [...announcements].sort((a, b) => {
+    let filtered = [...announcements].sort((a, b) => {
       const pa = a.is_permanent ? 1 : 0
       const pb = b.is_permanent ? 1 : 0
       if (pa !== pb) return pb - pa
       return b.priority - a.priority
     })
-  }, [announcements])
+
+    // Client-side search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      filtered = filtered.filter((a) =>
+        a.title.toLowerCase().includes(q) ||
+        (a.body && a.body.toLowerCase().includes(q)),
+      )
+    }
+
+    return filtered
+  }, [announcements, searchQuery])
 
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
@@ -121,6 +135,11 @@ export function AnnouncementManagement() {
   const handleStatusFilter = (next: string) => {
     setPage(1)
     setStatusFilter(next)
+  }
+
+  const handleSearch = (query: string) => {
+    setPage(1)
+    setSearchQuery(query)
   }
 
   const handlePublish = async (id: string, republish: boolean) => {
@@ -215,22 +234,81 @@ export function AnnouncementManagement() {
         }
       />
 
-      {/* Main Tabs: Pengumuman vs Template Banner */}
+      {/* Main Tabs: Daftar Pengumuman vs Template Banner */}
       {canManage && (
-        <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            margin: '16px 0 0 0',
+            borderBottom: '1px solid var(--sf-border)',
+          }}
+        >
           <button
             type="button"
             onClick={() => setActiveTab('announcements')}
-            className={`sf-btn ${activeTab === 'announcements' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: activeTab === 'announcements' ? 600 : 400,
+              fontStyle: 'normal',
+              color: activeTab === 'announcements' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              border: 'none',
+              borderBottom: activeTab === 'announcements' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+              background: activeTab === 'announcements' ? 'var(--sf-surface-hover)' : 'transparent',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => {
+              if (activeTab !== 'announcements') {
+                e.currentTarget.style.background = 'var(--sf-surface-hover)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== 'announcements') {
+                e.currentTarget.style.background = 'transparent'
+              }
+            }}
+            aria-label="Tab Daftar Pengumuman"
           >
-            <NotificationOutlined /> Daftar Pengumuman ({total})
+            <NotificationOutlined aria-hidden="true" /> Daftar Pengumuman ({total})
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('templates')}
-            className={`sf-btn ${activeTab === 'templates' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: activeTab === 'templates' ? 600 : 400,
+              fontStyle: 'normal',
+              color: activeTab === 'templates' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              border: 'none',
+              borderBottom: activeTab === 'templates' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+              background: activeTab === 'templates' ? 'var(--sf-surface-hover)' : 'transparent',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => {
+              if (activeTab !== 'templates') {
+                e.currentTarget.style.background = 'var(--sf-surface-hover)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== 'templates') {
+                e.currentTarget.style.background = 'transparent'
+              }
+            }}
+            aria-label="Tab Template Banner"
           >
-            <AppstoreOutlined /> Template Banner ({templates.length})
+            <AppstoreOutlined aria-hidden="true" /> Template Banner ({templates.length})
           </button>
         </div>
       )}
@@ -246,69 +324,120 @@ export function AnnouncementManagement() {
       )}
 
       {activeTab === 'announcements' ? (
-        <>
-          {/* Status Filters */}
-          <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
-            <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {(canManage
-                ? [
-                    { id: 'all', label: 'Semua Status' },
-                    { id: 'active', label: 'Aktif' },
-                    { id: 'draft', label: 'Draf' },
-                    { id: 'scheduled', label: 'Terjadwal' },
-                    { id: 'archived', label: 'Diarsipkan' },
-                  ]
-                : [
-                    { id: 'all', label: 'Semua' },
-                    { id: 'active', label: 'Aktif' },
-                    { id: 'history', label: 'Riwayat' },
-                  ]
-              ).map((tab) => (
+        <div className="sf-content-surface">
+          {/* Toolbar */}
+          <div className="sf-list-toolbar">
+            <div className="sf-list-toolbar-left">
+              {/* Status Filter Dropdown */}
+              <FilterDropdown
+                value={statusFilter === 'all' ? 'semua' : statusFilter}
+                options={canManage
+                  ? [
+                      { value: 'semua', label: 'Semua Status' },
+                      { value: 'active', label: 'Aktif' },
+                      { value: 'draft', label: 'Draf' },
+                      { value: 'scheduled', label: 'Terjadwal' },
+                      { value: 'archived', label: 'Diarsipkan' },
+                    ]
+                  : [
+                      { value: 'semua', label: 'Semua' },
+                      { value: 'active', label: 'Aktif' },
+                      { value: 'history', label: 'Riwayat' },
+                    ]}
+                onChange={(v) => handleStatusFilter(v === 'semua' ? 'all' : v)}
+                ariaLabel="Status pengumuman"
+              />
+
+              {/* Search */}
+              <SearchBox
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSearch={handleSearch}
+                placeholder="Cari judul pengumuman..."
+              />
+            </div>
+
+            <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Status filter buttons for canManage */}
+              {canManage && [
+                { value: 'all', label: 'Semua' },
+                { value: 'active', label: 'Aktif' },
+                { value: 'draft', label: 'Draf' },
+                { value: 'scheduled', label: 'Terjadwal' },
+                { value: 'archived', label: 'Diarsipkan' },
+              ].map((opt) => (
                 <button
-                  key={tab.id}
+                  key={opt.value}
                   type="button"
-                  className={`sf-btn ${statusFilter === tab.id ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-                  onClick={() => handleStatusFilter(tab.id)}
-                  style={{ padding: '6px 14px', fontSize: 13 }}
+                  className={`sf-btn ${statusFilter === opt.value ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+                  onClick={() => handleStatusFilter(opt.value)}
+                  style={{ padding: '6px 14px', fontSize: 12 }}
                 >
-                  {tab.label}
+                  {opt.label}
                 </button>
               ))}
+              {!canManage && [
+                { value: 'all', label: 'Semua' },
+                { value: 'active', label: 'Aktif' },
+                { value: 'history', label: 'Riwayat' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`sf-btn ${statusFilter === opt.value ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+                  onClick={() => handleStatusFilter(opt.value)}
+                  style={{ padding: '6px 14px', fontSize: 12 }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                onClick={loadData}
+                style={{ padding: '6px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ReloadOutlined style={{ fontSize: 13 }} />
+                Refresh
+              </button>
             </div>
           </div>
 
-          {/* Announcements List */}
-          {loading ? (
-            <div className="sf-card" style={{ padding: 32, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
+          {/* Error */}
+          {error && (
+            <div className="sf-error-banner" role="alert">
+              {error}
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && (
+            <div className="sf-loading-banner">
               Memuat pengumuman...
             </div>
-          ) : error ? (
-            <div className="sf-card" style={{ padding: 48, textAlign: 'center' }}>
-              <NotificationOutlined style={{ fontSize: 32, marginBottom: 12, color: 'var(--sf-text-muted)' }} />
-              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--sf-text)' }}>Gagal memuat pengumuman</div>
-              <div style={{ fontSize: 13, marginTop: 4, color: 'var(--sf-text-muted)' }}>{error}</div>
-              <button type="button" className="sf-btn sf-btn-outline" style={{ marginTop: 16 }} onClick={loadData}>
-                <ReloadOutlined /> Coba Lagi
-              </button>
+          )}
+
+          {/* Empty */}
+          {!loading && !error && sortedAnnouncements.length === 0 && (
+            <div className="sf-empty-banner">
+              {searchQuery || statusFilter !== 'all'
+                ? 'Tidak ada pengumuman yang sesuai filter.'
+                : 'Belum ada pengumuman'}
             </div>
-          ) : announcements.length > 0 ? (
+          )}
+
+          {/* Announcements Table */}
+          {!loading && sortedAnnouncements.length > 0 && (
             <>
-            <div
-              style={{
-                overflowX: 'auto',
-                background: 'var(--sf-card-bg)',
-                border: '1px solid var(--sf-border)',
-                borderRadius: 8,
-              }}
-            >
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+              <div className="table-wrapper">
+              <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Judul & Ringkasan</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Jadwal & Tautan</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Prioritas</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Status</th>
-                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)', textAlign: 'right' }}>Aksi</th>
+                  <tr>
+                    <th className="col-title">JUDUL & RINGKASAN</th>
+                    <th className="col-schedule">JADWAL & TAUTAN</th>
+                    <th className="col-priority">PRIORITAS</th>
+                    <th className="col-status">STATUS</th>
+                    <th className="col-action">AKSI</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -318,8 +447,9 @@ export function AnnouncementManagement() {
                     const canRepublish = ann.status === 'active' || ann.status === 'scheduled' || ann.status === 'archived'
                     const hasScheduleOrLink = Boolean(windowLabel || ann.deep_link)
                     return (
-                      <tr key={ann.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
-                        <td style={{ padding: '14px 16px', verticalAlign: 'top', maxWidth: 420 }}>
+                      <tr key={ann.id}>
+                        {/* 1. JUDUL & RINGKASAN */}
+                        <td className="col-title">
                           <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: ann.body ? 2 : 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span>{ann.title}</span>
                             {ann.image_url && (
@@ -345,13 +475,14 @@ export function AnnouncementManagement() {
                             )}
                           </div>
                           {ann.body && (
-                            <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12 }}>
                               {ann.body}
                             </div>
                           )}
                         </td>
 
-                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                        {/* 2. JADWAL & TAUTAN */}
+                        <td className="col-schedule">
                           {hasScheduleOrLink ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                               {windowLabel && (
@@ -382,17 +513,20 @@ export function AnnouncementManagement() {
                           )}
                         </td>
 
-                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                        {/* 3. PRIORITAS */}
+                        <td className="col-priority">
                           <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', fontWeight: 600 }}>
-                            Prioritas: {ann.priority}
+                            {ann.priority}
                           </span>
                         </td>
 
-                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                        {/* 4. STATUS */}
+                        <td className="col-status">
                           {getStatusBadge(ann.status)}
                         </td>
 
-                        <td style={{ padding: '14px 16px', verticalAlign: 'top', textAlign: 'right' }}>
+                        {/* 5. AKSI */}
+                        <td className="col-action">
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button
                               type="button"
@@ -490,30 +624,20 @@ export function AnnouncementManagement() {
                 </tbody>
               </table>
             </div>
-            {totalPages > 1 && (
-              <div className="sf-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 12 }}>
-                <Pagination
-                  page={page}
-                  pageSize={pageSize}
-                  total={total}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                />
-              </div>
-            )}
+              {totalPages > 1 && (
+                <div className="sf-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 12 }}>
+                  <Pagination
+                    page={page}
+                    pageSize={pageSize}
+                    total={total}
+                    totalPages={totalPages}
+                    onPageChange={setPage}
+                  />
+                </div>
+              )}
             </>
-          ) : (
-            <div className="sf-card" style={{ padding: 48, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
-              <NotificationOutlined style={{ fontSize: 32, marginBottom: 12 }} />
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Belum ada pengumuman</div>
-              <div style={{ fontSize: 13, marginTop: 4 }}>
-                {canManage
-                  ? 'Gunakan tombol "Tambah Pengumuman" atau pilih dari tab "Template Banner" untuk memulai.'
-                  : 'Belum ada pengumuman yang dipublikasikan oleh pengurus.'}
-              </div>
-            </div>
           )}
-        </>
+        </div>
       ) : (
         /* Template Banner Tab */
         <div

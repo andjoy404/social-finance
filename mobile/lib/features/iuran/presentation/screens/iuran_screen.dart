@@ -74,10 +74,11 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
     final role = _roleValue(user['role']);
     if (role != 'warga') return false;
     // A warga with a management jabatan is not a plain warga for tab purposes.
-    // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
+    // They hold an RT position (ketua, wakil_ketua, bendahara) and
     // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
+    // Sekretaris RT only sees "Iuran Saya" — they are NOT in managementJabatans.
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
-    final managementJabatans = {'ketua', 'wakil_ketua', 'sekretaris', 'bendahara'};
+    final managementJabatans = {'ketua', 'wakil_ketua', 'bendahara'};
     if (managementJabatans.contains(jabatan)) return false;
     return true;
   }
@@ -155,7 +156,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
 
   Widget _buildFab(BuildContext context) {
     final accentSoft = AppColors.accentSoftColor(context);
-    return SizedBox(
+    final button = SizedBox(
+      key: const Key('kelola-iuran-create-btn'),
       height: 48,
       child: OutlinedButton(
         onPressed: () => context.push('/home/iuran/form'),
@@ -176,6 +178,10 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
           ],
         ),
       ),
+    );
+    return Tooltip(
+      message: 'Buat Iuran',
+      child: button,
     );
   }
 }

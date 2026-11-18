@@ -62,25 +62,26 @@ export interface SecurityOfficer {
 
 export interface SecuritySchedule {
   id: string
-  assignment_id: string
-  assignment_start_date: string
-  assignment_end_date: string
+  assignment_id?: string
+  assignment_start_date?: string
+  assignment_end_date?: string
   rt_id: string
   user_id: string
   officer_name?: string
   membership_id: string
   shift_config_id: string
   shift_version: number
-  shift_date: string
+  shift_date?: string
   shift_name: string
   start_time: string
   end_time: string
   crosses_midnight: boolean
   lateness_tolerance_minutes: number
-  scheduled_start_at: string
-  scheduled_end_at: string
+  scheduled_start_at?: string
+  scheduled_end_at?: string
   notes?: string | null
   status: string
+  is_active?: boolean
   attendance_status?: string
   attendance_status_label?: string
   checked_in_at?: string | null
@@ -420,8 +421,9 @@ export async function apiListSecuritySchedules(params: {
 export async function apiCreateSecuritySchedule(payload: {
   user_id: string
   shift_config_id: string
-  start_date: string
-  end_date: string
+  start_date?: string
+  end_date?: string
+  is_active?: boolean
   notes?: string | null
 }): Promise<SecuritySchedule> {
   const res = await authenticatedApiRequest(`${BASE}/security/schedules`, {
@@ -444,8 +446,9 @@ export async function apiGetSecuritySchedule(id: string): Promise<SecuritySchedu
 export async function apiUpdateSecuritySchedule(id: string, payload: {
   user_id: string
   shift_config_id: string
-  start_date: string
-  end_date: string
+  start_date?: string
+  end_date?: string
+  is_active?: boolean
   notes?: string | null
 }): Promise<SecuritySchedule> {
   const res = await authenticatedApiRequest(`${BASE}/security/schedules/${id}`, {
@@ -669,3 +672,278 @@ export async function apiCommitSecuritySchedulesXLSX(rows: ScheduleExcelRow[]): 
   return parseOrThrow(res, 'Gagal menyimpan jadwal yang diimpor')
 }
 
+// ── Patrol & Paket Interfaces & APIs ─────────────────────────────────────────
+
+export interface PatrolTemplate {
+  id: string
+  rt_id: string
+  name: string
+  location_label: string
+  is_active: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PatrolPhoto {
+  id: string
+  patrol_bundle_id: string
+  patrol_template_id: string
+  template_name?: string
+  location_label?: string
+  image_key: string
+  image_url: string
+  captured_at: string
+  created_at: string
+}
+
+export interface PatrolBundle {
+  id: string
+  rt_id: string
+  created_by: string
+  created_by_name?: string
+  current_duty_officer_id?: string | null
+  duty_officer_name?: string
+  submitted_at: string
+  notes?: string | null
+  photos?: PatrolPhoto[]
+  photo_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface PaketPhoto {
+  id: string
+  paket_item_id: string
+  paket_report_id: string
+  image_key: string
+  image_url: string
+  photo_type: string // 'paket' or 'bukti_pengambilan'
+  captured_at: string
+  created_at: string
+}
+
+export interface PaketItem {
+  id: string
+  paket_report_id: string
+  description?: string | null
+  status: 'dititipkan' | 'sudah_diambil' | 'dibatalkan'
+  status_changed_at?: string | null
+  status_changed_by?: string | null
+  changed_by_name?: string
+  photos?: PaketPhoto[]
+  created_at: string
+  updated_at: string
+}
+
+export interface PaketReport {
+  id: string
+  rt_id: string
+  receiver_warga_id: string
+  receiver_name?: string
+  receiver_house_number?: string
+  created_by: string
+  created_by_name?: string
+  items?: PaketItem[]
+  overall_status: 'dititipkan' | 'sudah_diambil' | 'dibatalkan'
+  created_at: string
+  updated_at: string
+}
+
+export interface MaskedWargaSearchResult {
+  id: string
+  full_name: string
+  house_number: string
+}
+
+export async function apiListPatrolTemplates(): Promise<PatrolTemplate[]> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/templates`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  const json = await parseOrThrow<{ data?: PatrolTemplate[] } | PatrolTemplate[]>(res, 'Gagal memuat template patroli')
+  if (Array.isArray(json)) return json
+  return json?.data ?? []
+}
+
+export async function apiCreatePatrolTemplate(input: { name: string; location_label: string }): Promise<PatrolTemplate> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/templates`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
+  })
+  return parseOrThrow(res, 'Gagal membuat template patroli')
+}
+
+export async function apiUpdatePatrolTemplate(
+  id: string,
+  input: { name: string; location_label: string; is_active?: boolean },
+): Promise<PatrolTemplate> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/templates/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
+  })
+  return parseOrThrow(res, 'Gagal mengubah template patroli')
+}
+
+export async function apiDeletePatrolTemplate(id: string): Promise<void> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/templates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    await parseOrThrow(res, 'Gagal menghapus template patroli')
+  }
+}
+
+export async function apiListPatrolBundles(params: { page?: number; per_page?: number } = {}): Promise<PaginatedResult<PatrolBundle>> {
+  const qs = new URLSearchParams()
+  qs.set('page', String(params.page ?? 1))
+  qs.set('per_page', String(params.per_page ?? 20))
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/bundles?${qs.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  return parseOrThrow(res, 'Gagal memuat riwayat patroli')
+}
+
+export async function apiGetPatrolBundle(id: string): Promise<PatrolBundle> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/bundles/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  return parseOrThrow(res, 'Gagal memuat detail patroli')
+}
+
+export async function apiUploadPatrolPhoto(file: File): Promise<{ image_key: string }> {
+  const formData = new FormData()
+  formData.append('photo', file)
+  const headers = authHeaders()
+  delete (headers as Record<string, string>)['Content-Type']
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/photos`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  return parseOrThrow(res, 'Gagal mengunggah foto patroli')
+}
+
+export async function apiCreatePatrolBundle(input: {
+  notes?: string
+  photos: { patrol_template_id: string; image_key: string; captured_at: string }[]
+}): Promise<PatrolBundle> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/bundles`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
+  })
+  return parseOrThrow(res, 'Gagal mengirim laporan patroli')
+}
+
+export async function apiGetPatrolPhotoBlob(photoId: string): Promise<Blob> {
+  const res = await authenticatedApiRequest(`${BASE}/security/patrol/photos/${encodeURIComponent(photoId)}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    await parseOrThrow(res, 'Gagal memuat foto patroli')
+  }
+  return res.blob()
+}
+
+export async function apiListPaketReports(params: { page?: number; per_page?: number } = {}): Promise<PaginatedResult<PaketReport>> {
+  const qs = new URLSearchParams()
+  qs.set('page', String(params.page ?? 1))
+  qs.set('per_page', String(params.per_page ?? 20))
+  const res = await authenticatedApiRequest(`${BASE}/security/paket/reports?${qs.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  return parseOrThrow(res, 'Gagal memuat daftar paket')
+}
+
+export async function apiGetPaketReport(id: string): Promise<PaketReport> {
+  const res = await authenticatedApiRequest(`${BASE}/security/paket/reports/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  return parseOrThrow(res, 'Gagal memuat detail paket')
+}
+
+export async function apiUploadPaketPhoto(file: File): Promise<{ image_key: string }> {
+  const formData = new FormData()
+  formData.append('photo', file)
+  const headers = authHeaders()
+  delete (headers as Record<string, string>)['Content-Type']
+  const res = await authenticatedApiRequest(`${BASE}/security/paket/photos`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  return parseOrThrow(res, 'Gagal mengunggah foto paket')
+}
+
+export async function apiCreatePaketReport(input: {
+  receiver_warga_id: string
+  items: { description?: string; image_keys: string[] }[]
+}): Promise<PaketReport> {
+  const res = await authenticatedApiRequest(`${BASE}/security/paket/reports`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
+  })
+  return parseOrThrow(res, 'Gagal mencatat penerimaan paket')
+}
+
+export async function apiUpdatePaketItemStatus(
+  reportId: string,
+  itemId: string,
+  input: { status: string; proof_image_key?: string },
+): Promise<PaketReport> {
+  const res = await authenticatedApiRequest(
+    `${BASE}/security/paket/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}/status`,
+    {
+      method: 'PATCH',
+      headers: authHeaders(true),
+      body: JSON.stringify(input),
+    },
+  )
+  return parseOrThrow(res, 'Gagal memperbarui status paket')
+}
+
+export async function apiGetPaketPhotoBlob(photoId: string): Promise<Blob> {
+  const res = await authenticatedApiRequest(`${BASE}/security/paket/photos/${encodeURIComponent(photoId)}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    await parseOrThrow(res, 'Gagal memuat foto paket')
+  }
+  return res.blob()
+}
+
+export async function apiSearchWargaMasked(q = '', limit = 20): Promise<{ data: MaskedWargaSearchResult[] }> {
+  const qs = new URLSearchParams()
+  if (q) qs.set('q', q)
+  qs.set('limit', String(limit))
+  const res = await authenticatedApiRequest(`${BASE}/security/warga/search?${qs.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  return parseOrThrow(res, 'Gagal mencari warga')
+}
+
+export async function apiMarkSecurityReadReceipt(
+  domain: 'patrol' | 'paket' | 'correction',
+  itemIds?: string[],
+): Promise<void> {
+  const res = await authenticatedApiRequest(`${BASE}/security/read-receipts`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify({ domain, item_ids: itemIds }),
+  })
+  if (!res.ok) {
+    await parseOrThrow(res, 'Gagal menandai telah dibaca')
+  }
+}

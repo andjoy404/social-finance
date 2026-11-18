@@ -473,8 +473,20 @@ func (r *schedulerRegressionRepo) RecordRWDedup(ctx context.Context, rwID, userI
 	return true, nil
 }
 
+func (r *schedulerRegressionRepo) RecordRWDedupWithStatus(ctx context.Context, rwID, userID, eventType, dedupKey, title, body, status string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
 func (r *schedulerRegressionRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return nil, 0, nil
+}
+
+func (r *schedulerRegressionRepo) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
+}
+
+func (r *schedulerRegressionRepo) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	return 0, nil
 }
 
 func (r *schedulerRegressionRepo) GetRTUserBillsForEvaluation(ctx context.Context, rtID string) ([]finance.BillEvaluationInput, error) {

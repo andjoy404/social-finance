@@ -17,7 +17,10 @@ import {
   BellOutlined,
   AreaChartOutlined,
   SafetyCertificateOutlined,
+  BookOutlined,
   ScheduleOutlined,
+  SecurityScanOutlined,
+  InboxOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string, itemId?: string): boolean {
@@ -70,19 +73,22 @@ export function Sidebar() {
     user?.role.trim().toLowerCase() === 'warga' && !jabatan && allowedRT
   const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
-  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer
+  const isAnggotaRT = jabatan === 'anggota' || jabatan === 'anggota_rt'
+  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer || isAnggotaRT
     ? []
     : [{ to: '/', label: 'Beranda', icon: <HomeOutlined />, id: 'dashboard' }]
 
   if (isSecurityOfficer) {
     items.push(
       { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      { to: '/patroli', label: 'Patroli', icon: <SecurityScanOutlined />, id: 'patroli' },
       {
         to: '/monitoring',
         label: 'Sampah',
         icon: <ScheduleOutlined />,
         id: 'monitoring',
       },
+      { to: '/paket', label: 'Paket', icon: <InboxOutlined />, id: 'paket' },
     )
   } else if (isCleaningOfficer) {
     items.push({
@@ -91,16 +97,25 @@ export function Sidebar() {
       icon: <ScheduleOutlined />,
       id: 'monitoring',
     })
+  } else if (jabatan === 'anggota' || jabatan === 'anggota_rt') {
+    // Anggota RT: simplified sidebar — only Data RW and Notifikasi.
+    // Kas RT, Iuran, Keamanan, and other RT features are hidden.
   } else if (allowedRT) {
     items.push(
       { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
     )
+    const isSosialOrOperasional = jabatan === 'sosial' || jabatan === 'operasional'
     const canAccessLokasiDana =
         user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
-    items.push(
+    // Sekretaris RT can access Kas (transactions) AND Iuran personal view (own bills/payments).
+    // Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
+    // Sosial and Operasional cannot access Kas or Iuran.
+    if (!isSosialOrOperasional) {
+      items.push(
         { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
-        { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
-    )
+      )
+      items.push({ to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' })
+    }
     if (canAccessLokasiDana) {
         items.push({
             to: '/lokasi-dana',
@@ -128,25 +143,72 @@ export function Sidebar() {
     if (canManageSecurity) {
       items.push({
         to: '/keamanan-rt',
-        label: 'Kelola Keamanan',
+        label: 'Keamanan',
         icon: <SafetyCertificateOutlined />,
         id: 'keamanan-rt',
+      })
+    }
+    const canAccessGuestBook =
+      isSuperAdmin ||
+      jabatan === 'ketua' ||
+      hasPermission(user, 'security.guest_book') ||
+      hasPermission(user, 'security.device.manage') ||
+      hasPermission(user, 'security.schedule.write')
+    if (canAccessGuestBook) {
+      items.push({
+        to: '/buku-tamu',
+        label: 'Buku Tamu',
+        icon: <BookOutlined />,
+        id: 'buku-tamu',
+      })
+    }
+    const isSekretaris = jabatan === 'sekretaris'
+    const canAccessPatrol = !isSuperAdmin && !isSekretaris && (hasPermission(user, 'patrol.read') || hasPermission(user, 'patrol.create'))
+    const canAccessPaket = !isSuperAdmin && !isSekretaris && (hasPermission(user, 'paket.read') || hasPermission(user, 'paket.create'))
+
+    if (canAccessPatrol) {
+      items.push({
+        to: '/patroli',
+        label: 'Patroli',
+        icon: <SecurityScanOutlined />,
+        id: 'patroli',
+      })
+    }
+    if (canAccessPaket) {
+      items.push({
+        to: '/paket',
+        label: 'Paket',
+        icon: <InboxOutlined />,
+        id: 'paket',
       })
     }
   }
 
   const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
+  // Include anggota and anggota_rt in RW membership filter so Anggota RT can access RW Dashboard and RW Kas READ.
   const rwMemberships = rawRwMemberships.filter(
-    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].includes(m.jabatan.toLowerCase()))
+    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota', 'anggota_rt'].includes(m.jabatan.toLowerCase()))
   )
 
+  const effectiveRwMemberships = rwMemberships.length > 0
+    ? rwMemberships
+    : (isAnggotaRT && user?.rwId
+        ? [{
+            rw_id: user.rwId,
+            rw_name: user.rwName ?? undefined,
+            rw_number: user.rwNumber ?? undefined,
+            jabatan: user.jabatan ?? 'anggota_rt',
+            source: 'rt_inferred' as const,
+          }]
+        : [])
+
   // Add RW data view link(s)
-  if (!isSecurityOfficer && !isCleaningOfficer && rwMemberships.length > 0) {
-    const rwIdForData = rwMemberships[0].rw_id
+  if (!isSecurityOfficer && !isCleaningOfficer && effectiveRwMemberships.length > 0) {
+    const rwIdForData = effectiveRwMemberships[0].rw_id
     // Build a label showing RW count if multiple
-    const rwLabel = rwMemberships.length === 1
+    const rwLabel = effectiveRwMemberships.length === 1
       ? 'Data RW'
-      : `Data RW (${rwMemberships.length})`
+      : `Data RW (${effectiveRwMemberships.length})`
 
     items.push({
       to: `/rw-view/${rwIdForData}/dashboard`,
@@ -166,13 +228,13 @@ export function Sidebar() {
 
   const canAccessNotifikasi =
     !isCleaningOfficer &&
-    (isSecurityOfficer || isResident || isPengurus || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
+    (isSecurityOfficer || isResident || isPengurus || isAnggotaRT || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
 
   // Place Pengumuman, Kegiatan, Notifikasi as the three bottom-most menu items
   // in that exact order.
   // Non-allowed/non-officer views only have Beranda; do not append the
   // community pair there (preserves prior restricted visibility).
-  const showCommunityNav = !isSecurityOfficer && !isCleaningOfficer && allowedRT
+  const showCommunityNav = !isSecurityOfficer && !isCleaningOfficer && !isAnggotaRT && allowedRT
   if (showCommunityNav) {
     items.push(
       { to: '/pengumuman', label: 'Pengumuman', icon: <NotificationOutlined />, id: 'pengumuman' },

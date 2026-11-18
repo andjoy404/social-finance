@@ -9,7 +9,6 @@ import {
   Button,
   Card,
   Col,
-  DatePicker,
   Descriptions,
   Empty,
   Form,
@@ -23,7 +22,6 @@ import {
   Statistic,
   Switch,
   Table,
-  Tabs,
   Tag,
   TimePicker,
   Typography,
@@ -34,15 +32,21 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   CopyOutlined,
+  DashboardOutlined,
   DownloadOutlined,
   EditOutlined,
   FileExcelOutlined,
   KeyOutlined,
+  OrderedListOutlined,
+  PhoneOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  ScanOutlined,
+  SettingOutlined,
   StopOutlined,
   SwapOutlined,
+  TeamOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import { hasPermission, isKetuaRTUser, isSuperAdminUser, useAuth } from '@/app/AuthContext'
@@ -433,58 +437,26 @@ export function KelolaKeamananPage() {
     }
   }
 
-  const toScheduleDateValue = (val: unknown): dayjs.Dayjs | null => {
-    if (val == null || val === '') return null
-    if (dayjs.isDayjs(val)) return val.isValid() ? val : null
-    if (val instanceof Date) {
-      if (Number.isNaN(val.getTime())) return null
-      const d = dayjs(val)
-      return d.isValid() ? d.startOf('day') : null
-    }
-    if (typeof val === 'string') {
-      const trimmed = val.trim()
-      if (!trimmed) return null
-      // Preserve calendar date and avoid timezone shifting for ISO/datetime strings.
-      const dateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/)
-      if (dateMatch) {
-        const d = dayjs(dateMatch[1], 'YYYY-MM-DD', true)
-        return d.isValid() ? d : null
-      }
-      const d = dayjs(trimmed)
-      return d.isValid() ? d.startOf('day') : null
-    }
-    return null
-  }
-
-  const toApiScheduleDate = (val: unknown): string => {
-    const d = toScheduleDateValue(val)
-    return d ? d.format('YYYY-MM-DD') : ''
-  }
-
   const handleCreateSchedule = async () => {
     try {
       const vals = await scheduleForm.validateFields()
       setSubmitting(true)
-      const startDateStr = toApiScheduleDate(vals.start_date)
-      const endDateStr = toApiScheduleDate(vals.end_date)
       if (editingSchedule) {
         await apiUpdateSecuritySchedule(editingSchedule.id, {
           user_id: vals.user_id,
           shift_config_id: vals.shift_config_id,
-          start_date: startDateStr,
-          end_date: endDateStr,
+          is_active: vals.is_active !== false,
           notes: vals.notes || null,
         })
-        msgApi.success('Jadwal petugas keamanan diperbarui')
+        msgApi.success('Penugasan shift diperbarui')
       } else {
         await apiCreateSecuritySchedule({
           user_id: vals.user_id,
           shift_config_id: vals.shift_config_id,
-          start_date: startDateStr,
-          end_date: endDateStr,
+          is_active: vals.is_active !== false,
           notes: vals.notes || null,
         })
-        msgApi.success('Jadwal petugas keamanan ditambahkan')
+        msgApi.success('Penugasan shift ditambahkan')
       }
       setScheduleModalOpen(false)
       if (scheduleDetail) setScheduleDetail(null)
@@ -493,7 +465,7 @@ export function KelolaKeamananPage() {
       await Promise.all([loadSchedules(1), loadDashboard(), loadAttendance(1)])
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return
-      msgApi.error(getErrMsg(err, 'Gagal menambahkan jadwal petugas'))
+      msgApi.error(getErrMsg(err, 'Gagal menambahkan penugasan shift'))
     } finally {
       setSubmitting(false)
     }
@@ -507,12 +479,12 @@ export function KelolaKeamananPage() {
       scheduleForm.setFieldsValue({
         user_id: selected.user_id,
         shift_config_id: selected.shift_config_id,
-        start_date: toScheduleDateValue(selected.assignment_start_date || selected.shift_date),
-        end_date: toScheduleDateValue(selected.assignment_end_date || selected.shift_date),
+        is_active: selected.is_active !== false && selected.status === 'scheduled',
+        notes: selected.notes || '',
       })
       setScheduleModalOpen(true)
     } catch (err) {
-      msgApi.error(getErrMsg(err, 'Gagal memuat detail jadwal'))
+      msgApi.error(getErrMsg(err, 'Gagal memuat detail penugasan'))
     }
   }
 
@@ -782,39 +754,39 @@ export function KelolaKeamananPage() {
   ]
 
   const scheduleColumns: ColumnsType<SecuritySchedule> = [
-    { title: 'Periode Tugas', key: 'period', render: (_, row) => `${row.assignment_start_date || row.shift_date} – ${row.assignment_end_date || row.shift_date}` },
-    { title: 'Petugas', dataIndex: 'officer_name', key: 'officer_name', render: (v) => v || '-' },
     {
       title: 'Shift',
       key: 'shift',
       render: (_, row) => (
         <Space direction="vertical" size={0}>
-          <span>{row.shift_name}</span>
+          <span style={{ fontWeight: 600 }}>{row.shift_name}</span>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {formatTimeHHMM(row.start_time)} - {formatTimeHHMM(row.end_time)} (v{row.shift_version})
+            (v{row.shift_version})
           </Text>
         </Space>
       ),
     },
     {
-      title: 'Status Jadwal',
-      dataIndex: 'status',
-      key: 'status',
-      render: (st: string) => (
-        <Tag color={st === 'scheduled' ? 'blue' : st === 'cancelled' ? 'red' : 'default'}>
-          {st === 'scheduled' ? 'Aktif' : st === 'cancelled' ? 'Dibatalkan' : st}
-        </Tag>
-      ),
+      title: 'Jam Kerja',
+      key: 'hours',
+      render: (_, row) => `${formatTimeHHMM(row.start_time)} - ${formatTimeHHMM(row.end_time)}`,
     },
     {
-      title: 'Absensi',
-      key: 'attendance',
+      title: 'Petugas',
+      dataIndex: 'officer_name',
+      key: 'officer_name',
+      render: (v) => <span style={{ fontWeight: 500 }}>{v || '-'}</span>,
+    },
+    {
+      title: 'Status',
+      key: 'status',
       render: (_, row) => {
-        const meta = ATTENDANCE_STATUS_TAG[row.attendance_status ?? 'belum_hadir'] ?? {
-          color: 'default',
-          label: row.attendance_status_label || 'Belum Hadir',
-        }
-        return <Tag color={meta.color}>{row.attendance_status_label || meta.label}</Tag>
+        const isActive = row.is_active !== false && row.status === 'scheduled'
+        return (
+          <Tag color={isActive ? 'green' : 'default'}>
+            {isActive ? 'Aktif' : row.status === 'cancelled' ? 'Dibatalkan' : 'Nonaktif'}
+          </Tag>
+        )
       },
     },
     {
@@ -822,22 +794,24 @@ export function KelolaKeamananPage() {
       key: 'actions',
       render: (_, row) => (
         <Space>
-          <Button size="small" onClick={() => void handleScheduleDetail(row)}>Detail</Button>
-          {row.status === 'scheduled' && row.attendance_status === 'belum_hadir' && row.shift_date >= (dashboard?.today_date ?? '') && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => void handleEditSchedule(row)}>Ubah</Button>
+          <Button size="small" onClick={() => void handleScheduleDetail(row)}>
+            Detail
+          </Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => void handleEditSchedule(row)}>
+            Ubah
+          </Button>
+          {row.is_active !== false && row.status === 'scheduled' && (
+            <Popconfirm
+              title="Nonaktifkan penugasan shift petugas ini?"
+              okText="Ya, Nonaktifkan"
+              cancelText="Tidak"
+              onConfirm={() => handleCancelSchedule(row.id)}
+            >
+              <Button size="small" danger icon={<StopOutlined />}>
+                Nonaktifkan
+              </Button>
+            </Popconfirm>
           )}
-          {row.status === 'scheduled' && !row.checked_in_at ? (
-          <Popconfirm
-            title="Batalkan jadwal petugas ini?"
-            okText="Ya, Batalkan"
-            cancelText="Tidak"
-            onConfirm={() => handleCancelSchedule(row.id)}
-          >
-            <Button size="small" danger icon={<StopOutlined />}>
-              Batalkan
-            </Button>
-          </Popconfirm>
-          ) : null}
         </Space>
       ),
     },
@@ -1181,393 +1155,392 @@ export function KelolaKeamananPage() {
         </Button>
       </div>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={[
-          {
-            key: 'dashboard',
-            label: 'Dashboard Monitoring',
-            children: (
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Row gutter={[16, 16]}>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic title="Petugas Aktif" value={dashboard?.total_officers ?? 0} />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic title="Dijadwalkan Hari Ini" value={dashboard?.scheduled_today_count ?? 0} />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic
-                        title="Hadir / Selesai"
-                        value={(dashboard?.present_today_count ?? 0) + (dashboard?.checked_out_today_count ?? 0)}
-                      />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic
-                        title="Terlambat / Alpa / Lupa Out"
-                        value={
-                          (dashboard?.late_today_count ?? 0) +
-                          (dashboard?.absent_today_count ?? 0) +
-                          (dashboard?.missing_checkout_count ?? 0)
-                        }
-                      />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic title="Perangkat Pos Aktif" value={dashboard?.active_devices_count ?? 0} />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic title="Tamu Masih Berkunjung" value={dashboard?.active_guests_count ?? 0} />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic
-                        title="Pertukaran Pending"
-                        value={dashboard?.pending_swaps_count ?? 0}
-                        prefix={<SwapOutlined />}
-                      />
-                    </Card>
-                  </Col>
-                  <Col xs={12} md={6}>
-                    <Card size="small">
-                      <Statistic title="Koreksi Pending" value={dashboard?.pending_corrections ?? 0} />
-                    </Card>
-                  </Col>
-                </Row>
+      {/* Tab Navigation */}
+      <div style={{
+        display: 'flex',
+        gap: 4,
+        margin: '16px 0 0 0',
+        borderBottom: '1px solid var(--sf-border)',
+        paddingBottom: 0,
+      }}>
+        {[
+          { key: 'dashboard', label: 'Dashboard Monitoring', icon: <DashboardOutlined /> },
+          { key: 'officers', label: `Data Petugas (${officers.length})`, icon: <TeamOutlined /> },
+          { key: 'shifts', label: 'Pengaturan Shift', icon: <SettingOutlined /> },
+          { key: 'schedules', label: 'Jadwal Petugas', icon: <OrderedListOutlined /> },
+          { key: 'swaps', label: 'Pertukaran Shift', icon: <SwapOutlined /> },
+          { key: 'attendance', label: 'Monitoring & Laporan Absensi', icon: <ScanOutlined /> },
+          { key: 'corrections', label: 'Koreksi Absensi', icon: <EditOutlined /> },
+          { key: 'devices', label: 'Perangkat Pos', icon: <KeyOutlined /> },
+          { key: 'guest_books', label: 'Buku Tamu', icon: <PhoneOutlined /> },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 16px',
+              border: 'none',
+              borderBottom: activeTab === tab.key ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              background: activeTab === tab.key ? 'var(--sf-surface-hover)' : 'transparent',
+              color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: activeTab === tab.key ? 600 : 400,
+              borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+              transition: 'all 0.2s ease',
+              position: 'relative',
+            }}
+          >
+            {tab.icon}
+            {tab.label}
+            {tab.key === 'swaps' && (
+              <Badge count={dashboard?.pending_swaps_count ?? 0} offset={[10, 0]} size="small" />
+            )}
+            {tab.key === 'corrections' && (
+              <Badge count={dashboard?.pending_corrections ?? 0} offset={[10, 0]} size="small" />
+            )}
+          </button>
+        ))}
+      </div>
 
-                <Card
-                  title={`Absensi Hari Ini (${dashboard?.today_date ?? '-'})`}
-                  extra={
-                    <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadDashboard()}>
-                      Muat Ulang
-                    </Button>
-                  }
-                >
-                  <Table
-                    rowKey="id"
-                    loading={loading}
-                    dataSource={dashboard?.today_attendance ?? []}
-                    columns={attendanceColumns.filter((c) => c.key !== 'actions')}
-                    pagination={false}
-                    locale={{ emptyText: <Empty description="Belum ada jadwal bertugas hari ini" /> }}
+      {/* Tab Content */}
+      <div style={{ padding: 16 }}>
+        {activeTab === 'dashboard' && (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Row gutter={[16, 16]}>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic title="Petugas Aktif" value={dashboard?.total_officers ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic title="Dijadwalkan Hari Ini" value={dashboard?.scheduled_today_count ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic
+                    title="Hadir / Selesai"
+                    value={(dashboard?.present_today_count ?? 0) + (dashboard?.checked_out_today_count ?? 0)}
                   />
                 </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic
+                    title="Terlambat / Alpa / Lupa Out"
+                    value={
+                      (dashboard?.late_today_count ?? 0) +
+                      (dashboard?.absent_today_count ?? 0) +
+                      (dashboard?.missing_checkout_count ?? 0)
+                    }
+                  />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic title="Perangkat Pos Aktif" value={dashboard?.active_devices_count ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic title="Tamu Masih Berkunjung" value={dashboard?.active_guests_count ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic
+                    title="Pertukaran Pending"
+                    value={dashboard?.pending_swaps_count ?? 0}
+                    prefix={<SwapOutlined />}
+                  />
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small">
+                  <Statistic title="Koreksi Pending" value={dashboard?.pending_corrections ?? 0} />
+                </Card>
+              </Col>
+            </Row>
+
+            <Card
+              title={`Absensi Hari Ini (${dashboard?.today_date ?? '-'})`}
+              extra={
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadDashboard()}>
+                  Muat Ulang
+                </Button>
+              }
+            >
+              <Table
+                rowKey="id"
+                loading={loading}
+                dataSource={dashboard?.today_attendance ?? []}
+                columns={attendanceColumns.filter((c) => c.key !== 'actions')}
+                pagination={false}
+                locale={{ emptyText: <Empty description="Belum ada jadwal bertugas hari ini" /> }}
+              />
+            </Card>
+          </Space>
+        )}
+
+        {activeTab === 'officers' && (
+          <Card>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Daftar petugas keamanan diambil otomatis dari pengguna RT aktif dengan jabatan Keamanan."
+            />
+            <Table rowKey="user_id" loading={loading} dataSource={officers} columns={officerColumns} />
+          </Card>
+        )}
+
+        {activeTab === 'shifts' && (
+          <Card
+            extra={
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreateShift}>
+                Tambah Shift
+              </Button>
+            }
+          >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Mengubah aturan shift akan menaikkan nomor versi dan menjaga snapshot absensi historis tetap akurat."
+            />
+            <Table rowKey="id" loading={loading} dataSource={shifts} columns={shiftColumns} pagination={false} />
+          </Card>
+        )}
+
+        {activeTab === 'schedules' && (
+          <Card
+            extra={
+              <Space>
+                <Button
+                  icon={<FileExcelOutlined />}
+                  onClick={() => void handleExportSchedules()}
+                  loading={exportingSchedules}
+                >
+                  Export Excel
+                </Button>
+                <Button
+                  icon={<UploadOutlined />}
+                  onClick={() => setScheduleImportModalOpen(true)}
+                >
+                  Import Excel
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setEditingSchedule(null)
+                    scheduleForm.resetFields()
+                    setScheduleModalOpen(true)
+                  }}
+                >
+                  Tambah Jadwal
+                </Button>
               </Space>
-            ),
-          },
-          {
-            key: 'officers',
-            label: `Data Petugas (${officers.length})`,
-            children: (
-              <Card>
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message="Daftar petugas keamanan diambil otomatis dari pengguna RT aktif dengan jabatan Keamanan."
-                />
-                <Table rowKey="user_id" loading={loading} dataSource={officers} columns={officerColumns} />
-              </Card>
-            ),
-          },
-          {
-            key: 'shifts',
-            label: 'Pengaturan Shift',
-            children: (
-              <Card
-                extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreateShift}>
-                    Tambah Shift
-                  </Button>
-                }
-              >
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message="Mengubah aturan shift akan menaikkan nomor versi dan menjaga snapshot absensi historis tetap akurat."
-                />
-                <Table rowKey="id" loading={loading} dataSource={shifts} columns={shiftColumns} pagination={false} />
-              </Card>
-            ),
-          },
-          {
-            key: 'schedules',
-            label: 'Jadwal Petugas',
-            children: (
-              <Card
-                extra={
-                  <Space>
-                    <Button
-                      icon={<FileExcelOutlined />}
-                      onClick={() => void handleExportSchedules()}
-                      loading={exportingSchedules}
-                    >
-                      Export Excel
-                    </Button>
-                    <Button
-                      icon={<UploadOutlined />}
-                      onClick={() => setScheduleImportModalOpen(true)}
-                    >
-                      Import Excel
-                    </Button>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={() => {
-                        setEditingSchedule(null)
-                        scheduleForm.resetFields()
-                        setScheduleModalOpen(true)
-                      }}
-                    >
-                      Tambah Jadwal
-                    </Button>
-                  </Space>
-                }
-              >
-                <Space wrap style={{ marginBottom: 16 }}>
-                  <Input
-                    type="date"
-                    aria-label="Filter tanggal mulai"
-                    value={scheduleFilter.date_from ?? ''}
-                    onChange={(e) => setScheduleFilter((p) => ({ ...p, date_from: e.target.value || undefined }))}
-                    style={{ width: 160 }}
-                  />
-                  <Input
-                    type="date"
-                    aria-label="Filter tanggal akhir"
-                    value={scheduleFilter.date_to ?? ''}
-                    onChange={(e) => setScheduleFilter((p) => ({ ...p, date_to: e.target.value || undefined }))}
-                    style={{ width: 160 }}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="Semua Petugas"
-                    style={{ width: 200 }}
-                    value={scheduleFilter.user_id}
-                    onChange={(v) => setScheduleFilter((p) => ({ ...p, user_id: v }))}
-                    options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="Semua Shift"
-                    style={{ width: 180 }}
-                    value={scheduleFilter.shift_config_id}
-                    onChange={(v) => setScheduleFilter((p) => ({ ...p, shift_config_id: v }))}
-                    options={shifts.map((s) => ({ value: s.id, label: s.name }))}
-                  />
-                  <Button type="primary" onClick={() => void loadSchedules(1)}>
-                    Terapkan Filter
-                  </Button>
-                </Space>
-                <Table
-                  rowKey="id"
-                  loading={loading}
-                  dataSource={schedules}
-                  columns={scheduleColumns}
-                  pagination={{
-                    current: schedulePage,
-                    pageSize: 20,
-                    total: scheduleTotal,
-                    onChange: (p) => {
-                      setSchedulePage(p)
-                      void loadSchedules(p)
-                    },
-                  }}
-                />
-              </Card>
-            ),
-          },
-          {
-            key: 'swaps',
-            label: (
-              <Badge count={dashboard?.pending_swaps_count ?? 0} offset={[10, 0]} size="small">
-                <span>Pertukaran Shift</span>
-              </Badge>
-            ),
-            children: (
-              <Card>
-                <Space style={{ marginBottom: 16 }}>
-                  <Select
-                    allowClear
-                    placeholder="Filter status"
-                    style={{ width: 260 }}
-                    value={swapFilterStatus}
-                    onChange={(v) => setSwapFilterStatus(v)}
-                    options={Object.entries(SWAP_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
-                  />
-                  <Button onClick={() => void loadSwaps()} icon={<ReloadOutlined />}>
-                    Muat Ulang
-                  </Button>
-                </Space>
-                <Table rowKey="id" loading={loading} dataSource={swaps} columns={swapColumns} />
-              </Card>
-            ),
-          },
-          {
-            key: 'attendance',
-            label: 'Monitoring & Laporan Absensi',
-            children: (
-              <Card
-                extra={
-                  <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void handleExportCSV()}>
-                    Export CSV
-                  </Button>
-                }
-              >
-                <Space wrap style={{ marginBottom: 16 }}>
-                  <Input
-                    type="date"
-                    aria-label="Tanggal mulai absensi"
-                    value={attendanceFilter.date_from ?? ''}
-                    onChange={(e) => setAttendanceFilter((p) => ({ ...p, date_from: e.target.value || undefined }))}
-                    style={{ width: 160 }}
-                  />
-                  <Input
-                    type="date"
-                    aria-label="Tanggal akhir absensi"
-                    value={attendanceFilter.date_to ?? ''}
-                    onChange={(e) => setAttendanceFilter((p) => ({ ...p, date_to: e.target.value || undefined }))}
-                    style={{ width: 160 }}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="Semua Petugas"
-                    style={{ width: 180 }}
-                    value={attendanceFilter.user_id}
-                    onChange={(v) => setAttendanceFilter((p) => ({ ...p, user_id: v }))}
-                    options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="Semua Status"
-                    style={{ width: 180 }}
-                    value={attendanceFilter.status}
-                    onChange={(v) => setAttendanceFilter((p) => ({ ...p, status: v }))}
-                    options={Object.entries(ATTENDANCE_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
-                  />
-                  <Button type="primary" onClick={() => void loadAttendance(1)}>
-                    Cari
-                  </Button>
-                </Space>
-                <Table
-                  rowKey="id"
-                  loading={loading}
-                  dataSource={attendance}
-                  columns={attendanceColumns}
-                  pagination={{
-                    current: attendancePage,
-                    pageSize: 20,
-                    total: attendanceTotal,
-                    onChange: (p) => {
-                      setAttendancePage(p)
-                      void loadAttendance(p)
-                    },
-                  }}
-                />
-              </Card>
-            ),
-          },
-          {
-            key: 'corrections',
-            label: (
-              <Badge count={dashboard?.pending_corrections ?? 0} offset={[10, 0]} size="small">
-                <span>Koreksi Absensi</span>
-              </Badge>
-            ),
-            children: (
-              <Card>
-                <Space style={{ marginBottom: 16 }}>
-                  <Select
-                    allowClear
-                    placeholder="Filter status koreksi"
-                    style={{ width: 220 }}
-                    value={correctionFilterStatus}
-                    onChange={(v) => setCorrectionFilterStatus(v)}
-                    options={Object.entries(CORRECTION_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
-                  />
-                  <Button onClick={() => void loadCorrections()} icon={<ReloadOutlined />}>
-                    Muat Ulang
-                  </Button>
-                </Space>
-                <Table rowKey="id" loading={loading} dataSource={corrections} columns={correctionColumns} />
-              </Card>
-            ),
-          },
-          {
-            key: 'devices',
-            label: 'Perangkat Pos',
-            children: (
-              <Card
-                extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setDeviceModalOpen(true)}>
-                    Daftarkan Perangkat Pos
-                  </Button>
-                }
-              >
-                <Table rowKey="id" loading={loading} dataSource={devices} columns={deviceColumns} />
-              </Card>
-            ),
-          },
-          {
-            key: 'guest_books',
-            label: 'Buku Tamu',
-            children: (
-              <Card>
-                <Space wrap style={{ marginBottom: 16 }}>
-                  <Select
-                    allowClear
-                    placeholder="Status Kunjungan"
-                    style={{ width: 180 }}
-                    value={guestFilter.status}
-                    onChange={(v) => setGuestFilter((p) => ({ ...p, status: v }))}
-                    options={[
-                      { value: 'active', label: 'Masih Berkunjung' },
-                      { value: 'checked_out', label: 'Sudah Keluar' },
-                    ]}
-                  />
-                  <Input
-                    placeholder="Cari nama / tujuan / plat..."
-                    style={{ width: 240 }}
-                    value={guestFilter.search ?? ''}
-                    onChange={(e) => setGuestFilter((p) => ({ ...p, search: e.target.value || undefined }))}
-                  />
-                  <Button type="primary" onClick={() => void loadGuestBooks(1)}>
-                    Cari
-                  </Button>
-                </Space>
-                <Table
-                  rowKey="id"
-                  loading={loading}
-                  dataSource={guestBooks}
-                  columns={guestColumns}
-                  pagination={{
-                    current: guestPage,
-                    pageSize: 20,
-                    total: guestTotal,
-                    onChange: (p) => {
-                      setGuestPage(p)
-                      void loadGuestBooks(p)
-                    },
-                  }}
-                />
-              </Card>
-            ),
-          },
-        ]}
-      />
+            }
+          >
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Select
+                allowClear
+                placeholder="Semua Petugas"
+                style={{ width: 200 }}
+                value={scheduleFilter.user_id}
+                onChange={(v) => setScheduleFilter((p) => ({ ...p, user_id: v }))}
+                options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
+              />
+              <Select
+                allowClear
+                placeholder="Semua Shift"
+                style={{ width: 180 }}
+                value={scheduleFilter.shift_config_id}
+                onChange={(v) => setScheduleFilter((p) => ({ ...p, shift_config_id: v }))}
+                options={shifts.map((s) => ({ value: s.id, label: s.name }))}
+              />
+              <Button type="primary" onClick={() => void loadSchedules(1)}>
+                Terapkan Filter
+              </Button>
+            </Space>
+            <Table
+              rowKey="id"
+              loading={loading}
+              dataSource={schedules}
+              columns={scheduleColumns}
+              pagination={{
+                current: schedulePage,
+                pageSize: 20,
+                total: scheduleTotal,
+                onChange: (p) => {
+                  setSchedulePage(p)
+                  void loadSchedules(p)
+                },
+              }}
+            />
+          </Card>
+        )}
+
+        {activeTab === 'swaps' && (
+          <Card>
+            <Space style={{ marginBottom: 16 }}>
+              <Select
+                allowClear
+                placeholder="Filter status"
+                style={{ width: 260 }}
+                value={swapFilterStatus}
+                onChange={(v) => setSwapFilterStatus(v)}
+                options={Object.entries(SWAP_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
+              />
+              <Button onClick={() => void loadSwaps()} icon={<ReloadOutlined />}>
+                Muat Ulang
+              </Button>
+            </Space>
+            <Table rowKey="id" loading={loading} dataSource={swaps} columns={swapColumns} />
+          </Card>
+        )}
+
+        {activeTab === 'attendance' && (
+          <Card
+            extra={
+              <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void handleExportCSV()}>
+                Export CSV
+              </Button>
+            }
+          >
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Input
+                type="date"
+                aria-label="Tanggal mulai absensi"
+                value={attendanceFilter.date_from ?? ''}
+                onChange={(e) => setAttendanceFilter((p) => ({ ...p, date_from: e.target.value || undefined }))}
+                style={{ width: 160 }}
+              />
+              <Input
+                type="date"
+                aria-label="Tanggal akhir absensi"
+                value={attendanceFilter.date_to ?? ''}
+                onChange={(e) => setAttendanceFilter((p) => ({ ...p, date_to: e.target.value || undefined }))}
+                style={{ width: 160 }}
+              />
+              <Select
+                allowClear
+                placeholder="Semua Petugas"
+                style={{ width: 180 }}
+                value={attendanceFilter.user_id}
+                onChange={(v) => setAttendanceFilter((p) => ({ ...p, user_id: v }))}
+                options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
+              />
+              <Select
+                allowClear
+                placeholder="Semua Status"
+                style={{ width: 180 }}
+                value={attendanceFilter.status}
+                onChange={(v) => setAttendanceFilter((p) => ({ ...p, status: v }))}
+                options={Object.entries(ATTENDANCE_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
+              />
+              <Button type="primary" onClick={() => void loadAttendance(1)}>
+                Cari
+              </Button>
+            </Space>
+            <Table
+              rowKey="id"
+              loading={loading}
+              dataSource={attendance}
+              columns={attendanceColumns}
+              pagination={{
+                current: attendancePage,
+                pageSize: 20,
+                total: attendanceTotal,
+                onChange: (p) => {
+                  setAttendancePage(p)
+                  void loadAttendance(p)
+                },
+              }}
+            />
+          </Card>
+        )}
+
+        {activeTab === 'corrections' && (
+          <Card>
+            <Space style={{ marginBottom: 16 }}>
+              <Select
+                allowClear
+                placeholder="Filter status koreksi"
+                style={{ width: 220 }}
+                value={correctionFilterStatus}
+                onChange={(v) => setCorrectionFilterStatus(v)}
+                options={Object.entries(CORRECTION_STATUS_TAG).map(([k, v]) => ({ value: k, label: v.label }))}
+              />
+              <Button onClick={() => void loadCorrections()} icon={<ReloadOutlined />}>
+                Muat Ulang
+              </Button>
+            </Space>
+            <Table rowKey="id" loading={loading} dataSource={corrections} columns={correctionColumns} />
+          </Card>
+        )}
+
+        {activeTab === 'devices' && (
+          <Card
+            extra={
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setDeviceModalOpen(true)}>
+                Daftarkan Perangkat Pos
+              </Button>
+            }
+          >
+            <Table rowKey="id" loading={loading} dataSource={devices} columns={deviceColumns} />
+          </Card>
+        )}
+
+        {activeTab === 'guest_books' && (
+          <Card>
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Select
+                allowClear
+                placeholder="Status Kunjungan"
+                style={{ width: 180 }}
+                value={guestFilter.status}
+                onChange={(v) => setGuestFilter((p) => ({ ...p, status: v }))}
+                options={[
+                  { value: 'active', label: 'Masih Berkunjung' },
+                  { value: 'checked_out', label: 'Sudah Keluar' },
+                ]}
+              />
+              <Input
+                placeholder="Cari nama / tujuan / plat..."
+                style={{ width: 240 }}
+                value={guestFilter.search ?? ''}
+                onChange={(e) => setGuestFilter((p) => ({ ...p, search: e.target.value || undefined }))}
+              />
+              <Button type="primary" onClick={() => void loadGuestBooks(1)}>
+                Cari
+              </Button>
+            </Space>
+            <Table
+              rowKey="id"
+              loading={loading}
+              dataSource={guestBooks}
+              columns={guestColumns}
+              pagination={{
+                current: guestPage,
+                pageSize: 20,
+                total: guestTotal,
+                onChange: (p) => {
+                  setGuestPage(p)
+                  void loadGuestBooks(p)
+                },
+              }}
+            />
+          </Card>
+        )}
+      </div>
 
       {/* Shift Config Modal */}
       <Modal
@@ -1666,16 +1639,10 @@ export function KelolaKeamananPage() {
         onCancel={() => { setScheduleModalOpen(false); setEditingSchedule(null) }}
         onOk={() => void handleCreateSchedule()}
         confirmLoading={submitting}
-        okText={editingSchedule ? 'Simpan Perubahan' : 'Simpan Jadwal'}
+        okText={editingSchedule ? 'Simpan Perubahan' : 'Simpan Penugasan'}
         cancelText="Batal"
       >
         <Form form={scheduleForm} layout="vertical">
-          <Form.Item name="user_id" label="Petugas Keamanan" rules={[{ required: true, message: 'Pilih petugas' }]}>
-            <Select
-              placeholder="Pilih petugas keamanan"
-              options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
-            />
-          </Form.Item>
           <Form.Item name="shift_config_id" label="Shift" rules={[{ required: true, message: 'Pilih shift' }]}>
             <Select
               placeholder="Pilih shift"
@@ -1687,11 +1654,14 @@ export function KelolaKeamananPage() {
                 }))}
             />
           </Form.Item>
-          <Form.Item name="start_date" label="Tanggal Mulai Tugas" rules={[{ required: true, message: 'Pilih tanggal mulai' }]}>
-            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          <Form.Item name="user_id" label="Petugas Keamanan" rules={[{ required: true, message: 'Pilih petugas' }]}>
+            <Select
+              placeholder="Pilih petugas keamanan"
+              options={officers.map((o) => ({ value: o.user_id, label: o.full_name }))}
+            />
           </Form.Item>
-          <Form.Item name="end_date" label="Tanggal Berakhir Tugas" dependencies={['start_date']} rules={[{ required: true, message: 'Pilih tanggal berakhir' }, ({ getFieldValue }) => ({ validator(_, value) { const start = getFieldValue('start_date'); return !start || !value || value >= start ? Promise.resolve() : Promise.reject(new Error('Tanggal berakhir tidak boleh sebelum tanggal mulai')) } })]}>
-            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          <Form.Item name="is_active" label="Status Penugasan" valuePropName="checked" initialValue={true}>
+            <Switch checkedChildren="Aktif" unCheckedChildren="Nonaktif" defaultChecked />
           </Form.Item>
           <Form.Item name="notes" label="Catatan (Opsional)">
             <Input.TextArea rows={2} maxLength={300} />
@@ -1699,16 +1669,15 @@ export function KelolaKeamananPage() {
         </Form>
       </Modal>
 
-      <Modal open={Boolean(scheduleDetail)} title="Detail Jadwal Petugas Keamanan" footer={<Button onClick={() => setScheduleDetail(null)}>Tutup</Button>} onCancel={() => setScheduleDetail(null)}>
+      <Modal open={Boolean(scheduleDetail)} title="Detail Penugasan Shift" footer={<Button onClick={() => setScheduleDetail(null)}>Tutup</Button>} onCancel={() => setScheduleDetail(null)}>
         {scheduleDetail && scheduleDetail.length > 0 && (
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="Nama Petugas">{scheduleDetail[0].officer_name}</Descriptions.Item>
             <Descriptions.Item label="Jenis Petugas">Keamanan</Descriptions.Item>
             <Descriptions.Item label="Shift">{scheduleDetail[0].shift_name}</Descriptions.Item>
-            <Descriptions.Item label="Tanggal Mulai">{scheduleDetail[0].assignment_start_date}</Descriptions.Item>
-            <Descriptions.Item label="Tanggal Berakhir">{scheduleDetail[0].assignment_end_date}</Descriptions.Item>
-            <Descriptions.Item label="Status Jadwal">{scheduleDetail[0].status}</Descriptions.Item>
-            <Descriptions.Item label="Tanggal Pelaksanaan">{scheduleDetail.map((item) => `${item.shift_date} (${item.attendance_status_label || 'Belum Hadir'})`).join(', ')}</Descriptions.Item>
+            <Descriptions.Item label="Jam Kerja">{`${formatTimeHHMM(scheduleDetail[0].start_time)} - ${formatTimeHHMM(scheduleDetail[0].end_time)}`}</Descriptions.Item>
+            <Descriptions.Item label="Status Penugasan">{scheduleDetail[0].is_active !== false && scheduleDetail[0].status === 'scheduled' ? 'Aktif' : 'Nonaktif'}</Descriptions.Item>
+            {scheduleDetail[0].notes && <Descriptions.Item label="Catatan">{scheduleDetail[0].notes}</Descriptions.Item>}
           </Descriptions>
         )}
       </Modal>

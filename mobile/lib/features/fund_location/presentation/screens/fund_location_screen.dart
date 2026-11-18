@@ -76,6 +76,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     if (systemRole == 'super_admin') return true;
     final role = user?['role'] as AppRole?;
     final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+    // Sekretaris RT tidak memiliki WRITE Lokasi Dana — hanya READ.
+    if (jabatan == 'sekretaris') return false;
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
         jabatan == 'ketua' ||

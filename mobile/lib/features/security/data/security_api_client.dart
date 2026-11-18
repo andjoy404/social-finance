@@ -494,6 +494,255 @@ class SecurityApiClient {
     }
   }
 
+  // ── Patrol & Paket Endpoints ───────────────────────────────────────────────
+
+  Future<List<PatrolTemplate>> listPatrolTemplates() async {
+    try {
+      final res = await apiClient.dio.get('/api/v1/security/patrol/templates');
+      final list = res.data?['data'] as List? ?? [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(PatrolTemplate.fromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memuat template patroli');
+    }
+  }
+
+  Future<PatrolTemplate> createPatrolTemplate({
+    required String name,
+    required String locationLabel,
+  }) async {
+    try {
+      final res = await apiClient.dio.post(
+        '/api/v1/security/patrol/templates',
+        data: {
+          'name': name.trim(),
+          'location_label': locationLabel.trim(),
+        },
+      );
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PatrolTemplate.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal menambah template patroli');
+    }
+  }
+
+  Future<PatrolTemplate> updatePatrolTemplate(
+    String templateId, {
+    required String name,
+    required String locationLabel,
+    bool? isActive,
+  }) async {
+    try {
+      final res = await apiClient.dio.put(
+        '/api/v1/security/patrol/templates/$templateId',
+        data: {
+          'name': name.trim(),
+          'location_label': locationLabel.trim(),
+          if (isActive != null) 'is_active': isActive,
+        },
+      );
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PatrolTemplate.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memperbarui template patroli');
+    }
+  }
+
+  Future<void> deletePatrolTemplate(String templateId) async {
+    try {
+      await apiClient.dio.delete('/api/v1/security/patrol/templates/$templateId');
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal menghapus template patroli');
+    }
+  }
+
+  Future<void> markReadReceipt({
+    required String domain,
+    List<String>? itemIds,
+  }) async {
+    try {
+      await apiClient.dio.post(
+        '/api/v1/security/read-receipts',
+        data: {
+          'domain': domain,
+          if (itemIds != null && itemIds.isNotEmpty) 'item_ids': itemIds,
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<SecurityAlertsData> fetchSecurityAlerts() async {
+    try {
+      final res = await apiClient.dio.get('/api/v1/security/alerts');
+      final data = res.data;
+      if (data is Map && data['data'] is Map) {
+        return SecurityAlertsData.fromJson(
+          (data['data'] as Map).cast<String, dynamic>(),
+        );
+      }
+      return const SecurityAlertsData();
+    } catch (_) {
+      return const SecurityAlertsData();
+    }
+  }
+
+  Future<PatrolBundle> createPatrolBundle({
+    String? notes,
+    required List<Map<String, dynamic>> photos,
+  }) async {
+    try {
+      final res = await apiClient.dio.post(
+        '/api/v1/security/patrol/bundles',
+        data: {
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+          'photos': photos,
+        },
+      );
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PatrolBundle.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal membuat laporan patroli');
+    }
+  }
+
+  Future<List<PatrolBundle>> listPatrolBundles() async {
+    try {
+      final res = await apiClient.dio.get('/api/v1/security/patrol/bundles');
+      final list = res.data?['data'] as List? ?? [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(PatrolBundle.fromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memuat riwayat patroli');
+    }
+  }
+
+  Future<String> uploadPatrolPhoto(Uint8List bytes, String filename) async {
+    try {
+      final formData = FormData.fromMap({
+        'photo': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final res = await apiClient.dio.post(
+        '/api/v1/security/patrol/photos',
+        data: formData,
+      );
+      final data = res.data;
+      if (data is Map && data['image_key'] != null) {
+        return data['image_key'].toString();
+      }
+      return '';
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal mengunggah foto patroli');
+    }
+  }
+
+  Future<List<MaskedWargaSearchResult>> searchWargaMasked(String query) async {
+    try {
+      final res = await apiClient.dio.get(
+        '/api/v1/security/warga/search',
+        queryParameters: {'q': query},
+      );
+      final list = res.data?['data'] as List? ?? [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(MaskedWargaSearchResult.fromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal mencari warga');
+    }
+  }
+
+  Future<PaketReport> createPaketReport({
+    required String receiverWargaId,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    try {
+      final res = await apiClient.dio.post(
+        '/api/v1/security/paket/reports',
+        data: {
+          'receiver_warga_id': receiverWargaId,
+          'items': items,
+        },
+      );
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PaketReport.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal membuat laporan paket');
+    }
+  }
+
+  Future<List<PaketReport>> listPaketReports({String? status}) async {
+    try {
+      final res = await apiClient.dio.get(
+        '/api/v1/security/paket/reports',
+        queryParameters: {
+          if (status != null && status.isNotEmpty) 'status': status,
+        },
+      );
+      final list = res.data?['data'] as List? ?? [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(PaketReport.fromJson)
+          .toList();
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memuat daftar paket');
+    }
+  }
+
+  Future<PaketItem> updatePaketItemStatus(
+    String reportId,
+    String itemId, {
+    required String status,
+    String? proofImageKey,
+  }) async {
+    try {
+      final res = await apiClient.dio.patch(
+        '/api/v1/security/paket/reports/$reportId/items/$itemId/status',
+        data: {
+          'status': status,
+          if (proofImageKey != null && proofImageKey.isNotEmpty)
+            'proof_image_key': proofImageKey,
+        },
+      );
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PaketItem.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memperbarui status paket');
+    }
+  }
+
+  Future<String> uploadPaketPhoto(Uint8List bytes, String filename) async {
+    try {
+      final formData = FormData.fromMap({
+        'photo': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final res = await apiClient.dio.post(
+        '/api/v1/security/paket/photos',
+        data: formData,
+      );
+      final data = res.data;
+      if (data is Map && data['image_key'] != null) {
+        return data['image_key'].toString();
+      }
+      return '';
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal mengunggah foto paket');
+    }
+  }
+
   // ── Pos Device Endpoints (X-Device-Token) ──────────────────────────────────
 
   Future<PosDeviceSession> activatePosDevice({

@@ -205,24 +205,24 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.getByText('Warga')).toBeInTheDocument()
     expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
-    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
     expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
   })
 
-  it('shows Sampah and Kelola Keamanan for Ketua RT alongside normal RT nav items', () => {
+  it('shows Sampah and Keamanan for Ketua RT alongside normal RT nav items', () => {
     renderSidebar(mockKetuaRTUser)
     expect(screen.getByText('Sampah')).toBeInTheDocument()
-    expect(screen.getByText('Kelola Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan')).toBeInTheDocument()
     expect(screen.getByText('Beranda')).toBeInTheDocument()
     expect(screen.getByText('Warga')).toBeInTheDocument()
   })
 
-  it('hides Kelola Keamanan for warga and cleaning officer', () => {
+  it('hides Keamanan for warga and cleaning officer', () => {
     renderSidebar(mockWargaUser)
-    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
   })
 
   it('shows Notifikasi for Pengurus without granting notification management', () => {
@@ -340,9 +340,10 @@ describe('Sidebar — navigation items', () => {
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(12) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Kelola Keamanan, Notifikasi, Kelola RT, Kelola RW
+    expect(links.length).toBe(13) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Kelola Keamanan, Buku Tamu, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.getByText('Buku Tamu')).toBeInTheDocument()
   })
 
   it('shows Notifikasi menu for Ketua RT and links to /notifikasi', () => {

@@ -91,7 +91,7 @@ function formatOccupancyStatus(status: 'OWNER' | 'TENANT' | null | undefined): {
   return status === 'OWNER' ? { label: 'Pemilik', variant: 'violet' as const } : { label: 'Penyewa', variant: 'blue' as const }
 }
 
-function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'default' {
+function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'teal' | 'chartreuse' | 'pink' | 'default' {
   if (!jabatan || jabatan.trim() === '') return 'default'
   const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
   switch (key) {
@@ -107,10 +107,6 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
     case 'bendahara':
     case 'bendahara_rt':
       return 'amber'
-    case 'sosial':
-    case 'sosial_rt':
-    case 'seksi_sosial':
-      return 'gray'
     case 'keamanan':
     case 'keamanan_rt':
     case 'seksi_keamanan':
@@ -118,10 +114,14 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
       return 'red'
     case 'operasional':
     case 'operasional_rt':
-      return 'blue'
+      return 'teal'
     case 'kebersihan':
     case 'kebersihan_rt':
-      return 'green'
+      return 'chartreuse'
+    case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
+      return 'pink'
     default:
       return 'default'
   }

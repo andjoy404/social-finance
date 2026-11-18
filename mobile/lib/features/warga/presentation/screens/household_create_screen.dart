@@ -185,7 +185,11 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         final routePath = GoRouterState.of(context).uri.path;
         KasFormNavigationGuard.allowExitFor(routePath);
         try {
-          context.pop();
+          if (context.canPop()) {
+            context.pop();
+          } else {
+            context.go('/home/warga');
+          }
         } catch (_) {
           KasFormNavigationGuard.revokeExitFor(routePath);
           rethrow;

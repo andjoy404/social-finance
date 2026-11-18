@@ -222,6 +222,7 @@ class _NotificationManagementScreenState
           _logs = filtered;
           _isLoadingLogs = false;
         });
+        ref.read(notificationUnreadCountProvider.notifier).refresh();
       }
     } catch (e) {
       // Only show the error if the user hasn't changed.
@@ -263,6 +264,7 @@ class _NotificationManagementScreenState
     try {
       final repo = ref.read(notificationRepositoryProvider);
       await repo.markAllAsRead();
+      ref.read(notificationUnreadCountProvider.notifier).clear();
       if (mounted) {
         setState(() {
           _logs = _logs
@@ -290,24 +292,27 @@ class _NotificationManagementScreenState
   }
 
   void _openLogDetail(NotificationLogEntry log) {
-    if (_historyCategory == null && !log.isRead) {
-      ref
-          .read(notificationRepositoryProvider)
-          .markAsRead(log.id)
-          .then((_) {
-            if (mounted) {
-              setState(() {
-                _logs = _logs
-                    .map(
-                      (l) => l.id == log.id
-                          ? l.copyWith(isRead: true, readAt: DateTime.now())
-                          : l,
-                    )
-                    .toList();
-              });
-            }
-          })
-          .catchError((_) {});
+    void doMarkRead() {
+      if (_historyCategory == null && !log.isRead) {
+        ref
+            .read(notificationRepositoryProvider)
+            .markAsRead(log.id)
+            .then((_) {
+              ref.read(notificationUnreadCountProvider.notifier).refresh();
+              if (mounted) {
+                setState(() {
+                  _logs = _logs
+                      .map(
+                        (l) => l.id == log.id
+                            ? l.copyWith(isRead: true, readAt: DateTime.now())
+                            : l,
+                      )
+                      .toList();
+                });
+              }
+            })
+            .catchError((_) {});
+      }
     }
 
     final combinedPayload = <String, dynamic>{
@@ -316,6 +321,7 @@ class _NotificationManagementScreenState
       'type': log.eventType,
       'title': log.title,
       'body': log.body,
+      'dedup_key': log.dedupKey,
       if (log.imageUrl != null) 'image_url': log.imageUrl,
       if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
       'notification_id': log.id,
@@ -333,7 +339,12 @@ class _NotificationManagementScreenState
 
     final router = GoRouter.maybeOf(context);
     if (router != null) {
-      router.push(target);
+      try {
+        router.push(target);
+        doMarkRead();
+      } catch (_) {
+        // Navigation failed; do not mark as read
+      }
       return;
     }
 
@@ -350,7 +361,9 @@ class _NotificationManagementScreenState
           openedFromNotificationList: true,
         ),
       ),
-    );
+    ).then((_) {
+      doMarkRead();
+    });
   }
 
   void _showPreviewBanner({
@@ -1512,7 +1525,13 @@ class _NotificationManagementScreenState
         automaticallyImplyLeading: Navigator.of(context).canPop(),
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
-        actions: [],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.done_all_rounded),
+            tooltip: 'Tandai Semua Dibaca',
+            onPressed: _markAllAsRead,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabAlignment: TabAlignment.fill,
@@ -3467,12 +3486,11 @@ class _NotificationManagementScreenState
                       ),
                     ),
                   ),
-                  if (!isAdmin)
-                    IconButton(
-                      icon: const Icon(Icons.done_all_rounded, size: 20),
-                      tooltip: 'Tandai Semua Dibaca',
-                      onPressed: _markAllAsRead,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.done_all_rounded, size: 20),
+                    tooltip: 'Tandai Semua Dibaca',
+                    onPressed: _markAllAsRead,
+                  ),
                 ],
               ),
             ),
@@ -3546,14 +3564,22 @@ class _NotificationManagementScreenState
                             _ => null,
                           };
 
+                      final isUnread = showReadState && !log.isRead;
+                      final unreadBg = isDark
+                          ? theme.colorScheme.primary.withOpacity(0.12)
+                          : theme.colorScheme.primary.withOpacity(0.05);
+
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: InkWell(
                           key: Key('notification_log_item_${log.id}'),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           onTap: () => _openLogDetail(log),
-                          child: AppCard(
-                            child: Column(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            child: AppCard(
+                              cardColor: isUnread ? unreadBg : null,
+                              child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Wrap(
@@ -3574,6 +3600,16 @@ class _NotificationManagementScreenState
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
+                                        Padding(
+                                          padding: const EdgeInsets.only(right: 6),
+                                          child: AppBadge(
+                                            label: log.isRW ? 'RW' : 'RT',
+                                            backgroundColor: log.isRW
+                                                ? const Color(0xFF7C3AED)
+                                                : AppColors.accent,
+                                            textColor: Colors.white,
+                                          ),
+                                        ),
                                         if (showReadState && !log.isRead) ...[
                                           const Padding(
                                             padding: EdgeInsets.only(right: 6),
@@ -3697,7 +3733,8 @@ class _NotificationManagementScreenState
                             ),
                           ),
                         ),
-                      );
+                      ),
+                    );
                     },
                   ),
           ),

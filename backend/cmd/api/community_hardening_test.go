@@ -698,23 +698,84 @@ func TestCommunity_TemplateOwnershipValidation(t *testing.T) {
 func TestCommunity_OrganizationContactPrivacy(t *testing.T) {
 	pool, router := setupCommunityRouter(t, []string{commRTUrena})
 	rtID := commRTUrena
-	_, wargaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "")
-	_, sekretarisToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanSekretaris)
+	wargaUID, wargaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "")
+	sekUID, sekretarisToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanSekretaris)
+	keamUID, _ := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKeamanan)
+
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0899999999' WHERE id IN (SELECT user_id FROM user_rt_memberships WHERE rt_id = $1)", rtID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0811111111' WHERE id = $1", wargaUID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0822222222', email = 'sekretaris@test.com' WHERE id = $1", sekUID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0833333333', email = 'keamanan@test.com' WHERE id = $1", keamUID)
 
 	recWarga := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", wargaToken, nil, "")
 	if recWarga.Code != http.StatusOK {
 		t.Fatalf("warga org structure = %d", recWarga.Code)
 	}
-	if strings.Contains(recWarga.Body.String(), `"phone"`) {
-		t.Fatal("warga can see officer phone numbers")
+
+	var wargaData struct {
+		Nodes []struct {
+			Position string `json:"position"`
+			Members  []struct {
+				FullName string  `json:"full_name"`
+				Jabatan  string  `json:"jabatan"`
+				Phone    *string `json:"phone"`
+				Email    *string `json:"email"`
+			} `json:"members"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(recWarga.Body.Bytes(), &wargaData); err != nil {
+		t.Fatalf("unmarshal warga org structure: %v", err)
+	}
+
+	foundKeamanan := false
+	for _, n := range wargaData.Nodes {
+		for _, m := range n.Members {
+			if strings.EqualFold(m.Jabatan, "keamanan") {
+				foundKeamanan = true
+				if m.Phone == nil || *m.Phone == "" {
+					t.Errorf("warga must be able to view phone of Petugas Keamanan on org structure")
+				}
+			} else {
+				if m.Phone != nil && *m.Phone != "" {
+					t.Errorf("warga must NOT see phone of non-keamanan officer %s (%s)", m.FullName, m.Jabatan)
+				}
+			}
+			if m.Email != nil && *m.Email != "" {
+				t.Errorf("warga must NOT see email of officer %s", m.FullName)
+			}
+		}
+	}
+	if !foundKeamanan {
+		t.Fatalf("expected Petugas Keamanan in org structure nodes")
+	}
+
+	// NIK should never be leaked
+	if strings.Contains(recWarga.Body.String(), "nik") {
+		t.Fatal("warga response leaked NIK")
 	}
 
 	recSek := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", sekretarisToken, nil, "")
 	if recSek.Code != http.StatusOK {
 		t.Fatalf("sekretaris org structure = %d", recSek.Code)
 	}
-	if !strings.Contains(recSek.Body.String(), `"phone"`) {
-		t.Fatal("sekretaris (organization.contact.read) cannot see officer phone numbers")
+
+	var sekData struct {
+		Nodes []struct {
+			Members []struct {
+				Jabatan string  `json:"jabatan"`
+				Phone   *string `json:"phone"`
+			} `json:"members"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(recSek.Body.Bytes(), &sekData); err != nil {
+		t.Fatalf("unmarshal sek org structure: %v", err)
+	}
+	for _, n := range sekData.Nodes {
+		for _, m := range n.Members {
+			if strings.EqualFold(m.Jabatan, "sekretaris") && (m.Phone == nil || *m.Phone == "") {
+				t.Errorf("sekretaris (with permission) should see phone of sekretaris")
+			}
+		}
 	}
 }
 

@@ -1,7 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/utils/jakarta_time_utils.dart';
+import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/utils/url_launcher_utils.dart';
+import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
@@ -22,6 +29,8 @@ class RwNotificationScreen extends ConsumerStatefulWidget {
 
 class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
   int _page = 1;
+  int _minePage = 1;
+  int _viewMode = 0; // 0: Semua, 1: Template, 2: Riwayat Saya, 3: Riwayat Sistem
   bool _sending = false;
   bool _templateBusy = false;
 
@@ -55,15 +64,16 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
 
   Widget _buildBodyWithLinksDialog(String body) {
     final segments = UrlDetector.parseSegments(body);
+    final textStyle = TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface);
     if (segments.isEmpty || segments.every((s) => !s.isLink)) {
       return Text(
         body,
-        style: const TextStyle(fontSize: 12, color: Colors.black87),
+        style: textStyle,
       );
     }
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 12, color: Colors.black87),
+        style: textStyle,
         children: segments.map((seg) {
           if (seg.isLink) {
             return TextSpan(
@@ -88,6 +98,13 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
     final m = memberships.where((e) => e['rw_id'] == widget.rwId).firstOrNull;
     if (m == null) return false;
     if ((m['source'] as String?) != 'explicit') return false;
+
+    // RBAC backend permissions check: rw.notification.write
+    final rawPerms = user['effective_permissions'];
+    if (rawPerms is List && rawPerms.isNotEmpty) {
+      return userHasPermission(user, 'rw.notification.write');
+    }
+
     final j = ((m['jabatan'] as String?) ?? '').toLowerCase();
     return j == 'ketua' || j == 'bendahara';
   }
@@ -105,6 +122,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
 
   Future<void> _refresh() async {
     ref.invalidate(rwNotificationLogsProvider((rwId: widget.rwId, page: _page, eventType: null)));
+    ref.invalidate(rwNotificationLogsMineProvider((rwId: widget.rwId, page: _minePage, eventType: null)));
     ref.invalidate(rwNotificationTemplatesProvider(widget.rwId));
   }
 
@@ -451,66 +469,130 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
     final canWrite = _canWrite(user);
     final logsAsync = ref.watch(rwNotificationLogsProvider((rwId: widget.rwId, page: _page, eventType: null)));
     final templatesAsync = ref.watch(rwNotificationTemplatesProvider(widget.rwId));
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(children: [
-            const Expanded(child: Text('Notifikasi RW', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
-            if (canWrite)
-              FilledButton.icon(
-                key: const Key('rwNotifManualPushBtn'),
-                onPressed: _sending ? null : _sendManualPush,
-                icon: const Icon(Icons.send),
-                label: const Text('Kirim Manual'),
+    return Material(
+      type: MaterialType.transparency,
+      child: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Row(children: [
+              const Expanded(child: Text('Notifikasi RW', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
+              if (canWrite)
+                FilledButton.icon(
+                  key: const Key('rwNotifManualPushBtn'),
+                  onPressed: _sending ? null : _sendManualPush,
+                  icon: const Icon(Icons.send),
+                  label: const Text('Kirim Manual'),
+                ),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              'Riwayat notifikasi dan template untuk RW ini.',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            if (canWrite) ...[
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 0,
+                      label: Text('Semua', style: TextStyle(fontSize: 11)),
+                    ),
+                    ButtonSegment(
+                      value: 1,
+                      icon: Icon(Icons.description_outlined, size: 14),
+                      label: Text('Template', style: TextStyle(fontSize: 11)),
+                    ),
+                    ButtonSegment(
+                      value: 2,
+                      icon: Icon(Icons.person_outline, size: 14),
+                      label: Text('Saya', style: TextStyle(fontSize: 11)),
+                    ),
+                    ButtonSegment(
+                      value: 3,
+                      icon: Icon(Icons.history_outlined, size: 14),
+                      label: Text('Sistem', style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                  selected: {_viewMode},
+                  onSelectionChanged: (s) => setState(() => _viewMode = s.first),
+                ),
               ),
-          ]),
-          const SizedBox(height: 4),
-          const Text('Riwayat notifikasi dan template untuk RW ini.', style: TextStyle(color: Colors.black54)),
-          const SizedBox(height: 16),
-          _sectionTitle('Riwayat Notifikasi'),
-          logsAsync.when(
-            loading: () => const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-            error: (e, _) => _errorBox(e),
-            data: (pageData) {
-              if (pageData.items.isEmpty) {
-                return const _EmptyBox(message: 'Belum ada notifikasi untuk RW ini.');
-              }
-              return Column(children: [
-                ...pageData.items.map((n) => _logTile(n)),
-                if (pageData.totalPages > 1)
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    IconButton(onPressed: _page > 1 ? () => setState(() => _page--) : null, icon: const Icon(Icons.chevron_left)),
-                    Text('$_page / ${pageData.totalPages}'),
-                    IconButton(onPressed: _page < pageData.totalPages ? () => setState(() => _page++) : null, icon: const Icon(Icons.chevron_right)),
-                  ]),
-              ]);
-            },
-          ),
-          const SizedBox(height: 20),
-          Row(children: [
-            Expanded(child: _sectionTitle('Template Notifikasi')),
-            if (canWrite)
-              TextButton.icon(
-                key: const Key('rwNotifCreateTemplateBtn'),
-                onPressed: _templateBusy ? null : _createTemplate,
-                icon: const Icon(Icons.add),
-                label: const Text('Template'),
+              const SizedBox(height: 16),
+            ],
+            if (_viewMode == 0 || _viewMode == 3) ...[
+              _sectionTitle('Riwayat Notifikasi Sistem'),
+              logsAsync.when(
+                loading: () => const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+                error: (e, _) => _errorBox(e),
+                data: (pageData) {
+                  if (pageData.items.isEmpty) {
+                    return const _EmptyBox(message: 'Belum ada notifikasi untuk RW ini.');
+                  }
+                  return Column(children: [
+                    ...pageData.items.map((n) => _logTile(n)),
+                    if (pageData.totalPages > 1)
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        IconButton(onPressed: _page > 1 ? () => setState(() => _page--) : null, icon: const Icon(Icons.chevron_left)),
+                        Text('$_page / ${pageData.totalPages}'),
+                        IconButton(onPressed: _page < pageData.totalPages ? () => setState(() => _page++) : null, icon: const Icon(Icons.chevron_right)),
+                      ]),
+                  ]);
+                },
               ),
-          ]),
-          templatesAsync.when(
-            loading: () => const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
-            error: (e, _) => _errorBox(e),
-            data: (items) {
-              if (items.isEmpty) {
-                return _EmptyBox(message: canWrite ? 'Belum ada template. Buat template baru.' : 'Belum ada template yang tersedia.');
-              }
-              return Column(children: items.map((t) => _templateTile(t, canWrite)).toList());
-            },
-          ),
-        ],
+              if (_viewMode == 0) const SizedBox(height: 20),
+            ],
+            if ((_viewMode == 0 || _viewMode == 2) && canWrite && _viewMode != 0) ...[
+              _sectionTitle('Riwayat Notifikasi Saya'),
+              ref.watch(rwNotificationLogsMineProvider((rwId: widget.rwId, page: _minePage, eventType: null))).when(
+                loading: () => const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+                error: (e, _) => _errorBox(e),
+                data: (pageData) {
+                  if (pageData.items.isEmpty) {
+                    return const _EmptyBox(message: 'Belum ada notifikasi yang Anda kirimkan untuk RW ini.');
+                  }
+                  return Column(children: [
+                    ...pageData.items.map((n) => _mineLogTile(n)),
+                    if (pageData.totalPages > 1)
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        IconButton(onPressed: _minePage > 1 ? () => setState(() => _minePage--) : null, icon: const Icon(Icons.chevron_left)),
+                        Text('$_minePage / ${pageData.totalPages}'),
+                        IconButton(onPressed: _minePage < pageData.totalPages ? () => setState(() => _minePage++) : null, icon: const Icon(Icons.chevron_right)),
+                      ]),
+                  ]);
+                },
+              ),
+            ],
+            if (_viewMode == 0 || _viewMode == 1) ...[
+              Row(children: [
+                Expanded(child: _sectionTitle('Template Notifikasi')),
+                if (canWrite)
+                  TextButton.icon(
+                    key: const Key('rwNotifCreateTemplateBtn'),
+                    onPressed: _templateBusy ? null : _createTemplate,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Template'),
+                  ),
+              ]),
+              templatesAsync.when(
+                loading: () => const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
+                error: (e, _) => _errorBox(e),
+                data: (items) {
+                  if (items.isEmpty) {
+                    return _EmptyBox(message: canWrite ? 'Belum ada template. Buat template baru.' : 'Belum ada template yang tersedia.');
+                  }
+                  return Column(children: items.map((t) => _templateTile(t, canWrite)).toList());
+                },
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -531,18 +613,380 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
         ]),
       );
 
+  Widget _buildDeliveryStatusBadge(String? status) {
+    final s = (status ?? '').trim().toUpperCase();
+    if (s.isEmpty) return const SizedBox.shrink();
+
+    final label = switch (s) {
+      'SENT' => 'TERKIRIM',
+      'APPROVED' => 'DISETUJUI',
+      'RECORDED' => 'TERCATAT',
+      'FAILED' => 'GAGAL',
+      'REJECTED' => 'DITOLAK',
+      'PARTIAL' => 'SEBAGIAN',
+      'NO_DEVICE' => 'TANPA PERANGKAT',
+      'PENDING' => 'TERTUNDA',
+      _ => s,
+    };
+
+    final color = switch (s) {
+      'SENT' || 'APPROVED' || 'RECORDED' => AppColors.success,
+      'FAILED' || 'REJECTED' => AppColors.danger,
+      'PARTIAL' || 'NO_DEVICE' || 'PENDING' => AppColors.warning,
+      _ => AppColors.lightTextMuted,
+    };
+
+    return AppBadge(
+      label: label,
+      backgroundColor: color,
+      textColor: Colors.white,
+    );
+  }
+
+  Widget _previewMetaRow(String label, String? textValue, {Widget? widgetValue}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: widgetValue ??
+                Text(
+                  textValue ?? '-',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNotificationPreview(RwNotificationLog n) {
+    final title = n.title?.isNotEmpty == true ? n.title! : n.eventType;
+    final body = n.body ?? '';
+    final dateStr = n.createdAt != null ? formatJakartaDetailDateTime(n.createdAt) : '-';
+    final isRw = n.source?.toLowerCase() != 'rt';
+    final imageUrl = n.imageUrl;
+    final resolvedImageUrl = imageUrl != null && imageUrl.isNotEmpty
+        ? ApiConfig.resolveImageUrl(imageUrl)
+        : null;
+    final linkUrl = n.url ?? (n.payload?['deep_link'] as String?);
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          title: Row(
+            children: [
+              const Icon(Icons.preview_rounded, size: 22, color: AppColors.accent),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Preview Notifikasi',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Simulated push notification banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF334155)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: isRw ? const Color(0xFF7C3AED) : AppColors.accent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Icon(Icons.notifications_active, size: 13, color: Colors.white),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                isRw ? 'SOCIAL FINANCE URENA • RW' : 'SOCIAL FINANCE URENA • RT',
+                                style: const TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const Text('Baru saja', style: TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        _buildBodyWithLinks(body),
+                        if (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 180),
+                              child: Image.network(
+                                resolvedImageUrl,
+                                width: double.infinity,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  const Text('Detail Informasi', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+
+                  _previewMetaRow('Waktu / Jadwal', dateStr),
+                  _previewMetaRow(
+                    'Sumber',
+                    null,
+                    widgetValue: AppBadge(
+                      label: isRw ? 'RW' : 'RT',
+                      backgroundColor: isRw ? const Color(0xFF7C3AED) : AppColors.accent,
+                      textColor: Colors.white,
+                    ),
+                  ),
+                  if (n.status != null && n.status!.isNotEmpty)
+                    _previewMetaRow(
+                      'Status Notifikasi',
+                      null,
+                      widgetValue: _buildDeliveryStatusBadge(n.status),
+                    ),
+                  if (n.deliveryCountsAvailable)
+                    _previewMetaRow(
+                      'Penerima',
+                      '${n.sentCount} / ${n.recipientsCount} penerima terkirim'
+                          '${n.failedCount > 0 ? ' (${n.failedCount} gagal)' : ''}',
+                    ),
+                  if (linkUrl != null && linkUrl.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () => UrlDetector.openUrl(linkUrl),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.link, size: 16, color: AppColors.accent),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                linkUrl,
+                                style: const TextStyle(
+                                  color: AppColors.accent,
+                                  decoration: TextDecoration.underline,
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Tutup'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _logTile(RwNotificationLog n) {
-    final when = n.createdAt != null ? '${n.createdAt}'.split('.').first : '-';
-    return Card(
-      key: Key('rwNotifLog_${n.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(n.title?.isNotEmpty == true ? n.title! : n.eventType),
-        subtitle: Text('${n.body ?? ''}\n$when', maxLines: 3, overflow: TextOverflow.ellipsis),
-        isThreeLine: true,
-        trailing: n.status != null && n.status!.isNotEmpty
-            ? Chip(label: Text(n.status!, style: const TextStyle(fontSize: 11)))
-            : null,
+    final dateStr = n.createdAt != null ? formatJakartaDateTime(n.createdAt) : '-';
+    final isRw = n.source?.toLowerCase() != 'rt';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        key: Key('rwNotifLog_${n.id}'),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        onTap: () => _showNotificationPreview(n),
+        child: AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    dateStr,
+                    style: const TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: AppBadge(
+                          label: isRw ? 'RW' : 'RT',
+                          backgroundColor: isRw ? const Color(0xFF7C3AED) : AppColors.accent,
+                          textColor: Colors.white,
+                        ),
+                      ),
+                      _buildDeliveryStatusBadge(n.status),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                n.title?.isNotEmpty == true ? n.title! : n.eventType,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              if (n.body != null && n.body!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  n.body!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
+                ),
+              ],
+              if (n.deliveryCountsAvailable) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '${n.sentCount} / ${n.recipientsCount} penerima terkirim',
+                  style: const TextStyle(fontSize: 11, color: AppColors.lightTextMuted),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mineLogTile(RwNotificationLog n) {
+    final dateStr = n.createdAt != null ? formatJakartaDateTime(n.createdAt) : '-';
+    final isRw = n.source?.toLowerCase() != 'rt';
+    final recipientStr = n.deliveryCountsAvailable
+        ? '${n.sentCount} / ${n.recipientsCount} penerima'
+        : '';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        key: Key('rwNotifMyLog_${n.id}'),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        onTap: () => _showNotificationPreview(n),
+        child: AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    dateStr,
+                    style: const TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: AppBadge(
+                          label: isRw ? 'RW' : 'RT',
+                          backgroundColor: isRw ? const Color(0xFF7C3AED) : AppColors.accent,
+                          textColor: Colors.white,
+                        ),
+                      ),
+                      _buildDeliveryStatusBadge(n.status),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                n.title?.isNotEmpty == true ? n.title! : n.eventType,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              if (n.body != null && n.body!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  n.body!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
+                ),
+              ],
+              if (recipientStr.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  recipientStr,
+                  style: const TextStyle(fontSize: 11, color: AppColors.lightTextMuted),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -552,6 +996,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
       key: Key('rwNotifTemplate_${t.id}'),
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
+        onTap: () => _previewTemplate(t, canWrite),
         title: Text(t.name),
         subtitle: Text('${t.eventType}\n${t.title}', maxLines: 2, overflow: TextOverflow.ellipsis),
         isThreeLine: true,
@@ -596,11 +1041,12 @@ class _EmptyBox extends StatelessWidget {
   const _EmptyBox({required this.message});
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(24),
       alignment: Alignment.center,
-      decoration: BoxDecoration(border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(8)),
-      child: Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
+      decoration: BoxDecoration(border: Border.all(color: colorScheme.outlineVariant), borderRadius: BorderRadius.circular(8)),
+      child: Text(message, textAlign: TextAlign.center, style: TextStyle(color: colorScheme.onSurfaceVariant)),
     );
   }
 }

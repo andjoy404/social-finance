@@ -268,10 +268,20 @@ func (s *Service) UpdateSchedule(ctx context.Context, rtID, scheduleID, actorID 
 	if _, err := uuid.Parse(req.ShiftConfigID); err != nil {
 		return nil, newAppError(400, "validation_error", "invalid shift_config_id", ErrValidation)
 	}
-	start, end, err := normalizeScheduleDates(req.StartDate, req.EndDate, req.ShiftDate)
+	// Resolve dates: nil pointer means "preserve existing"; dereference to string for normalizeScheduleDates.
+	startRaw := ""
+	endRaw := ""
+	if req.StartDate != nil {
+		startRaw = *req.StartDate
+	}
+	if req.EndDate != nil {
+		endRaw = *req.EndDate
+	}
+	start, end, err := normalizeScheduleDates(startRaw, endRaw, req.ShiftDate)
 	if err != nil {
 		return nil, err
 	}
+	// Pass whether the client explicitly sent date fields so the repository can preserve old values.
 	return s.repo.UpdateSchedulePeriod(ctx, rtID, scheduleID, actorID, req, start, end, s.NowUTC())
 }
 
@@ -356,16 +366,14 @@ func (s *Service) ListAttendance(ctx context.Context, rtID string, f AttendanceF
 
 func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (*OfficerAttendanceOverview, error) {
 	now := s.Now()
-	todayStr := now.Format("2006-01-02")
-	yesterdayStr := now.AddDate(0, 0, -1).Format("2006-01-02")
-	nextWeekStr := now.AddDate(0, 0, 7).Format("2006-01-02")
+	nowJkt := now.In(JakartaLoc)
 
+	// Fetch officer's active shift assignments without calendar date dependency
 	scheds, _, err := s.repo.ListSchedules(ctx, rtID, ScheduleFilter{
-		DateFrom: yesterdayStr,
-		DateTo:   nextWeekStr,
-		UserID:   userID,
-		Page:     1,
-		PerPage:  30,
+		UserID:  userID,
+		Status:  ScheduleStatusScheduled,
+		Page:    1,
+		PerPage: 30,
 	})
 	if err != nil {
 		return nil, err
@@ -381,39 +389,88 @@ func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (
 	}
 
 	overview := &OfficerAttendanceOverview{
-		ServerTime:     now,
+		ServerTime:     nowJkt,
 		Timezone:       "Asia/Jakarta",
 		UpcomingShifts: []SecuritySchedule{},
 		RecentHistory:  recent,
 	}
 
-	nowUTC := now.UTC()
 	var currentSched *SecuritySchedule
-	for i := range scheds {
-		sc := &scheds[i]
-		// Match an open shift first (checked in but not checked out, or within active check-in window).
-		openAt := sc.ScheduledStartAt.Add(-time.Duration(sc.CheckInWindowBeforeMinutes) * time.Minute)
-		closeOutAt := sc.ScheduledEndAt.Add(time.Duration(sc.MissingCheckoutCutoffMinutes) * time.Minute)
-		inWindow := !nowUTC.Before(openAt) && !nowUTC.After(closeOutAt)
-		if currentSched == nil && inWindow && (sc.AttendanceStatus == StatusBelumHadir || sc.AttendanceStatus == StatusHadir || sc.AttendanceStatus == StatusTerlambat) {
-			copySc := *sc
-			currentSched = &copySc
-			continue
-		}
-		if sc.ShiftDate >= todayStr {
-			overview.UpcomingShifts = append(overview.UpcomingShifts, *sc)
+	var currentRec *AttendanceRecord
+
+	// 1. First priority: Check if officer has an active open session (checked in, not checked out)
+	for i := range recent {
+		r := &recent[i]
+		if r.CheckedInAt != nil && r.CheckedOutAt == nil && (r.Status == StatusHadir || r.Status == StatusTerlambat || r.Status == StatusBelumAbsenPulang) {
+			rCopy := *r
+			currentRec = &rCopy
+			for j := range scheds {
+				if scheds[j].ID == r.ScheduleID || scheds[j].ShiftConfigID == r.ShiftConfigID {
+					sCopy := scheds[j]
+					currentSched = &sCopy
+					break
+				}
+			}
+			break
 		}
 	}
-	if currentSched != nil {
-		overview.CurrentSchedule = currentSched
-		for i := range recent {
-			if recent[i].ScheduleID == currentSched.ID {
-				recCopy := recent[i]
-				overview.CurrentRecord = &recCopy
+
+	// 2. Second priority: If no open session, find the active shift assignment matching current wall-clock window
+	if currentSched == nil {
+		for i := range scheds {
+			sc := &scheds[i]
+			sh, sm, _, err1 := ParseHHMM(sc.StartTime)
+			eh, em, _, err2 := ParseHHMM(sc.EndTime)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			tTodayStart := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), sh, sm, 0, 0, JakartaLoc)
+			tTodayEnd := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), eh, em, 0, 0, JakartaLoc)
+			if sc.CrossesMidnight || !tTodayEnd.After(tTodayStart) {
+				tTodayEnd = tTodayEnd.AddDate(0, 0, 1)
+			}
+
+			// Also consider yesterday start for cross-midnight shift (e.g. 22:00 yesterday to 06:00 today)
+			tYestStart := tTodayStart.AddDate(0, 0, -1)
+			tYestEnd := tTodayEnd.AddDate(0, 0, -1)
+
+			inToday := !nowJkt.Before(tTodayStart.Add(-time.Duration(sc.CheckInWindowBeforeMinutes)*time.Minute)) &&
+				!nowJkt.After(tTodayEnd.Add(time.Duration(sc.MissingCheckoutCutoffMinutes)*time.Minute))
+			inYest := sc.CrossesMidnight && !nowJkt.Before(tYestStart.Add(-time.Duration(sc.CheckInWindowBeforeMinutes)*time.Minute)) &&
+				!nowJkt.After(tYestEnd.Add(time.Duration(sc.MissingCheckoutCutoffMinutes)*time.Minute))
+
+			if inToday || inYest {
+				sCopy := *sc
+				currentSched = &sCopy
+				// Find matching record today if already checked out or completed
+				for j := range recent {
+					if recent[j].ShiftConfigID == sc.ShiftConfigID && recent[j].ShiftDate == nowJkt.Format("2006-01-02") {
+						rCopy := recent[j]
+						currentRec = &rCopy
+						break
+					}
+				}
 				break
 			}
 		}
 	}
+
+	// 3. Fallback: If still no current schedule, use the first active assigned shift if available
+	if currentSched == nil && len(scheds) > 0 {
+		sCopy := scheds[0]
+		currentSched = &sCopy
+	}
+
+	overview.CurrentSchedule = currentSched
+	overview.CurrentRecord = currentRec
+
+	// Populate upcoming shifts (other active assignments)
+	for i := range scheds {
+		if currentSched == nil || scheds[i].ID != currentSched.ID {
+			overview.UpcomingShifts = append(overview.UpcomingShifts, scheds[i])
+		}
+	}
+
 	return overview, nil
 }
 
@@ -580,4 +637,79 @@ func (s *Service) GetOnDutyOfficers(ctx context.Context, rtID string) ([]OnDutyO
 
 func (s *Service) RunSchedulerTick(ctx context.Context) (*SchedulerTickResult, error) {
 	return s.repo.RunSchedulerTick(ctx, s.NowUTC())
+}
+
+// ── Patrol & Paket Service Methods ──────────────────────────────────────────
+
+func (s *Service) ListPatrolTemplates(ctx context.Context, rtID string) ([]PatrolTemplate, error) {
+	return s.repo.ListPatrolTemplates(ctx, rtID)
+}
+
+func (s *Service) CreatePatrolTemplate(ctx context.Context, rtID, name, locationLabel, createdBy string) (*PatrolTemplate, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, newAppError(400, "empty_name", "nama template patroli wajib diisi", ErrValidation)
+	}
+	if strings.TrimSpace(locationLabel) == "" {
+		return nil, newAppError(400, "empty_location", "lokasi patroli wajib diisi", ErrValidation)
+	}
+	return s.repo.CreatePatrolTemplate(ctx, rtID, name, locationLabel, createdBy)
+}
+
+func (s *Service) UpdatePatrolTemplate(ctx context.Context, rtID, templateID, name, locationLabel string, isActive *bool) (*PatrolTemplate, error) {
+	return s.repo.UpdatePatrolTemplate(ctx, rtID, templateID, name, locationLabel, isActive)
+}
+
+func (s *Service) DeletePatrolTemplate(ctx context.Context, rtID, templateID string) error {
+	return s.repo.DeletePatrolTemplate(ctx, rtID, templateID)
+}
+
+func (s *Service) CreatePatrolBundle(ctx context.Context, rtID, createdBy string, notes *string, photos []CreatePatrolPhoto) (*PatrolBundle, error) {
+	return s.repo.CreatePatrolBundle(ctx, rtID, createdBy, notes, photos)
+}
+
+func (s *Service) ListPatrolBundles(ctx context.Context, rtID string, limit, offset int) ([]PatrolBundle, int, error) {
+	return s.repo.ListPatrolBundles(ctx, rtID, limit, offset)
+}
+
+func (s *Service) GetPatrolBundle(ctx context.Context, rtID, bundleID string) (*PatrolBundle, error) {
+	return s.repo.GetPatrolBundle(ctx, rtID, bundleID)
+}
+
+func (s *Service) CreatePaketReport(ctx context.Context, rtID, createdBy, receiverWargaID string, items []CreatePaketItem) (*PaketReport, error) {
+	if strings.TrimSpace(receiverWargaID) == "" {
+		return nil, newAppError(400, "empty_receiver", "warga penerima wajib dipilih", ErrValidation)
+	}
+	return s.repo.CreatePaketReport(ctx, rtID, createdBy, receiverWargaID, items)
+}
+
+func (s *Service) ListPaketReports(ctx context.Context, rtID string, limit, offset int) ([]PaketReport, int, error) {
+	return s.repo.ListPaketReports(ctx, rtID, limit, offset)
+}
+
+func (s *Service) GetPaketReport(ctx context.Context, rtID, reportID string) (*PaketReport, error) {
+	return s.repo.GetPaketReport(ctx, rtID, reportID)
+}
+
+func (s *Service) UpdatePaketItemStatus(ctx context.Context, rtID, reportID, itemID, newStatus, userID string, proofImageKey *string) error {
+	return s.repo.UpdatePaketItemStatus(ctx, rtID, reportID, itemID, newStatus, userID, proofImageKey)
+}
+
+func (s *Service) SearchWargaMasked(ctx context.Context, rtID, query string, limit int) ([]MaskedWargaSearchResult, error) {
+	return s.repo.SearchWargaMasked(ctx, rtID, query, limit)
+}
+
+func (s *Service) GetSecurityAlerts(ctx context.Context, rtID, userID string) (*SecurityAlertsResult, error) {
+	return s.repo.GetSecurityAlerts(ctx, rtID, userID)
+}
+
+func (s *Service) MarkReadReceipt(ctx context.Context, userID, rtID, domain string, itemIDs []string) error {
+	return s.repo.MarkReadReceipt(ctx, userID, rtID, domain, itemIDs)
+}
+
+func (s *Service) GetPatrolPhotoKey(ctx context.Context, rtID, photoID string) (string, error) {
+	return s.repo.GetPatrolPhotoKey(ctx, rtID, photoID)
+}
+
+func (s *Service) GetPaketPhotoKey(ctx context.Context, rtID, photoID string) (string, error) {
+	return s.repo.GetPaketPhotoKey(ctx, rtID, photoID)
 }

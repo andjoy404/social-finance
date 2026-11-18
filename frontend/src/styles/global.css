@@ -2131,6 +2131,14 @@ input[type="file"].sf-form-file::-webkit-file-upload-button:active {
   text-align: left !important;
 }
 
+.table-wrapper table.sf-warga-table th.col-index,
+.table-wrapper table.sf-warga-table td.col-index {
+  width: 60px !important;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  text-align: center !important;
+}
+
 .table-wrapper table.sf-warga-table th.col-house-number,
 .table-wrapper table.sf-warga-table td.col-house-number {
   min-width: 120px;
@@ -2154,6 +2162,89 @@ input[type="file"].sf-form-file::-webkit-file-upload-button:active {
 .table-wrapper table.sf-warga-table td.col-email {
   min-width: 180px;
   text-align: left !important;
+}
+
+/* Buku Tamu columns */
+.table-wrapper table.sf-warga-table th.col-purpose,
+.table-wrapper table.sf-warga-table td.col-purpose {
+  min-width: 160px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-destination,
+.table-wrapper table.sf-warga-table td.col-destination {
+  min-width: 160px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-vehicle,
+.table-wrapper table.sf-warga-table td.col-vehicle {
+  width: 130px !important;
+  min-width: 130px !important;
+  max-width: 130px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-checked-in,
+.table-wrapper table.sf-warga-table td.col-checked-in {
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-checked-out,
+.table-wrapper table.sf-warga-table td.col-checked-out {
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+/* Patrol columns */
+.table-wrapper table.sf-warga-table th.col-officer,
+.table-wrapper table.sf-warga-table td.col-officer {
+  min-width: 160px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-submitted-at,
+.table-wrapper table.sf-warga-table td.col-submitted-at {
+  width: 170px !important;
+  min-width: 170px !important;
+  max-width: 170px !important;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-photos,
+.table-wrapper table.sf-warga-table td.col-photos {
+  width: 180px !important;
+  min-width: 180px !important;
+  max-width: 180px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-notes,
+.table-wrapper table.sf-warga-table td.col-notes {
+  min-width: 200px;
+  text-align: left !important;
+}
+
+/* ── Success banner (reusable for any success message) ─────────────── */
+.sf-success-banner {
+  padding: 12px 16px;
+  background-color: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #389e0d;
+  gap: 8px;
 }
 
 /* ── Laporan KAS: dokumen formal (kertas putih, terbaca di tema terang/gelap) ── */

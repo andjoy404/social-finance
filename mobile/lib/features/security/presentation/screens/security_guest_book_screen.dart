@@ -22,6 +22,7 @@ class _SecurityGuestBookScreenState
   Timer? _debounce;
   Timer? _guestTicker;
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
   List<GuestBookEntry> _entries = [];
   int _page = 1, _total = 0, _totalPages = 1;
@@ -56,12 +57,24 @@ class _SecurityGuestBookScreenState
     super.dispose();
   }
 
-  Future<void> _load({int? page}) async {
+  Future<void> _guardedRefresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      await _load(isRefresh: true);
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _load({int? page, bool isRefresh = false}) async {
     final targetPage = page ?? _page;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!isRefresh) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final result = await ref
           .read(securityApiClientProvider)
@@ -84,10 +97,16 @@ class _SecurityGuestBookScreenState
       _ensureGuestTicker();
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
+        if (isRefresh) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal memuat ulang: $e')),
+          );
+        } else {
+          setState(() {
+            _error = e.toString();
+            _loading = false;
+          });
+        }
       }
     }
   }
@@ -246,7 +265,7 @@ class _SecurityGuestBookScreenState
                 )
               : _error != null
               ? RefreshIndicator(
-                  onRefresh: () => _load(),
+                  onRefresh: _guardedRefresh,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     children: [
@@ -272,7 +291,7 @@ class _SecurityGuestBookScreenState
                 )
               : _entries.isEmpty
               ? RefreshIndicator(
-                  onRefresh: () => _load(),
+                  onRefresh: _guardedRefresh,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     children: const [
@@ -282,7 +301,7 @@ class _SecurityGuestBookScreenState
                   ),
                 )
               : RefreshIndicator(
-                  onRefresh: () => _load(),
+                  onRefresh: _guardedRefresh,
                   child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: _entries.length,

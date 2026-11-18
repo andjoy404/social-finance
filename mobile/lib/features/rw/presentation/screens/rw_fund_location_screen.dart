@@ -46,8 +46,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
   bool _canCreateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
     if (user['role'] == AppRole.superAdmin ||
-        user['system_role'] == 'super_admin')
+        user['system_role'] == 'super_admin') {
       return true;
+    }
     // Source-aware: RT inferred users have read-only access.
     final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
     if (!hasWriteAccess) return false;
@@ -66,8 +67,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
   bool _canUpdateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
     if (user['role'] == AppRole.superAdmin ||
-        user['system_role'] == 'super_admin')
+        user['system_role'] == 'super_admin') {
       return true;
+    }
     // Source-aware: RT inferred users have read-only access.
     final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
     if (!hasWriteAccess) return false;
@@ -1857,8 +1859,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                                               onPressed: () {
                                                 if (reasonCtrl.text
                                                     .trim()
-                                                    .isEmpty)
+                                                    .isEmpty) {
                                                   return;
+                                                }
                                                 Navigator.pop(cCtx, true);
                                               },
                                               style: ElevatedButton.styleFrom(

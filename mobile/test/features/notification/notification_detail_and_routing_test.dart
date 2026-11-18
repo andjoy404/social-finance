@@ -580,7 +580,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+      await tester.tap(find.byKey(const Key('nav-item-sampah')));
       await tester.pumpAndSettle();
 
       expect(find.byType(SecurityWasteTruckScreen), findsOneWidget);

@@ -277,6 +277,7 @@ void main() {
       expect(container.read(paginatedBillsProvider).page, 2);
 
       await container.read(billsProvider.notifier).refresh();
+      await Future<void>.delayed(Duration.zero);
 
       final paginated = container.read(paginatedBillsProvider);
       expect(paginated.page, 1);

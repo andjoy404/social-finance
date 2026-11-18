@@ -367,6 +367,23 @@ class RwApiClient {
     return RwNotificationLogsPage.fromJson(data);
   }
 
+  Future<RwNotificationLogsPage> getNotificationLogsMine(
+    String rwId, {
+    int page = 1,
+    int pageSize = 20,
+    String? eventType,
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'page_size': pageSize,
+    };
+    if (eventType != null && eventType.isNotEmpty) query['event_type'] = eventType;
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/mine';
+    final response = await _apiClient.get(url, queryParameters: query);
+    final data = response.data as Map<String, dynamic>;
+    return RwNotificationLogsPage.fromJson(data);
+  }
+
   Future<int> sendManualPush(String rwId, {required String title, required String body}) async {
     final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/manual';
     final response = await _apiClient.post(url, data: {'title': title, 'body': body});
@@ -458,6 +475,23 @@ class RwApiClient {
       return (inner['sent_count'] as num).toInt();
     }
     return 0;
+  }
+
+  Future<int> getRWUnreadCount(String rwId) async {
+    try {
+      final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/unread-count';
+      final response = await _apiClient.get(url);
+      final data = response.data;
+      if (data != null) {
+        final inner = data['data'];
+        if (inner is Map && inner['unread_count'] != null) {
+          return (inner['unread_count'] as num).toInt();
+        }
+      }
+      return 0;
+    } catch (_) {
+      return 0;
+    }
   }
 }
 

@@ -74,6 +74,8 @@ type Service interface {
 	NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string)
 	SendRWManualPush(ctx context.Context, rwID, senderUserID string, title, body string, target ...string) (int, error)
 	ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error)
 
 	// RW notification templates
 	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
@@ -1411,7 +1413,7 @@ func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContex
 	if err != nil || entry == nil {
 		return entry, err
 	}
-	if entry.RTID != rtID {
+	if entry.RTID != "" && entry.RTID != rtID {
 		return nil, nil
 	}
 
@@ -2191,10 +2193,11 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 			return
 		}
 
+		formattedAmount := finance.FormatRupiahFromString(amount)
 		title := "Kas Masuk RW Diterima"
-		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s telah dicatat.", amount)
+		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar %s telah dicatat.", formattedAmount)
 		if strings.TrimSpace(description) != "" {
-			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s (%s) telah dicatat.", amount, description)
+			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar %s (%s) telah dicatat.", formattedAmount, description)
 		}
 
 		payload := map[string]string{
@@ -2209,15 +2212,19 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 
 		for _, uid := range targets {
 			dedupKey := fmt.Sprintf("rw_kas:%s:income:%s", txID, uid)
-			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashIn, dedupKey, title, body, payload, nil)
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			sentN, failedN := 0, 0
+			if len(tokens) > 0 {
+				sentN, failedN = s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+			}
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			ok, err := s.repo.RecordRWDedupWithStatus(bgCtx, rwID, uid, EventRWCashIn, dedupKey, title, body, status, payload, nil)
 			if err != nil {
 				slog.Warn("rw_cash_in dedup check failed", "user_id", uid, "error", err)
 			}
 			if !ok {
 				continue
 			}
-			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
-			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
 		}
 	}()
 }
@@ -2233,8 +2240,9 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 			return
 		}
 
+		formattedAmount := finance.FormatRupiahFromString(amount)
 		title := "Kas Keluar RW Dicatat"
-		body := fmt.Sprintf("Pengeluaran kas RW sebesar Rp %s untuk %s telah dicatat.", amount, description)
+		body := fmt.Sprintf("Pengeluaran kas RW sebesar %s untuk %s telah dicatat.", formattedAmount, description)
 
 		payload := map[string]string{
 			"type":        EventRWCashOut,
@@ -2249,15 +2257,19 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 
 		for _, uid := range targets {
 			dedupKey := fmt.Sprintf("rw_kas:%s:expense:%s", txID, uid)
-			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashOut, dedupKey, title, body, payload, nil)
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			sentN, failedN := 0, 0
+			if len(tokens) > 0 {
+				sentN, failedN = s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+			}
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			ok, err := s.repo.RecordRWDedupWithStatus(bgCtx, rwID, uid, EventRWCashOut, dedupKey, title, body, status, payload, nil)
 			if err != nil {
 				slog.Warn("rw_cash_out dedup check failed", "user_id", uid, "error", err)
 			}
 			if !ok {
 				continue
 			}
-			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
-			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
 		}
 	}()
 }
@@ -2291,18 +2303,22 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 	senderPtr := &senderUserID
 	for _, uid := range targets {
 		dedupKey := fmt.Sprintf("%s:%s", batchID, uid)
-		ok, err := s.repo.RecordRWDedup(ctx, rwID, uid, EventManualPush, dedupKey, title, body, payload, senderPtr)
+		tokens, err := s.repo.GetTokensForUser(ctx, uid)
+		sentN, failedN := 0, 0
+		if err == nil && len(tokens) > 0 {
+			sentN, failedN = s.sendPushToTokens(ctx, tokens, title, body, payload)
+		}
+		status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+		ok, err := s.repo.RecordRWDedupWithStatus(ctx, rwID, uid, EventManualPush, dedupKey, title, body, status, payload, senderPtr)
 		if err != nil {
 			slog.Warn("rw manual push dedup failed", "user_id", uid, "error", err)
 		}
 		if !ok {
 			continue
 		}
-		tokens, err := s.repo.GetTokensForUser(ctx, uid)
-		if err == nil && len(tokens) > 0 {
-			s.sendPushToTokens(ctx, tokens, title, body, payload)
+		if status == "SENT" || status == "PARTIAL" {
+			sentCount++
 		}
-		sentCount++
 	}
 	return sentCount, nil
 }
@@ -2316,4 +2332,19 @@ func (s *service) ListRWLogs(ctx context.Context, rwID, eventType string, page, 
 	}
 	offset := (page - 1) * pageSize
 	return s.repo.ListRWLogs(ctx, rwID, eventType, offset, pageSize)
+}
+
+func (s *service) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+	return s.repo.ListRWMyLogs(ctx, rwID, senderUserID, eventType, offset, pageSize)
+}
+
+func (s *service) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	return s.repo.GetRWUnreadCount(ctx, rwID, userID)
 }

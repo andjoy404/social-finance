@@ -15,7 +15,7 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { useAuth } from '@/app/AuthContext'
-import { hasWargaWriteAccess } from '@/app/wargaAuth'
+import { hasKasWriteAccess } from '@/app/wargaAuth'
 import {
   getSessionPair,
   type ApiTransaction,
@@ -137,7 +137,7 @@ export function KasList() {
   const [totalCount, setTotalCount] = useState<number>(0)
   const [totalPages, setTotalPages] = useState<number>(1)
 
-  const canWrite = user ? hasWargaWriteAccess(user) : false
+  const canWrite = user ? hasKasWriteAccess(user) : false
 
   const activePeriodStr = useMemo(() => {
     if (isAllPeriods) return undefined

@@ -17,11 +17,20 @@
  * only for users who are authorized to create or modify warga records.
  */
 
-/** Set of RT positions authorized to write warga data. */
+/** Set of RT positions authorized to write warga data.
+ * Sekretaris RT has been strictly revoked from creating/editing warga data. */
 export const K_WARGA_WRITE_JABATANS = new Set<string>([
   'ketua',
   'wakil_ketua',
-  'sekretaris',
+  'bendahara',
+])
+
+/** Set of RT positions authorized to write Kas (financial transactions).
+ * Sekretaris RT can READ Kas but must NOT create, edit, or delete transactions.
+ * This mirrors the backend RequireAccess rule in main.go. */
+export const K_KAS_WRITE_JABATANS = new Set<string>([
+  'ketua',
+  'wakil_ketua',
   'bendahara',
 ])
 
@@ -47,6 +56,44 @@ export function hasWargaWriteAccess(user: WargaUser): boolean {
 
   // 3. Legacy role-based fallback
   switch (user.role) {
+    case 'pengurus':
+    case 'super_admin':
+      return true
+    default:
+      return false
+  }
+}
+
+/**
+ * Returns `true` if the user has write access to Kas (financial transactions).
+ *
+ * Authorization flow (evaluated top-to-bottom):
+ * 1. Super-admin bypass — any user with `systemRole === 'super_admin'` has full write access.
+ * 2. Position-based — if the user has a non-empty `jabatan`, write access is granted ONLY for
+ *    the authorized positions: ketua, wakil_ketua, bendahara.
+ *    **Sekretaris is explicitly excluded** — they can READ Kas but not write.
+ * 3. Legacy role-based fallback — if `jabatan` is null/empty:
+ *    - `bendahara` → allowed
+ *    - `pengurus` → allowed
+ *    - All other roles → denied
+ *
+ * This mirrors the backend RequireAccess rule in main.go:
+ *   RequireAccess([RoleBendahara, RolePengurus], [JabatanKetua, JabatanWakilKetua, JabatanBendahara])
+ */
+export function hasKasWriteAccess(user: WargaUser): boolean {
+  // 1. Super-admin bypass
+  if (user.systemRole === 'super_admin') {
+    return true
+  }
+
+  // 2. Position-based authorization
+  if (typeof user.jabatan === 'string' && user.jabatan.length > 0) {
+    return K_KAS_WRITE_JABATANS.has(user.jabatan)
+  }
+
+  // 3. Legacy role-based fallback
+  switch (user.role) {
+    case 'bendahara':
     case 'pengurus':
     case 'super_admin':
       return true

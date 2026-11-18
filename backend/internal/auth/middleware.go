@@ -159,7 +159,7 @@ func RequireAuth(next http.Handler) http.Handler {
 		//    validated on every request (not just at login time).
 		if AuthDBPool != nil {
 			rtRows, err := AuthDBPool.Raw().QueryContext(validateCtx, `
-				SELECT urm.jabatan, r.rw_id
+				SELECT urm.role, urm.jabatan, r.rw_id
 				FROM user_rt_memberships urm
 				JOIN rts r ON r.id = urm.rt_id
 				WHERE urm.user_id = $1
@@ -176,12 +176,12 @@ func RequireAuth(next http.Handler) http.Handler {
 				}
 
 				for rtRows.Next() {
-					var rtJabatan, rtRWID string
-					if err := rtRows.Scan(&rtJabatan, &rtRWID); err != nil {
+					var rtRole, rtJabatan, rtRWID string
+					if err := rtRows.Scan(&rtRole, &rtJabatan, &rtRWID); err != nil {
 						continue
 					}
-					// Only eligible RT jabatan can infer RW access.
-					if _, ok := validRTJabatans[rtJabatan]; !ok {
+					// Only eligible RT positions can infer RW access.
+					if !IsEligibleRTJabatan(rtRole, rtJabatan) {
 						continue
 					}
 					// Skip if already have an explicit membership for this RW.
@@ -400,6 +400,56 @@ func RequirePermission(pool *database.Pool, permission string) func(http.Handler
 func GetAuthContext(r *http.Request) *AuthContext {
 	ac, _ := r.Context().Value(AuthContextKey).(*AuthContext)
 	return ac
+}
+
+// BlockJabatan returns a middleware that rejects requests from users whose
+// jabatan is in the blocked set. Returns 403 Forbidden for blocked jabatans.
+//
+// This is used for routes where certain positions must be explicitly excluded
+// even if they have the underlying permission. For example, sekretaris is
+// blocked from Iuran (dues/bills/payments) management endpoints despite having
+// finance.read permission for Kas access.
+//
+// System-level SUPER_ADMIN always passes through regardless of jabatan.
+// Users WITHOUT a jabatan pass through — their access is enforced by
+// RequireRole middleware stacked on the route.
+//
+// Usage:
+//
+//	r.Group(func(r chi.Router) {
+//	    r.Use(auth.RequireAuth)
+//	    r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
+//	    r.Get("/api/v1/dues", listDues)
+//	})
+func BlockJabatan(blocked ...Jabatan) func(http.Handler) http.Handler {
+	blockedMap := make(map[Jabatan]bool, len(blocked))
+	for _, j := range blocked {
+		blockedMap[j] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+			// System-level SUPER_ADMIN bypass — unrestricted access.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Users without a jabatan pass through — their role is enforced by RequireRole middleware.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if blockedMap[ac.Jabatan] {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // RequireJabatan returns a middleware that checks whether the authenticated user's

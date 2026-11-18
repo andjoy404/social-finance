@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BellOutlined,
   PlusOutlined,
@@ -90,6 +91,7 @@ function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = f
 
 export function NotificationScreen() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
 
@@ -160,12 +162,14 @@ export function NotificationScreen() {
   })
   const [deletingTemplate, setDeletingTemplate] = useState<ApiNotificationTemplate | null>(null)
   const [previewItem, setPreviewItem] = useState<{
+    id?: string
     title: string
     body: string
     eventName: string
     eventType?: string | null
     dedupKey?: string | null
     imageUrl?: string | null
+    payload?: any
   } | null>(null)
 
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -201,6 +205,9 @@ const knownEventNames: Record<string, string> = {
     payment_rejected: 'Pembayaran Ditolak',
     manual_push: 'Pengumuman Pengurus',
     waste_truck_arrival: 'Truk Sampah Tiba',
+    patrol_bundle_submitted: 'Laporan Patroli Wilayah',
+    paket_received: 'Titipan Paket Masuk',
+    paket_picked_up: 'Paket Telah Diambil',
   }
 
   const customizableSystemTypes = useMemo(
@@ -454,12 +461,14 @@ const knownEventNames: Record<string, string> = {
       knownEventNames[log.event_type] ||
       log.event_type
     setPreviewItem({
+      id: log.id,
       title: log.title,
       body: log.body,
       eventName,
       eventType: log.event_type,
       dedupKey: log.dedup_key,
       imageUrl: log.image_url,
+      payload: (log as any).payload,
     })
     if (!isAdmin) handleMarkAsRead(log)
   }
@@ -793,11 +802,18 @@ const knownEventNames: Record<string, string> = {
       {/* Tabs (Rendered for Admins only) */}
       {isAdmin ? (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)' }}>
+          {/* Top-level tabs: TEMPLATES / RIWAYAT SISTEM / RIWAYAT SAYA */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              borderBottom: '1px solid var(--sf-border)',
+            }}
+          >
             {[
-              { key: 'templates', label: 'Template', icon: <BellOutlined /> },
-              { key: 'logs', label: 'Riwayat Sistem', icon: <HistoryOutlined /> },
-              { key: 'mine', label: 'Riwayat Saya', icon: <HistoryOutlined /> },
+              { key: 'templates', label: 'TEMPLATE', icon: <BellOutlined /> },
+              { key: 'logs', label: 'RIWAYAT SISTEM', icon: <HistoryOutlined /> },
+              { key: 'mine', label: 'RIWAYAT SAYA', icon: <HistoryOutlined /> },
             ].map((tab) => {
               const selected = tab.key === 'templates'
                 ? activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules'
@@ -811,62 +827,79 @@ const knownEventNames: Record<string, string> = {
                     setActiveTab(tab.key as typeof activeTab)
                   }}
                   style={{
-                    padding: '10px 16px',
-                    border: 'none',
-                    background: 'none',
-                    fontWeight: selected ? 600 : 400,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
                     display: 'flex',
-                    alignItems: 'center',
                     gap: 6,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: selected ? 600 : 400,
+                    fontStyle: 'normal',
+                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    border: 'none',
+                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                    background: selected ? 'var(--sf-surface-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  {tab.icon} {tab.label}
+                  {tab.icon}
+                  {tab.label}
                 </button>
               )
             })}
           </div>
+          {/* Sub-tabs: NOTIFIKASI SISTEM / TEMPLATE KUSTOM / PENJADWALAN */}
           {(activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules') && (
-            <div style={{ display: 'flex', gap: 16, padding: '8px 12px', borderBottom: '1px solid var(--sf-border)' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                margin: '12px 0 0 0',
+              }}
+            >
               {[
-                { key: 'system', label: `Notifikasi Sistem (${systemTypes.length})`, icon: <AppstoreOutlined /> },
-                { key: 'templates', label: `Template Kustom (${customTemplates.length})`, icon: <BellOutlined /> },
-                { key: 'schedules', label: `Penjadwalan (${schedules.length})`, icon: <ScheduleOutlined /> },
+                { key: 'system', label: `NOTIFIKASI SISTEM (${systemTypes.length})`, icon: <AppstoreOutlined /> },
+                { key: 'templates', label: `TEMPLATE KUSTOM (${customTemplates.length})`, icon: <BellOutlined /> },
+                { key: 'schedules', label: `PENJADWALAN (${schedules.length})`, icon: <ScheduleOutlined /> },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key as typeof activeTab)}
                   style={{
-                    padding: '6px 4px',
-                    border: 'none',
-                    background: 'none',
-                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                    fontWeight: activeTab === tab.key ? 600 : 400,
-                    cursor: 'pointer',
                     display: 'flex',
-                    alignItems: 'center',
                     gap: 6,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: activeTab === tab.key ? 600 : 400,
+                    fontStyle: 'normal',
+                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    border: 'none',
+                    borderBottom: activeTab === tab.key ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                    background: activeTab === tab.key ? 'var(--sf-surface-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  {tab.icon} {tab.label}
+                  {tab.icon}
+                  {tab.label}
                 </button>
               ))}
             </div>
           )}
         </div>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)' }}>
-              Riwayat Notifikasi
-            </span>
-            {unreadCount > 0 && (
-              <Badge variant="blue">{unreadCount} belum dibaca</Badge>
-            )}
+        <div className="sf-content-surface" style={{ padding: '0 20px', marginBottom: 16 }}>
+          <div className="sf-list-toolbar">
+            <div className="sf-list-toolbar-left">
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--sf-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                RIWAYAT NOTIFIKASI
+                {unreadCount > 0 && (
+                  <Badge variant="blue">{unreadCount} belum dibaca</Badge>
+                )}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -1557,9 +1590,16 @@ const knownEventNames: Record<string, string> = {
                             {formatJakartaDateTime(l.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant={getNotificationBadgeVariant(l.event_type)}>
-                              {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
-                            </Badge>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {l.source === 'rw' || !!l.rw_id ? (
+                                <Badge variant="violet">RW</Badge>
+                              ) : (
+                                <Badge variant="blue">RT</Badge>
+                              )}
+                              <Badge variant={getNotificationBadgeVariant(l.event_type)}>
+                                {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
+                              </Badge>
+                            </div>
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -2153,6 +2193,50 @@ const knownEventNames: Record<string, string> = {
             </div>
           </ModalBody>
           <ModalFooter>
+            {previewItem.eventType === 'patrol_bundle_submitted' && (() => {
+              const bundleId =
+                previewItem.payload?.bundle_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.startsWith('patrol:')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={() => {
+                    if (previewItem.id) handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    setPreviewItem(null)
+                    navigate(bundleId ? `/patroli?bundleId=${bundleId}` : '/patroli')
+                  }}
+                >
+                  Buka Detail Patroli
+                </button>
+              )
+            })()}
+
+            {(previewItem.eventType === 'paket_received' || previewItem.eventType === 'paket_picked_up') && (() => {
+              const reportId =
+                previewItem.payload?.report_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.includes(':')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={() => {
+                    if (previewItem.id) handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    setPreviewItem(null)
+                    navigate(reportId ? `/paket?reportId=${reportId}` : '/paket')
+                  }}
+                >
+                  Buka Detail Paket
+                </button>
+              )
+            })()}
+
             <button
               type="button"
               className="sf-btn-primary"

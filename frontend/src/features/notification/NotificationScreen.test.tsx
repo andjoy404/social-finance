@@ -178,7 +178,7 @@ describe('NotificationScreen', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByText('Riwayat Notifikasi')).toBeInTheDocument()
+    expect(await screen.findByText('RIWAYAT NOTIFIKASI')).toBeInTheDocument()
     expect(await screen.findByText('TERKIRIM')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Riwayat Saya/ })).not.toBeInTheDocument()
     expect(api.apiGetNotificationLogs).toHaveBeenCalledWith(
@@ -446,7 +446,7 @@ describe('NotificationScreen', () => {
 
     // Riwayat content is rendered directly
     await waitFor(() => {
-      expect(screen.getByText('Riwayat Notifikasi')).toBeInTheDocument()
+      expect(screen.getByText('RIWAYAT NOTIFIKASI')).toBeInTheDocument()
       expect(screen.getByText('Total riwayat tersimpan: 1')).toBeInTheDocument()
       expect(screen.getByText('Segera bayar tagihan nomor 101 ya.')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Tandai Semua Dibaca/i })).toBeInTheDocument()

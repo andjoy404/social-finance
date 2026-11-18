@@ -26,10 +26,10 @@ bool _hasKasWriteAccess(WidgetRef ref) {
   if (systemRole == 'super_admin') return true;
 
   final jabatan = authState?.valueOrNull?['jabatan'] as String?;
+  // Sekretaris RT tidak memiliki WRITE Kas — hanya READ.
   if (jabatan != null &&
       (jabatan == 'ketua' ||
           jabatan == 'bendahara' ||
-          jabatan == 'sekretaris' ||
           jabatan == 'wakil_ketua')) {
     return true;
   }

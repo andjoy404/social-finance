@@ -297,18 +297,19 @@ const (
 
 // rwPermissionMapReadOnly defines RW permissions for RT officials accessing RW
 // through inferred membership (rt_inferred). In accordance with the final RBAC matrix:
-//   - Beranda RW: READ
-//   - KAS RW: NO
+//   - Beranda RW: READ (all RT officials)
+//   - KAS RW: READ (all RT officials)
 //   - Lokasi Dana RW: NO
 //   - Notifikasi RW: NO
 var rwPermissionMapReadOnly = map[string][]string{
-	"ketua":       {PermissionRWDashboardRead},
-	"wakil_ketua": {PermissionRWDashboardRead},
-	"sekretaris":  {PermissionRWDashboardRead},
-	"bendahara":   {PermissionRWDashboardRead},
-	"anggota":     {PermissionRWDashboardRead},
-	"pengurus":    {PermissionRWDashboardRead},
-	"perangkat":   {PermissionRWDashboardRead},
+	"ketua":       {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"wakil_ketua": {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"sekretaris":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"bendahara":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota":     {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota_rt":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"pengurus":    {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"perangkat":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 }
 
 // rwPermissionMap defines RW-specific permissions mapped by explicit RW jabatan.
@@ -376,6 +377,15 @@ var rwPermissionMap = map[string][]string{
 		"notification.read",
 	},
 	"anggota": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"anggota_rt": {
 		PermissionRWDashboardRead,
 		PermissionRWKasRead,
 		PermissionRWLocationRead,

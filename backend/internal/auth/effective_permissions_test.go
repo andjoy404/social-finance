@@ -63,6 +63,7 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 				"banner_templates.read", "banner_templates.manage",
 				"organization.read", "organization.contact.read",
 				"security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
+				"patrol.read", "patrol.template.manage", "paket.read",
 			},
 		},
 		{
@@ -80,10 +81,11 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 			wantRole:    "pengurus",
 			wantJabatan: "sekretaris",
 			want: []string{
-				"finance.read", "finance.create", "notification.read",
+				"finance.read", "notification.manage", "notification.read",
 				"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
 				"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 				"banner_templates.read", "organization.read", "organization.contact.read",
+				"patrol.read", "paket.read",
 			},
 		},
 		{
@@ -94,6 +96,7 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 				"finance.read", "finance.create", "finance.update", "finance.approve",
 				"notification.read",
 				"activities.read", "announcements.read", "banner_templates.read", "organization.read",
+				"patrol.read", "paket.read",
 			},
 		},
 		{
@@ -270,6 +273,7 @@ func TestMeSystemSuperAdminUsesExistingPermissionBypass(t *testing.T) {
 		"organization.read", "organization.contact.read",
 		"rw.monitoring.read", "rw.monitoring.notes.write", "rw.monitoring.export",
 		"security.attendance", "security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
+		"patrol.create", "patrol.read", "patrol.template.manage", "paket.create", "paket.read", "paket.status_change",
 	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("super admin effective_permissions = %v, want %v", profile.EffectivePermissions, want)
@@ -336,6 +340,7 @@ func TestMeKetuaWithWargaRoleGetsEffectiveFinancePermissions(t *testing.T) {
 		"banner_templates.read", "banner_templates.manage",
 		"organization.read", "organization.contact.read",
 		"security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
+		"patrol.read", "patrol.template.manage", "paket.read",
 	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("effective_permissions = %v, want %v", profile.EffectivePermissions, want)

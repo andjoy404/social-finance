@@ -180,9 +180,9 @@ func setupFX(t *testing.T) *fx {
 	n := atomic.AddInt64(&fxSeq, 1)
 	base := time.Now().UnixNano() + n*1000003
 	// uniq_rts_active is partial unique on (rw, rt) WHERE is_active=true across all rows.
-	rwNum := 16
-	rtA := fmt.Sprintf("%03d", int(1+(base%998)))
-	rtB := fmt.Sprintf("%03d", int(1+((base/7)%998)))
+	rwNum := 16000 + int(n%1000)
+	rtA := fmt.Sprintf("%03d", int(10+(base%980)))
+	rtB := fmt.Sprintf("%03d", int(10+((base/7)%980)))
 	if rtB == rtA {
 		rtB = fmt.Sprintf("%03d", int(1+((base/13)%998)))
 	}

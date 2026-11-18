@@ -348,6 +348,7 @@ void main() {
 
         // Tap Beranda on bottom nav
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
 
@@ -398,6 +399,7 @@ void main() {
         await tester.pump();
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
 
@@ -497,6 +499,7 @@ void main() {
         await tester.pump();
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
@@ -517,6 +520,7 @@ void main() {
         await _openKasMasukForm(tester);
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         // Second tap before pumping dialog completion
         await tester.tap(berandaTab, warnIfMissed: false);
@@ -733,7 +737,9 @@ void main() {
         await _openKasTab(tester);
 
         // Navigate from Kas list to Beranda -> no dialog
-        await tester.tap(find.byKey(const Key('nav-item-beranda')));
+        final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
+        await tester.tap(berandaTab);
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
         expect(find.byType(DashboardScreen), findsOneWidget);

@@ -73,7 +73,7 @@ func TestResetPassword11Scenarios(t *testing.T) {
 	_, err = pool.Raw().Exec(`
 		INSERT INTO residents (id, rt_id, user_id, full_name, email, is_active)
 		VALUES ($1, $2, $3, 'Warga Skenario A', $4, true)
-		ON CONFLICT (id) DO UPDATE SET user_id = $3
+		ON CONFLICT (id) DO UPDATE SET user_id = $3, rt_id = $2, email = $4, is_active = true
 	`, resAID, rtID, userAID, userAEmail)
 	if err != nil {
 		t.Fatalf("setup resident A: %v", err)
@@ -101,7 +101,7 @@ func TestResetPassword11Scenarios(t *testing.T) {
 	_, err = pool.Raw().Exec(`
 		INSERT INTO residents (id, rt_id, user_id, full_name, phone, is_active)
 		VALUES ($1, $2, $3, 'Warga Skenario B', $4, true)
-		ON CONFLICT (id) DO UPDATE SET user_id = $3, phone = $4
+		ON CONFLICT (id) DO UPDATE SET user_id = $3, rt_id = $2, phone = $4, is_active = true
 	`, resBID, rtID, userBID, userBPhoneCanon)
 	if err != nil {
 		t.Fatalf("setup resident B: %v", err)

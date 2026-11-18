@@ -13,7 +13,7 @@ export const rtPositionLabel = (value?: string | null) =>
 export const rwPositionLabel = (value?: string | null) =>
   rwPositions.find(([key]) => key === value)?.[1] ?? (value ? value : 'Belum ada jabatan')
 
-export type BadgeVariant = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'default'
+export type BadgeVariant = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'gray' | 'teal' | 'chartreuse' | 'pink' | 'default'
 
 export function positionVariant(value?: string | null): BadgeVariant {
   switch (value) {
@@ -22,9 +22,9 @@ export function positionVariant(value?: string | null): BadgeVariant {
     case 'sekretaris': return 'green'
     case 'bendahara': return 'amber'
     case 'keamanan': return 'red'
-    case 'sosial': return 'gray'
-    case 'operasional': return 'blue'
-    case 'kebersihan': return 'green'
+    case 'sosial': return 'pink'
+    case 'operasional': return 'teal'
+    case 'kebersihan': return 'chartreuse'
     default: return 'default'
   }
 }

@@ -76,8 +76,9 @@ export function hasRwWriteAccess(
 /**
  * Check whether a user has access to RW sub-features (KAS, Lokasi Dana, Notifikasi RW).
  *
- * Only explicit RW members (any valid jabatan) and Super Admin have access.
- * RT-inferred members are strictly limited to Beranda RW (dashboard).
+ * Explicit RW members (any valid jabatan) have full access.
+ * All RT officials with rt_inferred membership get READ access to Kas RW and Beranda RW.
+ * RW sub-features beyond Kas (Lokasi Dana, Notifikasi RW) remain inaccessible for rt_inferred.
  */
 export function hasRwFeatureAccess(
   user: AuthUser | null | undefined,
@@ -88,8 +89,13 @@ export function hasRwFeatureAccess(
   const memberships = user.rwMemberships ?? []
   if (!rwId) return false
   const membership = memberships.find((m) => m.rw_id === rwId)
-  if (!membership) return false
-  return membership.source === 'explicit'
+  if (membership) {
+    if (membership.source === 'explicit') return true
+    // All RT officials with rt_inferred membership get READ access to Kas RW.
+    return true
+  }
+  if (user.rwId === rwId) return true
+  return false
 }
 
 export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {

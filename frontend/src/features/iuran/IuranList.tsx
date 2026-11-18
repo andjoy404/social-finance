@@ -5,6 +5,9 @@ import {
   CloseOutlined,
   DownOutlined,
   PlusOutlined,
+  CheckSquareOutlined,
+  FileTextOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { Badge } from '@/components/Badge'
@@ -134,23 +137,34 @@ export function IuranList() {
     }
   }
 
+  function isSekretaris(u: {
+    systemRole?: string | null
+    jabatan?: string | null
+  }): boolean {
+    if (u.systemRole === 'super_admin') return false
+    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
+    return jabatan === 'sekretaris'
+  }
+
   const hasIuranAccess = user ? canAccessIuranTabs(user) : false
   const userIsWarga = user ? isWarga(user) : false
+  const userIsSekretaris = user ? isSekretaris(user) : false
 
   // Force default tab for users without Iuran access, and ALWAYS force "Iuran Saya"
   // for warga — they must never land on a tab they cannot see.
-  const effectiveInitialTab: ActiveTab = hasIuranAccess && !userIsWarga
+  // Sekretaris RT only sees "Iuran Saya" — force to tagihan tab.
+  const effectiveInitialTab: ActiveTab = (hasIuranAccess && !userIsWarga && !userIsSekretaris)
     ? initialTab
     : 'tagihan'
   const [activeTab, setActiveTab] = useState<ActiveTab>(effectiveInitialTab)
 
   // Guard against deep links (?tab=list-iuran) or late-resolved auth state:
-  // if the user is warga, clamp back to "Iuran Saya".
+  // if the user is warga or sekretaris, clamp back to "Iuran Saya".
   useEffect(() => {
-    if (userIsWarga && activeTab !== 'tagihan') {
+    if ((userIsWarga || userIsSekretaris) && activeTab !== 'tagihan') {
       setActiveTab('tagihan')
     }
-  }, [userIsWarga, activeTab])
+  }, [userIsWarga, userIsSekretaris, activeTab])
 
   // Dues data for "Kelola Iuran" tab
   const [dues, setDues] = useState<ApiDue[]>([])
@@ -1160,64 +1174,80 @@ export function IuranList() {
 
         {/* Tab Navigation: Iuran Saya → Iuran Warga → Kelola Iuran */}
         {/* Hidden for warga — they only see their own bills directly */}
-        {!userIsWarga && hasIuranAccess && (
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '0px' }}>
+        {/* Hidden for Sekretaris RT — they only see "Iuran Saya" (personal bills) */}
+        {!userIsWarga && !userIsSekretaris && hasIuranAccess && (
+          <div style={{
+            display: 'flex',
+            gap: 4,
+            margin: '16px 0 0 0',
+            borderBottom: '1px solid var(--sf-border)',
+            paddingBottom: 0,
+          }}>
             <button
               type="button"
               onClick={() => { setActiveTab('tagihan'); setPage(1); }}
               style={{
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: activeTab === 'tagihan' ? 600 : 400,
-                color: activeTab === 'tagihan' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '10px 16px',
+                border: 'none',
                 borderBottom: activeTab === 'tagihan' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                background: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                borderTop: 'none',
+                background: activeTab === 'tagihan' ? 'var(--sf-surface-hover)' : 'transparent',
+                color: activeTab === 'tagihan' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
                 cursor: 'pointer',
-                transition: 'all 150ms ease',
+                fontSize: 13,
+                fontWeight: activeTab === 'tagihan' ? 600 : 400,
+                borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                transition: 'all 0.2s ease',
               }}
             >
-              Iuran Saya
+              <CheckSquareOutlined aria-hidden="true" />
+              IURAN SAYA
             </button>
             <button
               type="button"
               onClick={() => { setActiveTab('list-iuran'); setPage(1); }}
               style={{
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: activeTab === 'list-iuran' ? 600 : 400,
-                color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '10px 16px',
+                border: 'none',
                 borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                background: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                borderTop: 'none',
+                background: activeTab === 'list-iuran' ? 'var(--sf-surface-hover)' : 'transparent',
+                color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
                 cursor: 'pointer',
-                transition: 'all 150ms ease',
+                fontSize: 13,
+                fontWeight: activeTab === 'list-iuran' ? 600 : 400,
+                borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                transition: 'all 0.2s ease',
               }}
             >
-              Iuran Warga
+              <FileTextOutlined aria-hidden="true" />
+              IURAN WARGA
             </button>
             <button
               type="button"
               onClick={() => { setActiveTab('kelola-iuran'); setPage(1); }}
               style={{
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: activeTab === 'kelola-iuran' ? 600 : 400,
-                color: activeTab === 'kelola-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '10px 16px',
+                border: 'none',
                 borderBottom: activeTab === 'kelola-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                background: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                borderTop: 'none',
+                background: activeTab === 'kelola-iuran' ? 'var(--sf-surface-hover)' : 'transparent',
+                color: activeTab === 'kelola-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
                 cursor: 'pointer',
-                transition: 'all 150ms ease',
+                fontSize: 13,
+                fontWeight: activeTab === 'kelola-iuran' ? 600 : 400,
+                borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                transition: 'all 0.2s ease',
               }}
             >
-              Kelola Iuran
+              <SettingOutlined aria-hidden="true" />
+              KELOLA IURAN
             </button>
           </div>
         )}

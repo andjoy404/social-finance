@@ -167,7 +167,7 @@ void main() {
       expect(find.text('NOTIFIKASI'), findsOneWidget);
       await tester.tap(find.text('NOTIFIKASI'));
       await tester.pumpAndSettle();
-      expect(find.text('Riwayat Notifikasi'), findsOneWidget);
+      expect(find.text('Riwayat Notifikasi Sistem'), findsOneWidget);
       expect(find.byKey(const Key('rwNotifManualPushBtn')), findsNothing);
       expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsNothing);
     });
@@ -321,6 +321,118 @@ void main() {
       await tester.tap(find.text('Kirim Sekarang'));
       await tester.pumpAndSettle();
       expect(api.sendTemplateCalls, 1);
+    });
+
+    testWidgets('tapping notification log item opens simulated preview modal with details', (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final logWithMeta = RwNotificationLog(
+        id: 'log-rich',
+        rwId: 'rw-a',
+        eventType: 'manual_push',
+        title: 'Pengumuman Kerja Bakti',
+        body: 'Kerja bakti hari Minggu di https://example.com/info',
+        status: 'SENT',
+        source: 'rw',
+        url: 'https://example.com/info',
+        recipientsCount: 50,
+        sentCount: 48,
+        failedCount: 2,
+        deliveryCountsAvailable: true,
+        createdAt: DateTime(2026, 3, 15, 10, 30),
+      );
+
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logWithMeta])
+        ..templatesToReturn = Future.value(const []);
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit'),
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      // Check item in list with aligned delivery status
+      expect(find.text('Pengumuman Kerja Bakti'), findsOneWidget);
+      expect(find.text('TERKIRIM'), findsOneWidget);
+      expect(find.text('RW'), findsOneWidget);
+
+      // Tap the item to open preview modal
+      await tester.tap(find.byKey(const Key('rwNotifLog_log-rich')));
+      await tester.pumpAndSettle();
+
+      // Verify simulated push modal elements
+      expect(find.text('Preview Notifikasi'), findsOneWidget);
+      expect(find.text('SOCIAL FINANCE URENA • RW'), findsOneWidget);
+      expect(find.text('Baru saja'), findsOneWidget);
+      expect(find.text('Detail Informasi'), findsOneWidget);
+      expect(find.text('Waktu / Jadwal'), findsOneWidget);
+      expect(find.text('Penerima'), findsOneWidget);
+      expect(find.text('48 / 50 penerima terkirim (2 gagal)'), findsOneWidget);
+      expect(find.text('https://example.com/info'), findsWidgets);
+
+      // Tap Tutup to close modal cleanly
+      await tester.tap(find.text('Tutup'));
+      await tester.pumpAndSettle();
+      expect(find.text('Preview Notifikasi'), findsNothing);
+    });
+
+    testWidgets('status badges display mapped Indonesian labels for various statuses', (tester) async {
+      final logs = [
+        RwNotificationLog(id: 'l1', eventType: 'p', title: 'T1', status: 'SENT', createdAt: DateTime(2026, 1, 1)),
+        RwNotificationLog(id: 'l2', eventType: 'p', title: 'T2', status: 'FAILED', createdAt: DateTime(2026, 1, 1)),
+        RwNotificationLog(id: 'l3', eventType: 'p', title: 'T3', status: 'PARTIAL', createdAt: DateTime(2026, 1, 1)),
+        RwNotificationLog(id: 'l4', eventType: 'p', title: 'T4', status: 'NO_DEVICE', createdAt: DateTime(2026, 1, 1)),
+        RwNotificationLog(id: 'l5', eventType: 'p', title: 'T5', status: 'PENDING', createdAt: DateTime(2026, 1, 1)),
+      ];
+
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value(logs)
+        ..templatesToReturn = Future.value(const []);
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'sekretaris', rwId: 'rw-a', source: 'explicit'),
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('TERKIRIM'), findsOneWidget);
+      expect(find.text('GAGAL'), findsOneWidget);
+      expect(find.text('SEBAGIAN'), findsOneWidget);
+      expect(find.text('TANPA PERANGKAT'), findsOneWidget);
+      expect(find.text('TERTUNDA'), findsOneWidget);
+    });
+
+    testWidgets('RBAC: user with effective_permissions requires rw.notification.write', (tester) async {
+      final api = FakeRwApiClient()..logsToReturn = Future.value([logA])..templatesToReturn = Future.value([tmpl]);
+
+      // User has explicit ketua membership but effective_permissions only contains rw.notification.read
+      final readOnlyUser = userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+        ..['effective_permissions'] = ['rw.notification.read'];
+
+      final auth = FakeAuthRepo(readOnlyUser);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [authRepositoryProvider.overrideWith((_) => auth), rwApiClientProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: Scaffold(body: RwNotificationScreen(rwId: 'rw-a'))),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifManualPushBtn')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsNothing);
+
+      // User with explicit rw.notification.write gets controls
+      final writeUser = userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+        ..['effective_permissions'] = ['rw.notification.read', 'rw.notification.write'];
+
+      auth.state = AsyncData(writeUser);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifManualPushBtn')), findsOneWidget);
     });
   });
 }

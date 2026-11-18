@@ -83,8 +83,11 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	cleanup()
 	t.Cleanup(func() {
 		cleanup()
-		// Always leave test DB with migration 056 UP applied
-		_, _ = db.ExecContext(ctx, upSQL)
+		// Always restore test DB with migration 083 UP applied
+		mig083Path := filepath.Join("..", "..", "migrations", "083_sekretaris_finance_revoke_and_anggota_rt.up.sql")
+		if mig083Up, err := os.ReadFile(mig083Path); err == nil {
+			_, _ = db.ExecContext(context.Background(), string(mig083Up))
+		}
 	})
 
 	for _, u := range []struct {
@@ -105,6 +108,11 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 			t.Fatalf("insert test user %s: %v", u.email, err)
 		}
 	}
+
+	// Migration 056 up/down re-creates user_rt_memberships_jabatan_check without 'anggota_rt' (added in 083).
+	// Temporarily convert any 'anggota_rt' rows to 'anggota' during this test, restored by t.Cleanup.
+	_, _ = db.ExecContext(ctx, `UPDATE user_rt_memberships SET jabatan = 'anggota' WHERE jabatan = 'anggota_rt'`)
+	_, _ = db.ExecContext(ctx, `UPDATE position_permissions SET position = 'anggota' WHERE position = 'anggota_rt'`)
 
 	// Ensure migration 056 is first applied, then rolled back so we can test pre-056 data migration
 	if _, err := db.ExecContext(ctx, upSQL); err != nil {
@@ -260,7 +268,9 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	var createdID string
 	runID := time.Now().UnixNano()
 	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
-		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"317300000000005%d","phone":"0812%04d00%d","email":"petugas.%s.056.%d@test.com","jabatan":"%s"}`, jab, idx, runID%10000, idx, jab, runID, jab)
+		phone := fmt.Sprintf("08%010d", (runID/1000+int64(idx))%10000000000)
+		nik := fmt.Sprintf("3173%012d", (runID/100+int64(idx))%1000000000000)
+		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"%s","phone":"%s","email":"petugas.%s.056.%d.%d@test.com","jabatan":"%s"}`, jab, nik, phone, jab, runID, idx, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)

@@ -266,6 +266,7 @@ type NotificationLogEntry struct {
 	ID                      string         `json:"id"`
 	RTID                    string         `json:"rt_id,omitempty"`
 	RWID                    *string        `json:"rw_id,omitempty"`
+	Source                  string         `json:"source,omitempty"`
 	UserID                  *string        `json:"user_id,omitempty"`
 	SenderUserID            *string        `json:"-"`
 	EventType               string         `json:"event_type"`
