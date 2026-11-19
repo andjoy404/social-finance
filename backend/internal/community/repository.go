@@ -779,11 +779,29 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	// 2. Query active positions and members (with avatar from residents)
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
+		       ph.house_number,
 		       CASE WHEN ($2 = true OR lower(trim(m.jabatan)) = 'keamanan') THEN u.phone ELSE NULL END AS phone,
 		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
 		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m
 		JOIN users u ON m.user_id = u.id
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residents res
+			JOIN residency_periods rp ON rp.resident_id = res.id AND (rp.end_date IS NULL OR rp.end_date >= CURRENT_DATE)
+			JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND (ho.end_date IS NULL OR ho.end_date >= CURRENT_DATE)
+			JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
+			WHERE (
+				res.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(res.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					res.phone = u.phone
+					OR regexp_replace(res.phone, '^(\\+62|62|0)', '') = regexp_replace(u.phone, '^(\\+62|62|0)', '')
+				))
+			) AND res.rt_id = $1 AND res.is_active = true
+			ORDER BY CASE WHEN res.user_id = u.id THEN 0 ELSE 1 END, (rp.end_date IS NULL) DESC, rp.created_at DESC
+			LIMIT 1
+		) ph ON true
 		LEFT JOIN LATERAL (
 			SELECT r.avatar_thumb_path, r.avatar_path
 			FROM residents r
@@ -810,9 +828,9 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	membersByJabatan := make(map[string][]OrgMember)
 	for rows.Next() {
 		var memID, userID, fullName, jab string
-		var phone, email sql.NullString
+		var houseNumber, phone, email sql.NullString
 		var avatarThumbPath sql.NullString
-		if err := rows.Scan(&memID, &userID, &fullName, &jab, &phone, &email, &avatarThumbPath); err != nil {
+		if err := rows.Scan(&memID, &userID, &fullName, &jab, &houseNumber, &phone, &email, &avatarThumbPath); err != nil {
 			return nil, fmt.Errorf("scan org member: %w", err)
 		}
 		om := OrgMember{
@@ -820,6 +838,9 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 			MembershipID: memID,
 			FullName:     fullName,
 			Jabatan:      jab,
+		}
+		if houseNumber.Valid && houseNumber.String != "" {
+			om.HouseNumber = &houseNumber.String
 		}
 		if phone.Valid && phone.String != "" {
 			om.Phone = &phone.String

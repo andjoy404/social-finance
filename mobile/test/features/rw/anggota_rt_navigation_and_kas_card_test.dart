@@ -16,13 +16,13 @@ import 'package:social_finance/features/rw/presentation/screens/rw_kas_screen.da
 
 class _MockAuthRepo extends AuthRepository {
   _MockAuthRepo(Map<String, dynamic>? user)
-      : super(
-          authService: AuthService(
-            ApiClient(baseUrl: 'http://test.local'),
-            DeviceIdService(),
-          ),
-          apiClient: ApiClient(baseUrl: 'http://test.local'),
-        ) {
+    : super(
+        authService: AuthService(
+          ApiClient(baseUrl: 'http://test.local'),
+          DeviceIdService(),
+        ),
+        apiClient: ApiClient(baseUrl: 'http://test.local'),
+      ) {
     state = AsyncData(user);
   }
 }
@@ -103,7 +103,11 @@ class _TestMockRwApiClient extends RwApiClient {
   }
 
   @override
-  Future<List<RwFundLocation>> getLocations(String rwId, {String? category, bool? isActive}) async => [];
+  Future<List<RwFundLocation>> getLocations(
+    String rwId, {
+    String? category,
+    bool? isActive,
+  }) async => [];
 
   @override
   Future<List<RwRtInfo>> getRts(String rwId) async => [];
@@ -128,270 +132,333 @@ void main() {
         'rw_name': 'RW 002 Sukajadi',
         'jabatan': 'anggota',
         'source': 'rt_inferred',
-      }
+      },
     ],
   };
 
   group('Anggota RT Bottom Navigation (Requirement 1 & 4)', () {
-    testWidgets('shows exactly 4 tabs in order: Data RW, Warga, Notifikasi, Profil', (tester) async {
-      final router = GoRouter(
-        initialLocation: '/home',
-        routes: [
-          ShellRoute(
-            builder: (context, state, child) => MainNavigationShell(child: child),
-            routes: [
-              GoRoute(
-                path: '/home',
-                builder: (context, state) => const Text('Content Home'),
+    testWidgets(
+      'shows fixed bottom nav (Beranda, Menu) and 4 collapsed tabs (Data RW, Warga, Profil, Notifikasi)',
+      (tester) async {
+        final router = GoRouter(
+          initialLocation: '/home',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Content Home'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(anggotaPengurusUser),
+              ),
+              notificationUnreadCountProvider.overrideWith(
+                (ref) => NotificationUnreadCountNotifierMock(0),
               ),
             ],
+            child: MaterialApp.router(routerConfig: router),
           ),
-        ],
-      );
+        );
+        await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(anggotaPengurusUser)),
-            notificationUnreadCountProvider.overrideWith((ref) => NotificationUnreadCountNotifierMock(0)),
+        // Exactly 2 tabs in fixed bottom nav (Beranda and Menu)
+        expect(
+          find.descendant(
+            of: find.byType(BottomAppBar),
+            matching: find.byType(Expanded),
+          ),
+          findsNWidgets(2),
+        );
+        expect(find.text('Beranda'), findsOneWidget);
+        expect(find.text('Menu'), findsOneWidget);
+
+        // Open collapsed menu grid
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+
+        // 4 expected tabs exist in grid
+        expect(find.text('Data RW'), findsWidgets);
+        expect(find.text('Warga'), findsWidgets);
+        expect(find.text('Profil'), findsWidgets);
+        expect(find.text('Notifikasi'), findsWidgets);
+
+        // Other RT tabs must NOT exist
+        expect(find.text('Keuangan'), findsNothing);
+        expect(find.text('Iuran'), findsNothing);
+        expect(find.text('Kegiatan'), findsNothing);
+        expect(find.text('Keamanan'), findsNothing);
+        expect(find.text('Lokasi Dana'), findsNothing);
+
+        // No unread badge when unread count is 0
+        expect(find.byKey(const Key('notification-unread-dot')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'shows red dot badge when unread notifications exist and hides when 0',
+      (tester) async {
+        final router = GoRouter(
+          initialLocation: '/home',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Content Home'),
+                ),
+              ],
+            ),
           ],
-          child: MaterialApp.router(routerConfig: router),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
 
-      // Exactly 4 tabs
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
-
-      // 4 expected tabs exist
-      expect(find.text('Data RW'), findsWidgets);
-      expect(find.text('Warga'), findsWidgets);
-      expect(find.text('Notifikasi'), findsWidgets);
-      expect(find.text('Profil'), findsWidgets);
-
-      // Other RT tabs must NOT exist
-      expect(find.text('Beranda'), findsNothing);
-      expect(find.text('Keuangan'), findsNothing);
-      expect(find.text('Iuran'), findsNothing);
-      expect(find.text('Kegiatan'), findsNothing);
-      expect(find.text('Keamanan'), findsNothing);
-      expect(find.text('Sampah'), findsNothing);
-      expect(find.text('Lokasi Dana'), findsNothing);
-
-      // No unread badge when unread count is 0
-      expect(find.byKey(const Key('notification-unread-dot')), findsNothing);
-    });
-
-    testWidgets('shows red dot badge when unread notifications exist and hides when 0', (tester) async {
-      final router = GoRouter(
-        initialLocation: '/home',
-        routes: [
-          ShellRoute(
-            builder: (context, state, child) => MainNavigationShell(child: child),
-            routes: [
-              GoRoute(
-                path: '/home',
-                builder: (context, state) => const Text('Content Home'),
+        // Unread count = 3 -> red dot must appear on Menu button
+        final unreadNotifier = NotificationUnreadCountNotifierMock(3);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(anggotaPengurusUser),
+              ),
+              notificationUnreadCountProvider.overrideWith(
+                (ref) => unreadNotifier,
               ),
             ],
+            child: MaterialApp.router(routerConfig: router),
           ),
-        ],
-      );
+        );
+        await tester.pumpAndSettle();
 
-      // Unread count = 3 -> red dot must appear
-      final unreadNotifier = NotificationUnreadCountNotifierMock(3);
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(anggotaPengurusUser)),
-            notificationUnreadCountProvider.overrideWith((ref) => unreadNotifier),
-          ],
-          child: MaterialApp.router(routerConfig: router),
-        ),
-      );
-      await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('menu-aggregate-unread-dot')),
+          findsOneWidget,
+        );
 
-      expect(find.byKey(const Key('notification-unread-dot')), findsOneWidget);
+        // Open collapsed menu grid to verify item badge
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('notification-unread-dot')),
+          findsOneWidget,
+        );
 
-      // Mark all as read (clear) -> red dot disappears
-      unreadNotifier.clear();
-      await tester.pumpAndSettle();
+        // Close sheet
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('notification-unread-dot')), findsNothing);
-    });
+        // Mark all as read (clear) -> red dot disappears from Menu
+        unreadNotifier.clear();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('menu-aggregate-unread-dot')),
+          findsNothing,
+        );
+      },
+    );
   });
 
   group('Anggota RT Homepage and Route Redirections (Requirement 2)', () {
-    testWidgets('navigating to /home redirects directly to /rw/:rwId/keuangan?tab=beranda', (tester) async {
-      String? redirectedLocation;
-      final router = GoRouter(
-        initialLocation: '/home',
-        redirect: (context, state) {
-          final loc = state.matchedLocation;
-          final user = anggotaPengurusUser;
-          final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
-          final role = (user['role'] ?? '').toString().trim().toLowerCase();
-          final isAnggotaRT = jabatan == 'anggota_rt' || (jabatan == 'anggota' && role == 'pengurus');
-          if (isAnggotaRT) {
-            final rwMemberships = (user['rw_memberships'] as List?)
-                ?.whereType<Map<String, dynamic>>()
-                .toList() ?? <Map<String, dynamic>>[];
-            String rwId = rwMemberships.isNotEmpty
-                ? (rwMemberships.first['rw_id'] as String? ?? '')
-                : (user['rw_id'] ?? '').toString().trim();
-            if (rwId.isNotEmpty) {
-              if (loc == '/login' || loc == '/home' || loc == '/') {
+    testWidgets(
+      'navigating to /home redirects directly to /rw/:rwId/keuangan?tab=beranda',
+      (tester) async {
+        String? redirectedLocation;
+        final router = GoRouter(
+          initialLocation: '/home',
+          redirect: (context, state) {
+            final loc = state.matchedLocation;
+            final user = anggotaPengurusUser;
+            final jabatan = (user['jabatan'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            final role = (user['role'] ?? '').toString().trim().toLowerCase();
+            final isAnggotaRT =
+                jabatan == 'anggota_rt' ||
+                (jabatan == 'anggota' && role == 'pengurus');
+            if (isAnggotaRT) {
+              final rwMemberships =
+                  (user['rw_memberships'] as List?)
+                      ?.whereType<Map<String, dynamic>>()
+                      .toList() ??
+                  <Map<String, dynamic>>[];
+              String rwId = rwMemberships.isNotEmpty
+                  ? (rwMemberships.first['rw_id'] as String? ?? '')
+                  : (user['rw_id'] ?? '').toString().trim();
+              if (rwId.isNotEmpty) {
+                if (loc == '/login' || loc == '/home' || loc == '/') {
+                  return '/rw/$rwId/keuangan?tab=beranda';
+                }
+                if (loc.startsWith('/rw/') ||
+                    loc == '/home/rw-data' ||
+                    loc.startsWith('/home/rw-data/') ||
+                    loc == '/home/warga' ||
+                    loc.startsWith('/home/warga/') ||
+                    loc == '/home/notifikasi' ||
+                    loc.startsWith('/home/notifikasi/') ||
+                    loc == '/home/profile' ||
+                    loc.startsWith('/home/profile/')) {
+                  return null;
+                }
                 return '/rw/$rwId/keuangan?tab=beranda';
               }
-              if (loc.startsWith('/rw/') ||
-                  loc == '/home/rw-data' ||
-                  loc.startsWith('/home/rw-data/') ||
-                  loc == '/home/warga' ||
-                  loc.startsWith('/home/warga/') ||
-                  loc == '/home/notifikasi' ||
-                  loc.startsWith('/home/notifikasi/') ||
-                  loc == '/home/profile' ||
-                  loc.startsWith('/home/profile/')) {
-                return null;
-              }
-              return '/rw/$rwId/keuangan?tab=beranda';
             }
-          }
-          return null;
-        },
-        routes: [
-          GoRoute(
-            path: '/home',
-            builder: (context, state) => const Text('RT Home'),
-          ),
-          GoRoute(
-            path: '/rw/:rwId/keuangan',
-            builder: (context, state) {
-              redirectedLocation = state.uri.toString();
-              return Text('RW Keuangan: ${state.uri}');
-            },
-          ),
-          GoRoute(
-            path: '/home/warga',
-            builder: (context, state) => const Text('Warga Screen'),
-          ),
-        ],
-      );
+            return null;
+          },
+          routes: [
+            GoRoute(
+              path: '/home',
+              builder: (context, state) => const Text('RT Home'),
+            ),
+            GoRoute(
+              path: '/rw/:rwId/keuangan',
+              builder: (context, state) {
+                redirectedLocation = state.uri.toString();
+                return Text('RW Keuangan: ${state.uri}');
+              },
+            ),
+            GoRoute(
+              path: '/home/warga',
+              builder: (context, state) => const Text('Warga Screen'),
+            ),
+          ],
+        );
 
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
 
-      // Verified: Lands on RW Data (Beranda tab)
-      expect(redirectedLocation, '/rw/rw-002/keuangan?tab=beranda');
-      expect(find.text('RW Keuangan: /rw/rw-002/keuangan?tab=beranda'), findsOneWidget);
-      expect(find.text('RT Home'), findsNothing);
+        // Verified: Lands on RW Data (Beranda tab)
+        expect(redirectedLocation, '/rw/rw-002/keuangan?tab=beranda');
+        expect(
+          find.text('RW Keuangan: /rw/rw-002/keuangan?tab=beranda'),
+          findsOneWidget,
+        );
+        expect(find.text('RT Home'), findsNothing);
 
-      // Navigating to Warga is allowed
-      router.go('/home/warga');
-      await tester.pumpAndSettle();
-      expect(find.text('Warga Screen'), findsOneWidget);
+        // Navigating to Warga is allowed
+        router.go('/home/warga');
+        await tester.pumpAndSettle();
+        expect(find.text('Warga Screen'), findsOneWidget);
 
-      // Navigating back to Data RW lands cleanly
-      router.go('/rw/rw-002/keuangan?tab=beranda');
-      await tester.pumpAndSettle();
-      expect(find.text('RW Keuangan: /rw/rw-002/keuangan?tab=beranda'), findsOneWidget);
-    });
+        // Navigating back to Data RW lands cleanly
+        router.go('/rw/rw-002/keuangan?tab=beranda');
+        await tester.pumpAndSettle();
+        expect(
+          find.text('RW Keuangan: /rw/rw-002/keuangan?tab=beranda'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('KAS RW Card View (Requirement 3)', () {
-    testWidgets('renders mobile vertical cards (no DataTable) for both Masuk and Keluar', (tester) async {
-      tester.view.physicalSize = const Size(800, 1200);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
-      });
+    testWidgets(
+      'renders mobile vertical cards (no DataTable) for both Masuk and Keluar',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            rwApiClientProvider.overrideWithValue(_TestMockRwApiClient()),
-            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(anggotaPengurusUser)),
-          ],
-          child: const MaterialApp(
-            home: RwKasScreen(rwId: 'rw-002'),
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              rwApiClientProvider.overrideWithValue(_TestMockRwApiClient()),
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(anggotaPengurusUser),
+              ),
+            ],
+            child: const MaterialApp(home: RwKasScreen(rwId: 'rw-002')),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Verify no horizontal DataTable
-      expect(find.byType(DataTable), findsNothing);
+        // Verify no horizontal DataTable
+        expect(find.byType(DataTable), findsNothing);
 
-      // Verify cards exist
-      expect(find.byType(RwKasTransactionCard), findsNWidgets(2));
+        // Verify cards exist
+        expect(find.byType(RwKasTransactionCard), findsNWidgets(2));
 
-      // Verify income card details
-      expect(find.text('Iuran Warga RT 001'), findsOneWidget);
-      expect(find.text('Kas Masuk'), findsWidgets);
-      expect(find.text('+Rp 5.000.000'), findsOneWidget);
+        // Verify income card details
+        expect(find.text('Iuran Warga RT 001'), findsOneWidget);
+        expect(find.text('Kas Masuk'), findsWidgets);
+        expect(find.text('+Rp 5.000.000'), findsOneWidget);
 
-      // Verify expense card details
-      expect(find.text('Perbaikan Lampu Jalan RW'), findsOneWidget);
-      expect(find.text('Kas Keluar'), findsWidgets);
-      expect(find.text('-Rp 2.000.000'), findsOneWidget);
+        // Verify expense card details
+        expect(find.text('Perbaikan Lampu Jalan RW'), findsOneWidget);
+        expect(find.text('Kas Keluar'), findsWidgets);
+        expect(find.text('-Rp 2.000.000'), findsOneWidget);
 
-      // Verify tapping expense card opens detail dialog and shows Category Name, NEVER UUID
-      await tester.tap(find.text('Perbaikan Lampu Jalan RW'));
-      await tester.pumpAndSettle();
+        // Verify tapping expense card opens detail dialog and shows Category Name, NEVER UUID
+        await tester.tap(find.text('Perbaikan Lampu Jalan RW'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Detail KAS Keluar RW'), findsOneWidget);
-      expect(find.text('Kategori Kas Keluar:'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text('Pemeliharaan'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.textContaining('tx-expense-1'),
-        ),
-        findsNothing,
-      );
-      await tester.tap(find.text('Tutup'));
-      await tester.pumpAndSettle();
+        expect(find.text('Detail KAS Keluar RW'), findsOneWidget);
+        expect(find.text('Kategori Kas Keluar:'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Pemeliharaan'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.textContaining('tx-expense-1'),
+          ),
+          findsNothing,
+        );
+        await tester.tap(find.text('Tutup'));
+        await tester.pumpAndSettle();
 
-      // Verify mode read-only for Anggota RT
-      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
-      expect(find.text('Catat Kas Masuk'), findsNothing);
-      expect(find.text('Catat Kas Keluar'), findsNothing);
+        // Verify mode read-only for Anggota RT
+        expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+        expect(find.text('Catat Kas Masuk'), findsNothing);
+        expect(find.text('Catat Kas Keluar'), findsNothing);
 
-      // Verify tapping card opens detail dialog
-      await tester.tap(find.text('Iuran Warga RT 001'));
-      await tester.pumpAndSettle();
+        // Verify tapping card opens detail dialog
+        await tester.tap(find.text('Iuran Warga RT 001'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Detail KAS Masuk RW'), findsOneWidget);
-      expect(find.text('Tutup'), findsOneWidget);
-      await tester.tap(find.text('Tutup'));
-      await tester.pumpAndSettle();
+        expect(find.text('Detail KAS Masuk RW'), findsOneWidget);
+        expect(find.text('Tutup'), findsOneWidget);
+        await tester.tap(find.text('Tutup'));
+        await tester.pumpAndSettle();
 
-      // Verify quick filter chips for Kas Masuk / Kas Keluar
-      expect(find.text('Semua (2)'), findsOneWidget);
-      expect(find.text('Masuk (1)'), findsOneWidget);
-      expect(find.text('Keluar (1)'), findsOneWidget);
+        // Verify quick filter chips for Kas Masuk / Kas Keluar
+        expect(find.text('Semua (2)'), findsOneWidget);
+        expect(find.text('Masuk (1)'), findsOneWidget);
+        expect(find.text('Keluar (1)'), findsOneWidget);
 
-      // Tap 'Masuk (1)' -> only 1 card shown
-      await tester.tap(find.text('Masuk (1)'));
-      await tester.pumpAndSettle();
-      expect(find.byType(RwKasTransactionCard), findsOneWidget);
-      expect(find.text('Iuran Warga RT 001'), findsOneWidget);
-      expect(find.text('Perbaikan Lampu Jalan RW'), findsNothing);
+        // Tap 'Masuk (1)' -> only 1 card shown
+        await tester.tap(find.text('Masuk (1)'));
+        await tester.pumpAndSettle();
+        expect(find.byType(RwKasTransactionCard), findsOneWidget);
+        expect(find.text('Iuran Warga RT 001'), findsOneWidget);
+        expect(find.text('Perbaikan Lampu Jalan RW'), findsNothing);
 
-      // Tap 'Keluar (1)' -> only 1 card shown
-      await tester.tap(find.text('Keluar (1)'));
-      await tester.pumpAndSettle();
-      expect(find.byType(RwKasTransactionCard), findsOneWidget);
-      expect(find.text('Perbaikan Lampu Jalan RW'), findsOneWidget);
-      expect(find.text('Iuran Warga RT 001'), findsNothing);
-    });
+        // Tap 'Keluar (1)' -> only 1 card shown
+        await tester.tap(find.text('Keluar (1)'));
+        await tester.pumpAndSettle();
+        expect(find.byType(RwKasTransactionCard), findsOneWidget);
+        expect(find.text('Perbaikan Lampu Jalan RW'), findsOneWidget);
+        expect(find.text('Iuran Warga RT 001'), findsNothing);
+      },
+    );
   });
 }
 

@@ -101,19 +101,23 @@ export function Sidebar() {
     // Anggota RT: simplified sidebar — only Data RW and Notifikasi.
     // Kas RT, Iuran, Keamanan, and other RT features are hidden.
   } else if (allowedRT) {
-    items.push(
-      { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
-    )
+    if (jabatan !== 'sosial' && jabatan !== 'operasional') {
+      items.push(
+        { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
+      )
+    }
     const isSosialOrOperasional = jabatan === 'sosial' || jabatan === 'operasional'
     const canAccessLokasiDana =
-        user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
+        (user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== '') && !isSosialOrOperasional
     // Sekretaris RT can access Kas (transactions) AND Iuran personal view (own bills/payments).
     // Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
-    // Sosial and Operasional cannot access Kas or Iuran.
+    // Sosial can access Iuran (own bills/payments) but NOT Kas. Operasional cannot access Kas or Iuran.
     if (!isSosialOrOperasional) {
       items.push(
         { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
       )
+    }
+    if (jabatan === 'sosial' || !isSosialOrOperasional) {
       items.push({ to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' })
     }
     if (canAccessLokasiDana) {

@@ -3441,6 +3441,7 @@ export interface OrgMember {
   membership_id: string
   full_name: string
   jabatan: string
+  house_number?: string | null
   phone?: string | null
   avatar_url?: string | null
 }

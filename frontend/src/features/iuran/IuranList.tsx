@@ -103,11 +103,12 @@ export function IuranList() {
     jabatan?: string | null
   }): boolean {
     if (u.systemRole === 'super_admin') return false
+    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
+    if (jabatan === 'sosial') return true
     if (u.role !== 'warga') return false
     // A warga with a management jabatan is not a plain warga for tab purposes.
     // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
     // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
-    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
     const managementJabatans = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
     if (managementJabatans.has(jabatan)) return false
     return true
@@ -120,6 +121,8 @@ export function IuranList() {
     effectivePermissions?: string[]
   }): boolean {
     if (u.systemRole === 'super_admin') return true
+    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
+    if (jabatan === 'sosial') return true
     if (Array.isArray(u.effectivePermissions) && u.effectivePermissions.includes('finance.read')) {
       return true
     }

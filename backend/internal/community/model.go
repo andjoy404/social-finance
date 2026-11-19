@@ -161,6 +161,7 @@ type OrgMember struct {
 	MembershipID string  `json:"membership_id"`
 	FullName     string  `json:"full_name"`
 	Jabatan      string  `json:"jabatan"`
+	HouseNumber  *string `json:"house_number,omitempty"`
 	Phone        *string `json:"phone,omitempty"` // only included if viewer has permission
 	AvatarURL    *string `json:"avatar_url,omitempty"`
 }

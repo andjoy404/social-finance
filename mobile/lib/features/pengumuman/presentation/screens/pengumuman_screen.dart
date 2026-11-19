@@ -107,7 +107,6 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     }
   }
 
-
   String? _formatWindow(CommunityAnnouncement a) =>
       scheduleWindowLabel(a.scheduledStart, a.scheduledEnd);
 
@@ -187,19 +186,20 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
               ),
               child: Row(
                 children: [
-                  for (final entry in (canManage
-                      ? const [
-                          ('Semua', 'all'),
-                          ('Aktif', 'active'),
-                          ('Draf', 'draft'),
-                          ('Terjadwal', 'scheduled'),
-                          ('Diarsipkan', 'archived'),
-                        ]
-                      : const [
-                          ('Semua', 'all'),
-                          ('Aktif', 'active'),
-                          ('Riwayat', 'history'),
-                        ])) ...[
+                  for (final entry
+                      in (canManage
+                          ? const [
+                              ('Semua', 'all'),
+                              ('Aktif', 'active'),
+                              ('Draf', 'draft'),
+                              ('Terjadwal', 'scheduled'),
+                              ('Diarsipkan', 'archived'),
+                            ]
+                          : const [
+                              ('Semua', 'all'),
+                              ('Aktif', 'active'),
+                              ('Riwayat', 'history'),
+                            ])) ...[
                     ChoiceChip(
                       label: Text(entry.$1),
                       selected: _statusFilter == entry.$2,
@@ -385,9 +385,11 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
                         backgroundColor: AppColors.info.withValues(alpha: 0.15),
                         textColor: AppColors.info,
                       ),
-                    if (a.deepLink != null && a.deepLink!.isNotEmpty)
+                    if (a.deepLink != null &&
+                        a.deepLink!.isNotEmpty &&
+                        formatDeepLinkDestination(a.deepLink).isNotEmpty)
                       AppBadge(
-                        label: a.deepLink!,
+                        label: formatDeepLinkDestination(a.deepLink),
                         backgroundColor: AppColors.accent.withValues(
                           alpha: 0.15,
                         ),

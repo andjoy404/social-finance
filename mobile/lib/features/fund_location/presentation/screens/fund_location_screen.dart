@@ -676,24 +676,31 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
           children: [
             if (loc.category == FundLocationCategory.rekening &&
                 loc.bankName != null) ...[
-              Row(
-                children: [
-                  Text(
-                    '${loc.bankName}  •  ',
-                    style: const TextStyle(fontSize: 12, color: AppColors.info),
-                  ),
-                  Text(
-                    loc.accountNumber ?? "-",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.accent,
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '${loc.bankName}  •  ',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.info,
+                      ),
                     ),
-                  ),
-                  Text(
-                    '  (${loc.accountHolder ?? "-"})',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
+                    TextSpan(
+                      text: loc.accountNumber ?? "-",
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    TextSpan(
+                      text: '  (${loc.accountHolder ?? "-"})',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ] else ...[
               Text(loc.category.label, style: const TextStyle(fontSize: 12)),

@@ -365,13 +365,19 @@ void main() {
             securityAlertsDataProvider.overrideWith(
               (ref) async => const SecurityAlertsData(),
             ),
-            securityAlertsProvider.overrideWith(
-              (ref) async => false,
-            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
           ],
           child: MaterialApp.router(routerConfig: router),
         ),
       );
+      await tester.pumpAndSettle();
+
+      // Fixed bottom nav contains Beranda and Menu
+      expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+      expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+
+      // Open collapsed menu grid
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
       await tester.pumpAndSettle();
 
       expect(find.text('Warga'), findsOneWidget);
@@ -380,28 +386,6 @@ void main() {
       expect(find.text('Sampah'), findsOneWidget);
       expect(find.text('Paket'), findsOneWidget);
       expect(find.text('Profil'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
-
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-absensi'))).dx),
-      );
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-absensi'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-patroli'))).dx),
-      );
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-patroli'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx),
-      );
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-paket'))).dx),
-      );
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-paket'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx),
-      );
 
       await tester.tap(find.byKey(const Key('nav-item-patroli')));
       await tester.pumpAndSettle();
@@ -429,9 +413,7 @@ void main() {
             securityAlertsDataProvider.overrideWith(
               (ref) async => const SecurityAlertsData(),
             ),
-            securityAlertsProvider.overrideWith(
-              (ref) async => false,
-            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
             securityApiClientProvider.overrideWithValue(fakeApi),
           ],
           child: const MaterialApp(home: SecurityAbsenScreen()),

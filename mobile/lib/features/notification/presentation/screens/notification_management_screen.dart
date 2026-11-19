@@ -215,9 +215,16 @@ class _NotificationManagementScreenState
         //   where user_id matches the current user. No null, no broadcast,
         //   no dispatch records leak through.
         final isAdminViewing = category != null;
-        final filtered = isAdminViewing
+        var filtered = isAdminViewing
             ? resp.data
             : resp.data.where((log) => log.userId == snapshotUserId).toList();
+        if (category == 'mine' && _selectedLogStatus != 'all') {
+          if (_selectedLogStatus == 'unread') {
+            filtered = filtered.where((l) => !l.isRead).toList();
+          } else if (_selectedLogStatus == 'read') {
+            filtered = filtered.where((l) => l.isRead).toList();
+          }
+        }
         setState(() {
           _logs = filtered;
           _isLoadingLogs = false;
@@ -349,21 +356,23 @@ class _NotificationManagementScreenState
     }
 
     final id = log.id.trim();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NotificationDetailScreen(
-          notificationId: id.isNotEmpty ? id : null,
-          initialTitle: log.title,
-          initialBody: log.body,
-          initialImageUrl: log.imageUrl,
-          initialEventType: log.eventType,
-          initialSentAt: log.createdAt?.toIso8601String(),
-          openedFromNotificationList: true,
-        ),
-      ),
-    ).then((_) {
-      doMarkRead();
-    });
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => NotificationDetailScreen(
+              notificationId: id.isNotEmpty ? id : null,
+              initialTitle: log.title,
+              initialBody: log.body,
+              initialImageUrl: log.imageUrl,
+              initialEventType: log.eventType,
+              initialSentAt: log.createdAt?.toIso8601String(),
+              openedFromNotificationList: true,
+            ),
+          ),
+        )
+        .then((_) {
+          doMarkRead();
+        });
   }
 
   void _showPreviewBanner({
@@ -508,6 +517,7 @@ class _NotificationManagementScreenState
                     const SizedBox(height: 24),
                     // Label info
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 8,
@@ -517,20 +527,25 @@ class _NotificationManagementScreenState
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 16,
-                            color: AppColors.accent,
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.info_outline,
+                              size: 16,
+                              color: AppColors.accent,
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            eventName,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.accent,
+                          Expanded(
+                            child: Text(
+                              eventName,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.accent,
+                              ),
                             ),
                           ),
                         ],
@@ -1580,7 +1595,7 @@ class _NotificationManagementScreenState
                     Tab(text: 'SISTEM'),
                     Tab(text: 'RIWAYAT SAYA'),
                   ],
-                  error: (_, __) => const [
+                  error: (_, _) => const [
                     Tab(text: 'SISTEM'),
                     Tab(text: 'RIWAYAT SAYA'),
                   ],
@@ -1637,14 +1652,32 @@ class _NotificationManagementScreenState
                     ),
                   ],
                   loading: () => const [
-                    Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
-                    Tab(icon: Icon(Icons.bookmark_border_rounded, size: 14), text: 'KUSTOM'),
-                    Tab(icon: Icon(Icons.schedule_rounded, size: 14), text: 'PENJADWALAN'),
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
                   ],
-                  error: (_, __) => const [
-                    Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
-                    Tab(icon: Icon(Icons.bookmark_border_rounded, size: 14), text: 'KUSTOM'),
-                    Tab(icon: Icon(Icons.schedule_rounded, size: 14), text: 'PENJADWALAN'),
+                  error: (_, _) => const [
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
                   ],
                 ),
               ),
@@ -3579,7 +3612,8 @@ class _NotificationManagementScreenState
                           _ => AppColors.lightTextMuted,
                         };
                       }
-                      final showReadState = category == null;
+                      final showReadState =
+                          category == null || category == 'mine';
                       final dateStr = formatJakartaDateTime(log.createdAt);
                       final activityRelationLabel =
                           switch (log.activityRelation) {
@@ -3605,138 +3639,139 @@ class _NotificationManagementScreenState
                             child: AppCard(
                               cardColor: isUnread ? unreadBg : null,
                               child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  alignment: WrapAlignment.spaceBetween,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  spacing: 8,
-                                  runSpacing: 4,
-                                  children: [
-                                    Text(
-                                      dateStr,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: isDark
-                                                ? AppColors.darkTextMuted
-                                                : AppColors.lightTextMuted,
-                                          ),
-                                    ),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.only(right: 6),
-                                          child: AppBadge(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        dateStr,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                            ),
+                                      ),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        children: [
+                                          AppBadge(
                                             label: log.isRW ? 'RW' : 'RT',
                                             backgroundColor: log.isRW
                                                 ? const Color(0xFF7C3AED)
                                                 : AppColors.accent,
                                             textColor: Colors.white,
                                           ),
-                                        ),
-                                        if (showReadState && !log.isRead) ...[
-                                          const Padding(
-                                            padding: EdgeInsets.only(right: 6),
-                                            child: AppBadge(
+                                          if (showReadState && !log.isRead)
+                                            const AppBadge(
                                               label: 'BARU',
                                               backgroundColor: AppColors.accent,
                                               textColor: Colors.white,
                                             ),
+                                          AppBadge(
+                                            label: deliveryStatusLabel,
+                                            backgroundColor:
+                                                deliveryStatusColor,
+                                            textColor: Colors.white,
                                           ),
                                         ],
-                                        AppBadge(
-                                          label: deliveryStatusLabel,
-                                          backgroundColor: deliveryStatusColor,
-                                          textColor: Colors.white,
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        if (showReadState && !log.isRead)
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            margin: const EdgeInsets.only(
-                                              right: 6,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          if (showReadState && !log.isRead)
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              margin: const EdgeInsets.only(
+                                                right: 6,
+                                              ),
+                                              decoration: const BoxDecoration(
+                                                color: AppColors.accent,
+                                                shape: BoxShape.circle,
+                                              ),
                                             ),
-                                            decoration: const BoxDecoration(
-                                              color: AppColors.accent,
-                                              shape: BoxShape.circle,
+                                          Expanded(
+                                            child: Text(
+                                              log.title,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight:
+                                                        !showReadState ||
+                                                            log.isRead
+                                                        ? FontWeight.w600
+                                                        : FontWeight.bold,
+                                                  ),
                                             ),
                                           ),
-                                        Expanded(
+                                        ],
+                                      ),
+                                      if (activityRelationLabel != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 2,
+                                          ),
                                           child: Text(
-                                            log.title,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
+                                            activityRelationLabel,
+                                            style: theme.textTheme.labelSmall
                                                 ?.copyWith(
-                                                  fontWeight:
-                                                      !showReadState ||
-                                                          log.isRead
-                                                      ? FontWeight.w600
-                                                      : FontWeight.bold,
+                                                  color: AppColors.accent,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                           ),
                                         ),
-                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  NotificationBodyText(
+                                    text: log.body,
+                                    eventType: log.eventType,
+                                    dedupKey: log.dedupKey,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: isDark
+                                          ? AppColors.darkTextMuted
+                                          : AppColors.lightTextMuted,
                                     ),
-                                    if (activityRelationLabel != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text(
-                                          activityRelationLabel,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color: AppColors.accent,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                    onOpenUrl: (url) {
+                                      ref
+                                          .read(pushNotificationServiceProvider)
+                                          .openExternalUrl(url);
+                                    },
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        _knownEventNames[log.eventType] ??
+                                            log.eventType,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted,
                                         ),
                                       ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                NotificationBodyText(
-                                  text: log.body,
-                                  eventType: log.eventType,
-                                  dedupKey: log.dedupKey,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: isDark
-                                        ? AppColors.darkTextMuted
-                                        : AppColors.lightTextMuted,
-                                  ),
-                                  onOpenUrl: (url) {
-                                    ref
-                                        .read(pushNotificationServiceProvider)
-                                        .openExternalUrl(url);
-                                  },
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _knownEventNames[log.eventType] ??
-                                          log.eventType,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? AppColors.darkTextMuted
-                                            : AppColors.lightTextMuted,
-                                      ),
-                                    ),
-                                    if (isAdmin)
-                                      Flexible(
-                                        child: Text(
+                                      if (isAdmin)
+                                        Text(
                                           log.deliveryCountsAvailable
                                               ? 'Terkirim: ${log.sentCount} / ${log.recipientsCount} penerima'
                                                     '${log.failedCount > 0 ? ' - Gagal: ${log.failedCount}' : ''}'
@@ -3751,15 +3786,14 @@ class _NotificationManagementScreenState
                                                 : AppColors.lightTextMuted,
                                           ),
                                         ),
-                                      ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
+                      );
                     },
                   ),
           ),

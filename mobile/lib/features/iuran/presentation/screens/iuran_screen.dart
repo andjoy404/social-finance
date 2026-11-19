@@ -71,13 +71,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
   bool _checkIsWarga() {
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
     if (user == null) return false;
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'sosial') return true;
     final role = _roleValue(user['role']);
     if (role != 'warga') return false;
     // A warga with a management jabatan is not a plain warga for tab purposes.
     // They hold an RT position (ketua, wakil_ketua, bendahara) and
     // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
     // Sekretaris RT only sees "Iuran Saya" — they are NOT in managementJabatans.
-    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     final managementJabatans = {'ketua', 'wakil_ketua', 'bendahara'};
     if (managementJabatans.contains(jabatan)) return false;
     return true;

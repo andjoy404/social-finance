@@ -24,11 +24,7 @@ import '../widgets/attendance_status_badge.dart';
 import '../widgets/guest_visit_status_badge.dart';
 import '../widgets/security_photo_viewer.dart';
 
-enum SecurityManagementMode {
-  full,
-  officerPatrol,
-  officerPaket,
-}
+enum SecurityManagementMode { full, officerPatrol, officerPaket }
 
 class SecurityManagementScreen extends ConsumerStatefulWidget {
   final int? initialTopTabIndex;
@@ -135,21 +131,34 @@ class _SecurityManagementScreenState
     final initialIndex = widget.mode == SecurityManagementMode.officerPatrol
         ? 3
         : (widget.mode == SecurityManagementMode.officerPaket
-            ? 4
-            : (widget.initialTopTabIndex ?? 0));
-    _topTabs = TabController(length: 5, vsync: this, initialIndex: initialIndex);
+              ? 4
+              : (widget.initialTopTabIndex ?? 0));
+    _topTabs = TabController(
+      length: 5,
+      vsync: this,
+      initialIndex: initialIndex,
+    );
     _kelolaTabs = TabController(length: 3, vsync: this);
     _absensiTabs = TabController(length: 2, vsync: this);
     int patrolSubIndex = 0;
-    if (widget.initialSubTab == 'history' || widget.initialSubTab == 'riwayat') {
+    if (widget.initialSubTab == 'history' ||
+        widget.initialSubTab == 'riwayat') {
       patrolSubIndex = 1;
     }
-    _patroliTabs = TabController(length: 2, vsync: this, initialIndex: patrolSubIndex);
+    _patroliTabs = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: patrolSubIndex,
+    );
     int paketSubIndex = 0;
     if (widget.initialSubTab == 'list' || widget.initialSubTab == 'daftar') {
-      paketSubIndex = _canPaketWrite ? 1 : 0;
+      paketSubIndex = 1;
     }
-    _paketTabs = TabController(length: _canPaketWrite ? 2 : 1, vsync: this, initialIndex: paketSubIndex);
+    _paketTabs = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: paketSubIndex,
+    );
     for (final ctrl in [
       _topTabs,
       _kelolaTabs,
@@ -162,24 +171,40 @@ class _SecurityManagementScreenState
         if (!ctrl.indexIsChanging && mounted) {
           if (ctrl == _topTabs) {
             if (_topTabs.index == 3) {
-              ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
+              ref
+                  .read(securityApiClientProvider)
+                  .markReadReceipt(domain: 'patrol');
               ref.invalidate(securityAlertsDataProvider);
               _reloadPatrolTemplates();
               _reloadPatrolBundles();
             } else if (_topTabs.index == 4) {
-              ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
+              ref
+                  .read(securityApiClientProvider)
+                  .markReadReceipt(domain: 'paket');
               ref.invalidate(securityAlertsDataProvider);
               _reloadPaketReports();
             } else if (_topTabs.index == 1 && _absensiTabs.index == 1) {
-              ref.read(securityApiClientProvider).markReadReceipt(domain: 'correction');
+              ref
+                  .read(securityApiClientProvider)
+                  .markReadReceipt(domain: 'correction');
               ref.invalidate(securityAlertsDataProvider);
               _loadData();
             } else {
               _loadData();
             }
+          } else if (ctrl == _paketTabs) {
+            if (_paketTabs.index == 1) {
+              ref
+                  .read(securityApiClientProvider)
+                  .markReadReceipt(domain: 'paket');
+              ref.invalidate(securityAlertsDataProvider);
+              _reloadPaketReports();
+            }
           } else {
             if (_topTabs.index == 1 && _absensiTabs.index == 1) {
-              ref.read(securityApiClientProvider).markReadReceipt(domain: 'correction');
+              ref
+                  .read(securityApiClientProvider)
+                  .markReadReceipt(domain: 'correction');
               ref.invalidate(securityAlertsDataProvider);
             }
             _loadData();
@@ -248,9 +273,9 @@ class _SecurityManagementScreenState
 
   void _showRefreshError(Object error) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Gagal memuat ulang: $error')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Gagal memuat ulang: $error')));
   }
 
   Future<void> _reloadAttendance() async {
@@ -273,8 +298,7 @@ class _SecurityManagementScreenState
         userId: _officerFilter,
         status: _attendanceStatus.isEmpty ? null : _attendanceStatus,
       );
-      final sortedAttendance = [...attendance]
-        ..sort(compareAttendanceRecency);
+      final sortedAttendance = [...attendance]..sort(compareAttendanceRecency);
       final officers = await api.listManagerOfficers();
       if (!mounted) return;
       setState(() {
@@ -311,8 +335,9 @@ class _SecurityManagementScreenState
       return;
     }
     try {
-      final devices =
-          await ref.read(securityApiClientProvider).listManagerDevices();
+      final devices = await ref
+          .read(securityApiClientProvider)
+          .listManagerDevices();
       if (!mounted) return;
       setState(() => _devices = devices);
     } catch (e) {
@@ -328,11 +353,9 @@ class _SecurityManagementScreenState
     }
     final targetPage = page ?? _guestPage;
     try {
-      final result =
-          await ref.read(securityApiClientProvider).listManagerGuestBooks(
-            search: _guestSearch,
-            page: targetPage,
-          );
+      final result = await ref
+          .read(securityApiClientProvider)
+          .listManagerGuestBooks(search: _guestSearch, page: targetPage);
       if (!mounted) return;
       final sortedGuests = [...result.data]
         ..sort(compareGuestBookChronological);
@@ -350,7 +373,9 @@ class _SecurityManagementScreenState
 
   Future<void> _reloadPatrolTemplates() async {
     try {
-      final list = await ref.read(securityApiClientProvider).listPatrolTemplates();
+      final list = await ref
+          .read(securityApiClientProvider)
+          .listPatrolTemplates();
       if (!mounted) return;
       setState(() => _patrolTemplates = list);
     } catch (_) {}
@@ -358,11 +383,17 @@ class _SecurityManagementScreenState
 
   Future<void> _reloadPatrolBundles() async {
     try {
-      final list = await ref.read(securityApiClientProvider).listPatrolBundles();
+      final list = await ref
+          .read(securityApiClientProvider)
+          .listPatrolBundles();
       if (!mounted) return;
       setState(() => _patrolBundles = list);
-      if (widget.targetId != null && widget.targetId!.isNotEmpty && !_targetDialogOpened) {
-        final found = _patrolBundles.where((b) => b.id == widget.targetId).firstOrNull;
+      if (widget.targetId != null &&
+          widget.targetId!.isNotEmpty &&
+          !_targetDialogOpened) {
+        final found = _patrolBundles
+            .where((b) => b.id == widget.targetId)
+            .firstOrNull;
         if (found != null) {
           _targetDialogOpened = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -378,8 +409,12 @@ class _SecurityManagementScreenState
       final list = await ref.read(securityApiClientProvider).listPaketReports();
       if (!mounted) return;
       setState(() => _paketReports = list);
-      if (widget.targetId != null && widget.targetId!.isNotEmpty && !_targetDialogOpened) {
-        final found = _paketReports.where((r) => r.id == widget.targetId).firstOrNull;
+      if (widget.targetId != null &&
+          widget.targetId!.isNotEmpty &&
+          !_targetDialogOpened) {
+        final found = _paketReports
+            .where((r) => r.id == widget.targetId)
+            .firstOrNull;
         if (found != null && found.items.isNotEmpty) {
           _targetDialogOpened = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -424,9 +459,9 @@ class _SecurityManagementScreenState
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengambil foto: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal mengambil foto: $e')));
       }
       return null;
     }
@@ -463,8 +498,9 @@ class _SecurityManagementScreenState
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Nama gang wajib diisi' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Nama gang wajib diisi'
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -475,8 +511,9 @@ class _SecurityManagementScreenState
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Label lokasi wajib diisi' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Label lokasi wajib diisi'
+                    : null,
               ),
             ],
           ),
@@ -507,14 +544,16 @@ class _SecurityManagementScreenState
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Titik kontrol gang berhasil ditambahkan.')),
+          const SnackBar(
+            content: Text('Titik kontrol gang berhasil ditambahkan.'),
+          ),
         );
         await _reloadPatrolTemplates();
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menambahkan gang: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal menambahkan gang: $e')));
       }
     }
   }
@@ -540,8 +579,9 @@ class _SecurityManagementScreenState
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Nama gang wajib diisi' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Nama gang wajib diisi'
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -551,8 +591,9 @@ class _SecurityManagementScreenState
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Label lokasi wajib diisi' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Label lokasi wajib diisi'
+                    : null,
               ),
             ],
           ),
@@ -589,9 +630,9 @@ class _SecurityManagementScreenState
         await _reloadPatrolTemplates();
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengubah gang: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal mengubah gang: $e')));
       }
     }
   }
@@ -627,9 +668,9 @@ class _SecurityManagementScreenState
         await _reloadPatrolTemplates();
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menghapus gang: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal menghapus gang: $e')));
       }
     }
   }
@@ -664,7 +705,10 @@ class _SecurityManagementScreenState
             children: [
               Text(
                 'Daftar Gang & Titik Kontrol (${_patrolTemplates.length})',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
               FilledButton.icon(
                 icon: const Icon(Icons.add, size: 18),
@@ -693,7 +737,11 @@ class _SecurityManagementScreenState
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      const Icon(Icons.location_on, color: AppColors.seed, size: 24),
+                      const Icon(
+                        Icons.location_on,
+                        color: AppColors.seed,
+                        size: 24,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -701,7 +749,10 @@ class _SecurityManagementScreenState
                           children: [
                             Text(
                               t.name,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
                             ),
                             if (t.locationLabel.isNotEmpty)
                               Text(
@@ -720,7 +771,11 @@ class _SecurityManagementScreenState
                         onPressed: () => _showEditTemplateDialog(t),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: AppColors.danger, size: 20),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: AppColors.danger,
+                          size: 20,
+                        ),
                         tooltip: 'Hapus',
                         onPressed: () => _confirmDeleteTemplate(t),
                       ),
@@ -739,7 +794,9 @@ class _SecurityManagementScreenState
     if (_submittingPatrol) return;
     if (_patrolPhotos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ambil minimal 1 foto titik kontrol patroli.')),
+        const SnackBar(
+          content: Text('Ambil minimal 1 foto titik kontrol patroli.'),
+        ),
       );
       return;
     }
@@ -775,9 +832,9 @@ class _SecurityManagementScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengirim patroli: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal mengirim patroli: $e')));
       }
     } finally {
       if (mounted) setState(() => _submittingPatrol = false);
@@ -814,7 +871,10 @@ class _SecurityManagementScreenState
                           if (p.locationLabel.isNotEmpty)
                             Text(
                               p.locationLabel,
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                           const SizedBox(height: 6),
                           GestureDetector(
@@ -822,13 +882,15 @@ class _SecurityManagementScreenState
                                 ? () {
                                     final viewerItems = bundle.photos
                                         .where((ph) => ph.imageUrl.isNotEmpty)
-                                        .map((ph) => SecurityPhotoViewerItem(
-                                              imageUrl: ph.imageUrl,
-                                              title: ph.templateName.isNotEmpty
-                                                  ? ph.templateName
-                                                  : 'Titik Kontrol #${idx + 1}',
-                                              subtitle: ph.locationLabel,
-                                            ))
+                                        .map(
+                                          (ph) => SecurityPhotoViewerItem(
+                                            imageUrl: ph.imageUrl,
+                                            title: ph.templateName.isNotEmpty
+                                                ? ph.templateName
+                                                : 'Titik Kontrol #${idx + 1}',
+                                            subtitle: ph.locationLabel,
+                                          ),
+                                        )
                                         .toList();
                                     final curIdx = bundle.photos
                                         .where((ph) => ph.imageUrl.isNotEmpty)
@@ -866,7 +928,10 @@ class _SecurityManagementScreenState
                 ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup'),
+          ),
         ],
       ),
     );
@@ -921,7 +986,9 @@ class _SecurityManagementScreenState
     if (_submittingPaket) return;
     if (_selectedWarga == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pilih warga penerima paket terlebih dahulu.')),
+        const SnackBar(
+          content: Text('Pilih warga penerima paket terlebih dahulu.'),
+        ),
       );
       return;
     }
@@ -945,10 +1012,7 @@ class _SecurityManagementScreenState
           if (desc.isNotEmpty) desc,
         ];
         final fullDesc = parts.isEmpty ? 'Paket Titipan' : parts.join(' · ');
-        items.add({
-          'description': fullDesc,
-          'image_keys': imageKeys,
-        });
+        items.add({'description': fullDesc, 'image_keys': imageKeys});
       }
 
       await api.createPaketReport(
@@ -959,7 +1023,9 @@ class _SecurityManagementScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Penitipan paket berhasil dicatat & notifikasi terkirim.'),
+          content: Text(
+            'Penitipan paket berhasil dicatat & notifikasi terkirim.',
+          ),
         ),
       );
 
@@ -979,16 +1045,19 @@ class _SecurityManagementScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menyimpan paket: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal menyimpan paket: $e')));
       }
     } finally {
       if (mounted) setState(() => _submittingPaket = false);
     }
   }
 
-  Future<void> _openSerahTerimaDialog(PaketReport report, PaketItem item) async {
+  Future<void> _openSerahTerimaDialog(
+    PaketReport report,
+    PaketItem item,
+  ) async {
     final noteCtrl = TextEditingController(text: report.receiverName);
     XFile? proofPhoto;
 
@@ -1002,7 +1071,9 @@ class _SecurityManagementScreenState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Penerima: ${report.receiverName} (${report.receiverHouseNumber})'),
+                Text(
+                  'Penerima: ${report.receiverName} (${report.receiverHouseNumber})',
+                ),
                 if (item.description != null) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -1048,7 +1119,8 @@ class _SecurityManagementScreenState
                       ),
                       IconButton(
                         icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () => setDialogState(() => proofPhoto = null),
+                        onPressed: () =>
+                            setDialogState(() => proofPhoto = null),
                       ),
                     ],
                   )
@@ -1130,10 +1202,14 @@ class _SecurityManagementScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isProof ? 'Bukti Serah Terima' : 'Foto Paket Saat Dititipkan',
+                            isProof
+                                ? 'Bukti Serah Terima'
+                                : 'Foto Paket Saat Dititipkan',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: isProof ? AppColors.success : AppColors.seed,
+                              color: isProof
+                                  ? AppColors.success
+                                  : AppColors.seed,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -1142,17 +1218,24 @@ class _SecurityManagementScreenState
                                 ? () {
                                     final viewerItems = item.photos
                                         .where((ph) => ph.imageUrl.isNotEmpty)
-                                        .map((ph) => SecurityPhotoViewerItem(
-                                              imageUrl: ph.imageUrl,
-                                              title: ph.photoType == 'bukti_pengambilan'
-                                                  ? 'Bukti Serah Terima'
-                                                  : ((item.description?.isNotEmpty ?? false)
+                                        .map(
+                                          (ph) => SecurityPhotoViewerItem(
+                                            imageUrl: ph.imageUrl,
+                                            title:
+                                                ph.photoType ==
+                                                    'bukti_pengambilan'
+                                                ? 'Bukti Serah Terima'
+                                                : ((item
+                                                              .description
+                                                              ?.isNotEmpty ??
+                                                          false)
                                                       ? item.description!
                                                       : 'Foto Paket'),
-                                              subtitle: isProof
-                                                  ? 'Bukti Serah Terima / Pengambilan Paket'
-                                                  : 'Foto Paket Saat Dititipkan',
-                                            ))
+                                            subtitle: isProof
+                                                ? 'Bukti Serah Terima / Pengambilan Paket'
+                                                : 'Foto Paket Saat Dititipkan',
+                                          ),
+                                        )
                                         .toList();
                                     final curIdx = item.photos
                                         .where((ph) => ph.imageUrl.isNotEmpty)
@@ -1190,7 +1273,10 @@ class _SecurityManagementScreenState
                 ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup'),
+          ),
         ],
       ),
     );
@@ -1295,8 +1381,7 @@ class _SecurityManagementScreenState
       final paketReports = _canPaketRead
           ? await api.listPaketReports()
           : <PaketReport>[];
-      final sortedAttendance = [...attendance]
-        ..sort(compareAttendanceRecency);
+      final sortedAttendance = [...attendance]..sort(compareAttendanceRecency);
       final sortedGuests = [...guestPage.data]
         ..sort(compareGuestBookChronological);
       if (!mounted) {
@@ -1611,7 +1696,9 @@ class _SecurityManagementScreenState
                   ),
                   TextField(
                     controller: notes,
-                    decoration: const InputDecoration(labelText: 'Catatan (Opsional)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Catatan (Opsional)',
+                    ),
                   ),
                 ],
               ),
@@ -1907,7 +1994,10 @@ class _SecurityManagementScreenState
               fontWeight: FontWeight.w500,
             ),
             tabs: [
-              const Tab(icon: Icon(Icons.groups_outlined, size: 20), text: 'Kelola'),
+              const Tab(
+                icon: Icon(Icons.groups_outlined, size: 20),
+                text: 'Kelola',
+              ),
               Tab(
                 icon: Badge(
                   isLabelVisible: alertsData.pendingCorrectionsUnread > 0,
@@ -2016,36 +2106,6 @@ class _SecurityManagementScreenState
           ],
         );
       case 4:
-        if (!_canPaketWrite) {
-          return TabBar(
-            controller: _paketTabs,
-            isScrollable: false,
-            labelColor: theme.colorScheme.onSurface,
-            unselectedLabelColor: unselected,
-            indicatorColor: AppColors.accent,
-            indicatorSize: TabBarIndicatorSize.tab,
-            indicatorWeight: 2,
-            dividerColor: Colors.transparent,
-            labelStyle: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-            unselectedLabelStyle: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-            tabs: [
-              Tab(
-                icon: Badge(
-                  isLabelVisible: alertsData.paketUnread > 0,
-                  label: Text('${alertsData.paketUnread}'),
-                  child: const Icon(Icons.inventory, size: 16),
-                ),
-                text: 'Daftar Paket',
-              ),
-            ],
-          );
-        }
         return TabBar(
           controller: _paketTabs,
           isScrollable: false,
@@ -2064,7 +2124,10 @@ class _SecurityManagementScreenState
             fontWeight: FontWeight.w500,
           ),
           tabs: [
-            const Tab(icon: Icon(Icons.add_box_outlined, size: 16), text: 'Penerimaan'),
+            const Tab(
+              icon: Icon(Icons.add_box_outlined, size: 16),
+              text: 'Penerimaan',
+            ),
             Tab(
               icon: Badge(
                 isLabelVisible: alertsData.paketUnread > 0,
@@ -2153,7 +2216,10 @@ class _SecurityManagementScreenState
             indicatorSize: TabBarIndicatorSize.tab,
             indicatorWeight: 2,
             tabs: const [
-              Tab(icon: Icon(Icons.camera_alt_outlined, size: 16), text: 'Ambil Foto'),
+              Tab(
+                icon: Icon(Icons.camera_alt_outlined, size: 16),
+                text: 'Ambil Foto',
+              ),
               Tab(icon: Icon(Icons.history, size: 16), text: 'Riwayat'),
             ],
           ),
@@ -2162,10 +2228,7 @@ class _SecurityManagementScreenState
             ? const Center(child: CircularProgressIndicator())
             : TabBarView(
                 controller: _patroliTabs,
-                children: [
-                  _patrolFormTab(),
-                  _patrolHistoryTab(),
-                ],
+                children: [_patrolFormTab(), _patrolHistoryTab()],
               ),
       );
     }
@@ -2175,7 +2238,7 @@ class _SecurityManagementScreenState
         appBar: AppBar(
           automaticallyImplyLeading: false,
           centerTitle: false,
-          title: const MenuAppBarTitle(title: 'Pengelolaan Paket'),
+          title: const MenuAppBarTitle(title: 'PAKET'),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -2190,7 +2253,10 @@ class _SecurityManagementScreenState
             indicatorSize: TabBarIndicatorSize.tab,
             indicatorWeight: 2,
             tabs: const [
-              Tab(icon: Icon(Icons.add_box_outlined, size: 16), text: 'Penerimaan'),
+              Tab(
+                icon: Icon(Icons.add_box_outlined, size: 16),
+                text: 'Penerimaan',
+              ),
               Tab(icon: Icon(Icons.inventory, size: 16), text: 'Daftar Paket'),
             ],
           ),
@@ -2199,10 +2265,7 @@ class _SecurityManagementScreenState
             ? const Center(child: CircularProgressIndicator())
             : TabBarView(
                 controller: _paketTabs,
-                children: [
-                  _paketFormTab(),
-                  _paketListTab(),
-                ],
+                children: [_paketFormTab(), _paketListTab()],
               ),
       );
     }
@@ -2270,12 +2333,10 @@ class _SecurityManagementScreenState
                           _patrolHistoryTab(),
                         ],
                       ),
-                      _canPaketWrite
-                          ? TabBarView(
-                              controller: _paketTabs,
-                              children: [_paketFormTab(), _paketListTab()],
-                            )
-                          : _paketListTab(),
+                      TabBarView(
+                        controller: _paketTabs,
+                        children: [_paketFormTab(), _paketListTab()],
+                      ),
                     ],
                   ),
           ),
@@ -2485,9 +2546,15 @@ class _SecurityManagementScreenState
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: (s.isActive && s.status == 'scheduled')
-                                            ? Colors.green.withValues(alpha: 0.15)
-                                            : Colors.grey.withValues(alpha: 0.15),
+                                        color:
+                                            (s.isActive &&
+                                                s.status == 'scheduled')
+                                            ? Colors.green.withValues(
+                                                alpha: 0.15,
+                                              )
+                                            : Colors.grey.withValues(
+                                                alpha: 0.15,
+                                              ),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
@@ -2495,7 +2562,9 @@ class _SecurityManagementScreenState
                                             ? 'Aktif'
                                             : 'Nonaktif',
                                         style: TextStyle(
-                                          color: (s.isActive && s.status == 'scheduled')
+                                          color:
+                                              (s.isActive &&
+                                                  s.status == 'scheduled')
                                               ? Colors.green[800]
                                               : Colors.grey[700],
                                           fontSize: 12,
@@ -2596,58 +2665,58 @@ class _SecurityManagementScreenState
       ),
       Expanded(
         child: RefreshIndicator(
-        onRefresh: () => _guardedRefresh(_reloadAttendance),
-        child: _attendance.isEmpty
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 220),
-                  Center(child: Text('Belum ada catatan absensi.')),
-                ],
-              )
-            : ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: _attendance
-                    .map(
-                      (a) => Card(
-                        child: ListTile(
-                          title: Text(
-                            '${a.officerName} · ${a.shiftName} · ${a.shiftDate}',
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              AttendanceStatusBadge(
-                                statusCode: a.status,
-                                statusLabel: a.statusLabel,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Masuk: ${a.checkedInAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedInAt!)} · Keluar: ${a.checkedOutAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedOutAt!)}',
-                              ),
-                            ],
-                          ),
-                          onTap: () => showDialog<void>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: Text(a.officerName),
-                              content: Text(
-                                'Status: ${a.statusLabel}\nWaktu server masuk: ${a.checkedInAt ?? '-'}\nWaktu server keluar: ${a.checkedOutAt ?? '-'}\nPerangkat masuk: ${a.checkInDeviceName ?? '-'}\nPerangkat keluar: ${a.checkOutDeviceName ?? '-'}\nKoreksi terkunci: ${a.correctionLocked ? 'Ya' : 'Tidak'}',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text('Tutup'),
+          onRefresh: () => _guardedRefresh(_reloadAttendance),
+          child: _attendance.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 220),
+                    Center(child: Text('Belum ada catatan absensi.')),
+                  ],
+                )
+              : ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: _attendance
+                      .map(
+                        (a) => Card(
+                          child: ListTile(
+                            title: Text(
+                              '${a.officerName} · ${a.shiftName} · ${a.shiftDate}',
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AttendanceStatusBadge(
+                                  statusCode: a.status,
+                                  statusLabel: a.statusLabel,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Masuk: ${a.checkedInAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedInAt!)} · Keluar: ${a.checkedOutAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedOutAt!)}',
                                 ),
                               ],
                             ),
+                            onTap: () => showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(a.officerName),
+                                content: Text(
+                                  'Status: ${a.statusLabel}\nWaktu server masuk: ${a.checkedInAt ?? '-'}\nWaktu server keluar: ${a.checkedOutAt ?? '-'}\nPerangkat masuk: ${a.checkInDeviceName ?? '-'}\nPerangkat keluar: ${a.checkOutDeviceName ?? '-'}\nKoreksi terkunci: ${a.correctionLocked ? 'Ya' : 'Tidak'}',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Tutup'),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    )
-                    .toList(),
-              ),
+                      )
+                      .toList(),
+                ),
         ),
       ),
     ],
@@ -2696,11 +2765,7 @@ class _SecurityManagementScreenState
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: fg,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
+        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -2727,7 +2792,9 @@ class _SecurityManagementScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: (isApp ? AppColors.success : AppColors.danger).withValues(alpha: 0.15),
+        color: (isApp ? AppColors.success : AppColors.danger).withValues(
+          alpha: 0.15,
+        ),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
@@ -2743,7 +2810,8 @@ class _SecurityManagementScreenState
 
   Widget _buildCorrectionCard(AttendanceCorrection c) {
     final theme = Theme.of(context);
-    final canDecideThis = _canDecide &&
+    final canDecideThis =
+        _canDecide &&
         c.status == 'pending' &&
         c.requestedBy != (_user?['id']?.toString() ?? '');
 
@@ -2792,7 +2860,11 @@ class _SecurityManagementScreenState
                         value: true,
                         child: Row(
                           children: [
-                            Icon(Icons.check, color: AppColors.success, size: 18),
+                            Icon(
+                              Icons.check,
+                              color: AppColors.success,
+                              size: 18,
+                            ),
                             SizedBox(width: 8),
                             Text('Setujui'),
                           ],
@@ -2802,7 +2874,11 @@ class _SecurityManagementScreenState
                         value: false,
                         child: Row(
                           children: [
-                            Icon(Icons.close, color: AppColors.danger, size: 18),
+                            Icon(
+                              Icons.close,
+                              color: AppColors.danger,
+                              size: 18,
+                            ),
                             SizedBox(width: 8),
                             Text('Tolak'),
                           ],
@@ -2818,7 +2894,9 @@ class _SecurityManagementScreenState
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Row(
@@ -2848,10 +2926,14 @@ class _SecurityManagementScreenState
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.25,
+                ),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  color: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.5,
+                  ),
                 ),
               ),
               child: Column(
@@ -2859,7 +2941,11 @@ class _SecurityManagementScreenState
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.send_outlined, size: 14, color: AppColors.seed),
+                      const Icon(
+                        Icons.send_outlined,
+                        size: 14,
+                        color: AppColors.seed,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Diajukan',
@@ -2899,15 +2985,15 @@ class _SecurityManagementScreenState
                 color: c.status == 'pending'
                     ? AppColors.warning.withValues(alpha: 0.08)
                     : (c.status == 'approved'
-                        ? AppColors.success.withValues(alpha: 0.08)
-                        : AppColors.danger.withValues(alpha: 0.08)),
+                          ? AppColors.success.withValues(alpha: 0.08)
+                          : AppColors.danger.withValues(alpha: 0.08)),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: c.status == 'pending'
                       ? AppColors.warning.withValues(alpha: 0.3)
                       : (c.status == 'approved'
-                          ? AppColors.success.withValues(alpha: 0.3)
-                          : AppColors.danger.withValues(alpha: 0.3)),
+                            ? AppColors.success.withValues(alpha: 0.3)
+                            : AppColors.danger.withValues(alpha: 0.3)),
                 ),
               ),
               child: Column(
@@ -2919,14 +3005,14 @@ class _SecurityManagementScreenState
                         c.status == 'pending'
                             ? Icons.hourglass_empty
                             : (c.status == 'approved'
-                                ? Icons.check_circle_outline
-                                : Icons.cancel_outlined),
+                                  ? Icons.check_circle_outline
+                                  : Icons.cancel_outlined),
                         size: 14,
                         color: c.status == 'pending'
                             ? AppColors.warning
                             : (c.status == 'approved'
-                                ? AppColors.success
-                                : AppColors.danger),
+                                  ? AppColors.success
+                                  : AppColors.danger),
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -2937,8 +3023,8 @@ class _SecurityManagementScreenState
                           color: c.status == 'pending'
                               ? AppColors.warning
                               : (c.status == 'approved'
-                                  ? AppColors.success
-                                  : AppColors.danger),
+                                    ? AppColors.success
+                                    : AppColors.danger),
                         ),
                       ),
                       const Spacer(),
@@ -2972,7 +3058,8 @@ class _SecurityManagementScreenState
                         style: const TextStyle(fontSize: 12),
                       ),
                     ],
-                    if (c.decisionNote != null && c.decisionNote!.isNotEmpty) ...[
+                    if (c.decisionNote != null &&
+                        c.decisionNote!.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
                         'Catatan: ${c.decisionNote}',
@@ -3002,17 +3089,17 @@ class _SecurityManagementScreenState
   Widget _correctionTab() => RefreshIndicator(
     onRefresh: () => _guardedRefresh(_reloadCorrections),
     child: _corrections.isEmpty
-      ? ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 220),
-            Center(child: Text('Tidak ada pengajuan koreksi.')),
-          ],
-        )
-      : ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: _corrections.map(_buildCorrectionCard).toList(),
-        ),
+        ? ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: const [
+              SizedBox(height: 220),
+              Center(child: Text('Tidak ada pengajuan koreksi.')),
+            ],
+          )
+        : ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: _corrections.map(_buildCorrectionCard).toList(),
+          ),
   );
 
   Widget _patrolFormTab() {
@@ -3043,7 +3130,9 @@ class _SecurityManagementScreenState
           const SizedBox(height: 10),
           if (_patrolTemplates.isEmpty) ...[
             const SizedBox(height: 40),
-            const Center(child: Text('Tidak ada template titik kontrol aktif.')),
+            const Center(
+              child: Text('Tidak ada template titik kontrol aktif.'),
+            ),
             const SizedBox(height: 12),
             Center(
               child: OutlinedButton.icon(
@@ -3064,23 +3153,40 @@ class _SecurityManagementScreenState
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.location_on_outlined, size: 20, color: AppColors.seed),
+                          const Icon(
+                            Icons.location_on_outlined,
+                            size: 20,
+                            color: AppColors.seed,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(t.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                Text(
+                                  t.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
                                 if (t.locationLabel.isNotEmpty)
                                   Text(
                                     t.locationLabel,
-                                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12),
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      fontSize: 12,
+                                    ),
                                   ),
                               ],
                             ),
                           ),
                           if (photo != null)
-                            const Icon(Icons.check_circle, color: AppColors.success, size: 22),
+                            const Icon(
+                              Icons.check_circle,
+                              color: AppColors.success,
+                              size: 22,
+                            ),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -3090,8 +3196,18 @@ class _SecurityManagementScreenState
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: kIsWeb
-                                  ? Image.network(photo.path, width: 80, height: 80, fit: BoxFit.cover)
-                                  : Image.file(File(photo.path), width: 80, height: 80, fit: BoxFit.cover),
+                                  ? Image.network(
+                                      photo.path,
+                                      width: 80,
+                                      height: 80,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.file(
+                                      File(photo.path),
+                                      width: 80,
+                                      height: 80,
+                                      fit: BoxFit.cover,
+                                    ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -3110,14 +3226,32 @@ class _SecurityManagementScreenState
                                   Row(
                                     children: [
                                       TextButton.icon(
-                                        icon: const Icon(Icons.refresh, size: 16),
-                                        label: const Text('Ganti', style: TextStyle(fontSize: 12)),
+                                        icon: const Icon(
+                                          Icons.refresh,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Ganti',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
                                         onPressed: () => _takePatrolPhoto(t.id),
                                       ),
                                       TextButton.icon(
-                                        icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.danger),
-                                        label: const Text('Hapus', style: TextStyle(fontSize: 12, color: AppColors.danger)),
-                                        onPressed: () => setState(() => _patrolPhotos.remove(t.id)),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          size: 16,
+                                          color: AppColors.danger,
+                                        ),
+                                        label: const Text(
+                                          'Hapus',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.danger,
+                                          ),
+                                        ),
+                                        onPressed: () => setState(
+                                          () => _patrolPhotos.remove(t.id),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -3154,7 +3288,10 @@ class _SecurityManagementScreenState
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.send),
               label: const Text('Kirim Laporan Patroli'),
@@ -3183,16 +3320,72 @@ class _SecurityManagementScreenState
               itemCount: _patrolBundles.length,
               itemBuilder: (ctx, idx) {
                 final b = _patrolBundles[idx];
-                final officer =
-                    b.dutyOfficerName.isNotEmpty ? b.dutyOfficerName : b.createdByName;
+                final officer = b.dutyOfficerName.isNotEmpty
+                    ? b.dutyOfficerName
+                    : b.createdByName;
+                final hasPhoto =
+                    b.photos.isNotEmpty && b.photos.first.imageUrl.isNotEmpty;
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    leading: const CircleAvatar(
-                      backgroundColor: AppColors.hoverTint,
-                      child: Icon(Icons.local_police, color: AppColors.seed),
+                    leading: hasPhoto
+                        ? GestureDetector(
+                            onTap: () {
+                              final items = b.photos
+                                  .where((p) => p.imageUrl.isNotEmpty)
+                                  .map(
+                                    (p) => SecurityPhotoViewerItem(
+                                      imageUrl: p.imageUrl,
+                                      title: p.templateName.isNotEmpty
+                                          ? p.templateName
+                                          : 'Titik Kontrol',
+                                      subtitle: p.locationLabel.isNotEmpty
+                                          ? p.locationLabel
+                                          : null,
+                                    ),
+                                  )
+                                  .toList();
+                              if (items.isNotEmpty) {
+                                SecurityPhotoViewerScreen.show(
+                                  context,
+                                  photos: items,
+                                  initialIndex: 0,
+                                );
+                              } else {
+                                _viewPatrolPhotos(b);
+                              }
+                            },
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: AppColors.lightBorder,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: AuthenticatedNetworkImage(
+                                  imageUrl: b.photos.first.imageUrl,
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          )
+                        : const CircleAvatar(
+                            backgroundColor: AppColors.hoverTint,
+                            child: Icon(
+                              Icons.local_police,
+                              color: AppColors.seed,
+                            ),
+                          ),
+                    title: Text(
+                      officer,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    title: Text(officer, style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(
                       '${DateFormat('dd MMM yyyy, HH:mm').format(b.submittedAt)} · ${b.photoCount} Foto Titik Kontrol\nCatatan: ${b.notes ?? '-'}',
                     ),
@@ -3229,7 +3422,9 @@ class _SecurityManagementScreenState
                     decoration: BoxDecoration(
                       color: AppColors.accent.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -3241,7 +3436,9 @@ class _SecurityManagementScreenState
                             children: [
                               Text(
                                 _selectedWarga!.fullName,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                               Text(
                                 'No. Rumah: ${_selectedWarga!.houseNumber}',
@@ -3252,7 +3449,8 @@ class _SecurityManagementScreenState
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          onPressed: () => setState(() => _selectedWarga = null),
+                          onPressed: () =>
+                              setState(() => _selectedWarga = null),
                         ),
                       ],
                     ),
@@ -3271,7 +3469,9 @@ class _SecurityManagementScreenState
                               height: 20,
                               child: Padding(
                                 padding: EdgeInsets.all(10),
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             )
                           : null,
@@ -3308,7 +3508,12 @@ class _SecurityManagementScreenState
                           final w = _wargaResults[idx];
                           return ListTile(
                             dense: true,
-                            title: Text(w.fullName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            title: Text(
+                              w.fullName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             subtitle: Text('Rumah: ${w.houseNumber}'),
                             onTap: () {
                               setState(() {
@@ -3343,10 +3548,20 @@ class _SecurityManagementScreenState
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Paket #${idx + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(
+                        'Paket #${idx + 1}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                       if (_paketDraftItems.length > 1)
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, color: AppColors.danger, size: 20),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: AppColors.danger,
+                            size: 20,
+                          ),
                           onPressed: () => _removePaketDraftItem(idx),
                         ),
                     ],
@@ -3388,14 +3603,27 @@ class _SecurityManagementScreenState
                         ClipRRect(
                           borderRadius: BorderRadius.circular(6),
                           child: kIsWeb
-                              ? Image.network(item.photo!.path, width: 60, height: 60, fit: BoxFit.cover)
-                              : Image.file(File(item.photo!.path), width: 60, height: 60, fit: BoxFit.cover),
+                              ? Image.network(
+                                  item.photo!.path,
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.file(
+                                  File(item.photo!.path),
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                ),
                         ),
                         const SizedBox(width: 10),
                         const Expanded(
                           child: Text(
                             'Foto paket terlampir',
-                            style: TextStyle(color: AppColors.success, fontSize: 12),
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                         IconButton(
@@ -3429,7 +3657,10 @@ class _SecurityManagementScreenState
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Icon(Icons.save),
           label: const Text('Simpan Penitipan Paket'),
@@ -3444,8 +3675,12 @@ class _SecurityManagementScreenState
     final theme = Theme.of(context);
     final filtered = _paketReports.where((r) {
       if (_paketFilterStatus.isEmpty) return true;
-      if (_paketFilterStatus == 'dititipkan') return r.overallStatus == 'dititipkan';
-      if (_paketFilterStatus == 'sudah_diambil') return r.overallStatus == 'sudah_diambil';
+      if (_paketFilterStatus == 'dititipkan') {
+        return r.overallStatus == 'dititipkan';
+      }
+      if (_paketFilterStatus == 'sudah_diambil') {
+        return r.overallStatus == 'sudah_diambil';
+      }
       return true;
     }).toList();
 
@@ -3464,13 +3699,15 @@ class _SecurityManagementScreenState
               ChoiceChip(
                 label: const Text('Dititipkan'),
                 selected: _paketFilterStatus == 'dititipkan',
-                onSelected: (_) => setState(() => _paketFilterStatus = 'dititipkan'),
+                onSelected: (_) =>
+                    setState(() => _paketFilterStatus = 'dititipkan'),
               ),
               const SizedBox(width: 8),
               ChoiceChip(
                 label: const Text('Sudah Diambil'),
                 selected: _paketFilterStatus == 'sudah_diambil',
-                onSelected: (_) => setState(() => _paketFilterStatus = 'sudah_diambil'),
+                onSelected: (_) =>
+                    setState(() => _paketFilterStatus = 'sudah_diambil'),
               ),
             ],
           ),
@@ -3486,7 +3723,10 @@ class _SecurityManagementScreenState
                     ],
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     itemCount: filtered.length,
                     itemBuilder: (ctx, idx) {
                       final r = filtered[idx];
@@ -3500,20 +3740,30 @@ class _SecurityManagementScreenState
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.inventory_2, color: AppColors.seed, size: 22),
+                                  const Icon(
+                                    Icons.inventory_2,
+                                    color: AppColors.seed,
+                                    size: 22,
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           '${r.receiverName} (${r.receiverHouseNumber})',
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
                                         ),
                                         Text(
                                           'Diterima: ${DateFormat('dd MMM yyyy, HH:mm').format(r.createdAt)} · Petugas: ${r.createdByName}',
                                           style: TextStyle(
-                                            color: theme.colorScheme.onSurfaceVariant,
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
                                             fontSize: 11,
                                           ),
                                         ),
@@ -3525,33 +3775,48 @@ class _SecurityManagementScreenState
                               const Divider(height: 16),
                               ...r.items.map((it) {
                                 final isDititipkan = it.status == 'dititipkan';
-                                final hours = DateTime.now().difference(it.createdAt).inHours;
+                                final hours = DateTime.now()
+                                    .difference(it.createdAt)
+                                    .inHours;
                                 final isOverdue = isDititipkan && hours >= 24;
 
                                 return Container(
                                   margin: const EdgeInsets.only(bottom: 8),
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                                    color: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 0.25),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
                                           Expanded(
                                             child: Text(
                                               it.description ?? 'Paket',
-                                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                              ),
                                             ),
                                           ),
                                           if (isOverdue)
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
                                               decoration: BoxDecoration(
-                                                color: AppColors.danger.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(4),
+                                                color: AppColors.danger
+                                                    .withValues(alpha: 0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
                                               ),
                                               child: Text(
                                                 '> 24 Jam ($hours jam)',
@@ -3564,10 +3829,16 @@ class _SecurityManagementScreenState
                                             )
                                           else if (isDititipkan)
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
                                               decoration: BoxDecoration(
-                                                color: AppColors.warning.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(4),
+                                                color: AppColors.warning
+                                                    .withValues(alpha: 0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
                                               ),
                                               child: const Text(
                                                 'Dititipkan',
@@ -3580,10 +3851,16 @@ class _SecurityManagementScreenState
                                             )
                                           else
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
                                               decoration: BoxDecoration(
-                                                color: AppColors.success.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(4),
+                                                color: AppColors.success
+                                                    .withValues(alpha: 0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
                                               ),
                                               child: const Text(
                                                 'Sudah Diambil',
@@ -3596,29 +3873,140 @@ class _SecurityManagementScreenState
                                             ),
                                         ],
                                       ),
+                                      if (it.photos.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          height: 56,
+                                          child: ListView.separated(
+                                            scrollDirection: Axis.horizontal,
+                                            itemCount: it.photos.length,
+                                            separatorBuilder: (_, _) =>
+                                                const SizedBox(width: 8),
+                                            itemBuilder: (ctx, pIdx) {
+                                              final photo = it.photos[pIdx];
+                                              return GestureDetector(
+                                                onTap: () {
+                                                  final viewerItems = it.photos
+                                                      .where(
+                                                        (p) => p
+                                                            .imageUrl
+                                                            .isNotEmpty,
+                                                      )
+                                                      .map(
+                                                        (
+                                                          p,
+                                                        ) => SecurityPhotoViewerItem(
+                                                          imageUrl: p.imageUrl,
+                                                          title:
+                                                              it.description ??
+                                                              'Paket',
+                                                          subtitle:
+                                                              photo.photoType ==
+                                                                  'bukti_pengambilan'
+                                                              ? 'Bukti Pengambilan'
+                                                              : 'Foto Paket',
+                                                        ),
+                                                      )
+                                                      .toList();
+                                                  if (viewerItems.isNotEmpty) {
+                                                    SecurityPhotoViewerScreen.show(
+                                                      context,
+                                                      photos: viewerItems,
+                                                      initialIndex:
+                                                          pIdx <
+                                                              viewerItems.length
+                                                          ? pIdx
+                                                          : 0,
+                                                    );
+                                                  } else {
+                                                    _viewPaketPhotos(it);
+                                                  }
+                                                },
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  child: Container(
+                                                    width: 56,
+                                                    height: 56,
+                                                    decoration: BoxDecoration(
+                                                      border: Border.all(
+                                                        color: AppColors
+                                                            .lightBorder,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            6,
+                                                          ),
+                                                    ),
+                                                    child:
+                                                        photo
+                                                            .imageUrl
+                                                            .isNotEmpty
+                                                        ? AuthenticatedNetworkImage(
+                                                            imageUrl:
+                                                                photo.imageUrl,
+                                                            width: 56,
+                                                            height: 56,
+                                                            fit: BoxFit.cover,
+                                                          )
+                                                        : const Center(
+                                                            child: Icon(
+                                                              Icons
+                                                                  .broken_image,
+                                                              size: 20,
+                                                            ),
+                                                          ),
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
                                       const SizedBox(height: 6),
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
                                         children: [
                                           if (it.photos.isNotEmpty)
                                             TextButton.icon(
-                                              icon: const Icon(Icons.photo_outlined, size: 16),
-                                              label: Text('Foto (${it.photos.length})', style: const TextStyle(fontSize: 11)),
-                                              onPressed: () => _viewPaketPhotos(it),
+                                              icon: const Icon(
+                                                Icons.photo_outlined,
+                                                size: 16,
+                                              ),
+                                              label: Text(
+                                                'Foto (${it.photos.length})',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                              onPressed: () =>
+                                                  _viewPaketPhotos(it),
                                             )
                                           else
                                             const SizedBox.shrink(),
-                                          if (isDititipkan && _canPaketStatusChange)
+                                          if (isDititipkan &&
+                                              _canPaketStatusChange)
                                             FilledButton.tonalIcon(
-                                              icon: const Icon(Icons.assignment_turned_in, size: 16),
-                                              label: const Text('Serah Terima', style: TextStyle(fontSize: 12)),
-                                              onPressed: () => _openSerahTerimaDialog(r, it),
+                                              icon: const Icon(
+                                                Icons.assignment_turned_in,
+                                                size: 16,
+                                              ),
+                                              label: const Text(
+                                                'Serah Terima',
+                                                style: TextStyle(fontSize: 12),
+                                              ),
+                                              onPressed: () =>
+                                                  _openSerahTerimaDialog(r, it),
                                             ),
-                                          if (!isDititipkan && it.statusChangedAt != null)
+                                          if (!isDititipkan &&
+                                              it.statusChangedAt != null)
                                             Text(
                                               'Diambil: ${DateFormat('dd/MM HH:mm').format(it.statusChangedAt!)}',
                                               style: TextStyle(
-                                                color: theme.colorScheme.onSurfaceVariant,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
                                                 fontSize: 11,
                                               ),
                                             ),
@@ -3694,31 +4082,32 @@ class _SecurityManagementScreenState
                         children: _guests
                             .map(
                               (g) => Card(
-                              child: ListTile(
-                                title: Text(
-                                  '${g.guestName} → ${g.destinationLabel}',
+                                child: ListTile(
+                                  title: Text(
+                                    '${g.guestName} → ${g.destinationLabel}',
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      GuestVisitStatusBadge(
+                                        checkedOutAt: g.checkedOutAt,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${g.purpose}\nMasuk: ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar: ${DateFormat('dd/MM HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
+                                      ),
+                                    ],
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () => _showGuestDetail(g),
                                 ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    GuestVisitStatusBadge(
-                                      checkedOutAt: g.checkedOutAt,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${g.purpose}\nMasuk: ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar: ${DateFormat('dd/MM HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
-                                    ),
-                                  ],
-                                ),
-                                isThreeLine: true,
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _showGuestDetail(g),
                               ),
-                            ),
-                          )
-                          .toList(),
-                    ),
+                            )
+                            .toList(),
+                      ),
               ),
             ),
             if (_guestTotal > 25)
@@ -3756,36 +4145,36 @@ class _SecurityManagementScreenState
         : ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             children: _devices
-              .map(
-                (d) => Card(
-                  child: ListTile(
-                    title: Text(d.deviceName),
-                    subtitle: Text(
-                      '${d.locationLabel} · ${d.isActive ? 'Aktif' : 'Nonaktif'} · ${d.isPaired ? 'Terpasang' : 'Belum dipasangkan'}',
+                .map(
+                  (d) => Card(
+                    child: ListTile(
+                      title: Text(d.deviceName),
+                      subtitle: Text(
+                        '${d.locationLabel} · ${d.isActive ? 'Aktif' : 'Nonaktif'} · ${d.isPaired ? 'Terpasang' : 'Belum dipasangkan'}',
+                      ),
+                      trailing: _canManageDevices && d.isActive
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.vpn_key_outlined),
+                                  color: AppColors.accent,
+                                  tooltip: 'Token Baru',
+                                  onPressed: () => _rotatePairingToken(d),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.power_settings_new),
+                                  tooltip: 'Cabut',
+                                  onPressed: () => _revokeDevice(d),
+                                ),
+                              ],
+                            )
+                          : null,
                     ),
-                    trailing: _canManageDevices && d.isActive
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.vpn_key_outlined),
-                                color: AppColors.accent,
-                                tooltip: 'Token Baru',
-                                onPressed: () => _rotatePairingToken(d),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.power_settings_new),
-                                tooltip: 'Cabut',
-                                onPressed: () => _revokeDevice(d),
-                              ),
-                            ],
-                          )
-                        : null,
                   ),
-                ),
-              )
-              .toList(),
-        ),
+                )
+                .toList(),
+          ),
   );
 
   void _ensureGuestTicker() {

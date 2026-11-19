@@ -255,11 +255,8 @@ class _AnnouncementDetailScreenState
                     ClipRRect(
                       borderRadius: BorderRadius.circular(AppRadius.base),
                       child: InkWell(
-                        onTap: () => _openImageViewer(
-                          context,
-                          a.imageUrl!,
-                          a.title,
-                        ),
+                        onTap: () =>
+                            _openImageViewer(context, a.imageUrl!, a.title),
                         child: Container(
                           width: double.infinity,
                           height: 200,
@@ -284,7 +281,9 @@ class _AnnouncementDetailScreenState
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
                                     color: Colors.black.withValues(alpha: 0.5),
-                                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.xs,
+                                    ),
                                   ),
                                   child: const Icon(
                                     Icons.fullscreen,
@@ -300,167 +299,201 @@ class _AnnouncementDetailScreenState
                     ),
                     const SizedBox(height: AppSpacing.base),
                   ],
-                Row(
-                  children: [
-                    announcementStatusBadge(a.status),
-                    const SizedBox(width: 8),
-                    if (a.priority >= 10)
-                      const Row(
-                        children: [
-                          Icon(Icons.star, size: 12, color: Colors.amber),
-                          SizedBox(width: 4),
-                          Text(
-                            'Penting',
-                            style: TextStyle(fontSize: 11, color: Colors.amber),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  a.title,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (scheduleWindowLabel(a.scheduledStart, a.scheduledEnd) !=
-                    null)
-                  Text(
-                    scheduleWindowLabel(a.scheduledStart, a.scheduledEnd)!,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: AppColors.textMutedColor(context),
-                    ),
-                  ),
-                if (a.publishedAt != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Diterbitkan ${a.publishedAt!.toLocal().day}/${a.publishedAt!.toLocal().month}/${a.publishedAt!.toLocal().year}',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: AppColors.textMutedColor(context),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.base),
-                Text(
-                  a.body,
-                  style: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
-                ),
-                if (_actionError != null) ...[
-                  const SizedBox(height: AppSpacing.base),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.12),
-                      border: Border.all(
-                        color: Colors.red.withValues(alpha: 0.4),
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    child: Text(
-                      _actionError!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.danger,
-                      ),
-                    ),
-                  ),
-                ],
-                if (canManage &&
-                    (canPublish ||
-                        canRepublish ||
-                        canArchive ||
-                        canDelete)) ...[
-                  const SizedBox(height: AppSpacing.base),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  Row(
                     children: [
-                      if (canPublish)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.publish),
-                          label: const Text('Publikasikan'),
-                          onPressed: () => _confirmAction(
-                            'Publikasikan pengumuman?',
-                            'Pengumuman akan langsung tayang di Beranda.',
-                            () => ref
-                                .read(communityRepositoryProvider)
-                                .publishAnnouncement(a.id),
-                            'Gagal mempublikasikan pengumuman',
-                          ),
-                        ),
-                      if (canRepublish)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Terbitkan Ulang'),
-                          onPressed: () => _confirmAction(
-                            'Terbitkan ulang?',
-                            'Snapshot konten & banner Beranda ikut diperbarui.',
-                            () => ref
-                                .read(communityRepositoryProvider)
-                                .publishAnnouncement(a.id),
-                            'Gagal menerbitkan ulang pengumuman',
-                          ),
-                        ),
-                      if (canArchive)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.archive_outlined),
-                          label: const Text('Arsipkan'),
-                          onPressed: () => _confirmAction(
-                            'Arsipkan pengumuman?',
-                            'Pengumuman dan banner-nya akan dinonaktifkan.',
-                            () => ref
-                                .read(communityRepositoryProvider)
-                                .archiveAnnouncement(a.id),
-                            'Gagal mengarsipkan pengumuman',
-                          ),
-                        ),
-                      if (canDelete)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Hapus'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.danger,
-                          ),
-                          onPressed: () => _confirmAction(
-                            'Hapus pengumuman?',
-                            'Tindakan ini tidak dapat dibatalkan.',
-                            () => ref
-                                .read(communityRepositoryProvider)
-                                .deleteAnnouncement(a.id),
-                            'Gagal menghapus pengumuman',
-                            popAfter: true,
-                          ),
+                      announcementStatusBadge(a.status),
+                      const SizedBox(width: 8),
+                      if (a.priority >= 10)
+                        const Row(
+                          children: [
+                            Icon(Icons.star, size: 12, color: Colors.amber),
+                            SizedBox(width: 4),
+                            Text(
+                              'Penting',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.amber,
+                              ),
+                            ),
+                          ],
                         ),
                     ],
                   ),
-                ],
-                const SizedBox(height: AppSpacing.base),
-                AppCard(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.base),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'ID: ${a.id}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: AppColors.textMutedColor(context),
-                          ),
+                  const SizedBox(height: 8),
+                  Text(
+                    a.title,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (scheduleWindowLabel(a.scheduledStart, a.scheduledEnd) !=
+                      null)
+                    Text(
+                      scheduleWindowLabel(a.scheduledStart, a.scheduledEnd)!,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: AppColors.textMutedColor(context),
+                      ),
+                    ),
+                  if (a.publishedAt != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Diterbitkan ${a.publishedAt!.toLocal().day}/${a.publishedAt!.toLocal().month}/${a.publishedAt!.toLocal().year}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: AppColors.textMutedColor(context),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.base),
+                  Text(
+                    a.body,
+                    style: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
+                  ),
+                  if (_actionError != null) ...[
+                    const SizedBox(height: AppSpacing.base),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.12),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.4),
                         ),
-                        if (a.deepLink != null && a.deepLink!.isNotEmpty)
-                          Text(
-                            'Link: ${a.deepLink}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: AppColors.textMutedColor(context),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: Text(
+                        _actionError!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.danger,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (canManage &&
+                      (canPublish ||
+                          canRepublish ||
+                          canArchive ||
+                          canDelete)) ...[
+                    const SizedBox(height: AppSpacing.base),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (canPublish)
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.publish),
+                            label: const Text('Publikasikan'),
+                            onPressed: () => _confirmAction(
+                              'Publikasikan pengumuman?',
+                              'Pengumuman akan langsung tayang di Beranda.',
+                              () => ref
+                                  .read(communityRepositoryProvider)
+                                  .publishAnnouncement(a.id),
+                              'Gagal mempublikasikan pengumuman',
+                            ),
+                          ),
+                        if (canRepublish)
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Terbitkan Ulang'),
+                            onPressed: () => _confirmAction(
+                              'Terbitkan ulang?',
+                              'Snapshot konten & banner Beranda ikut diperbarui.',
+                              () => ref
+                                  .read(communityRepositoryProvider)
+                                  .publishAnnouncement(a.id),
+                              'Gagal menerbitkan ulang pengumuman',
+                            ),
+                          ),
+                        if (canArchive)
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.archive_outlined),
+                            label: const Text('Arsipkan'),
+                            onPressed: () => _confirmAction(
+                              'Arsipkan pengumuman?',
+                              'Pengumuman dan banner-nya akan dinonaktifkan.',
+                              () => ref
+                                  .read(communityRepositoryProvider)
+                                  .archiveAnnouncement(a.id),
+                              'Gagal mengarsipkan pengumuman',
+                            ),
+                          ),
+                        if (canDelete)
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Hapus'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.danger,
+                            ),
+                            onPressed: () => _confirmAction(
+                              'Hapus pengumuman?',
+                              'Tindakan ini tidak dapat dibatalkan.',
+                              () => ref
+                                  .read(communityRepositoryProvider)
+                                  .deleteAnnouncement(a.id),
+                              'Gagal menghapus pengumuman',
+                              popAfter: true,
                             ),
                           ),
                       ],
                     ),
-                  ),
-                ),
-              ],
-            ),
+                  ],
+                  if (a.deepLink != null &&
+                      a.deepLink!.isNotEmpty &&
+                      formatDeepLinkDestination(a.deepLink).isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.base),
+                    AppCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.base),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.link,
+                              size: 20,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Tautan Terkait',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: AppColors.textMutedColor(context),
+                                    ),
+                                  ),
+                                  Text(
+                                    formatDeepLinkDestination(a.deepLink),
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            FilledButton.tonalIcon(
+                              icon: const Icon(Icons.arrow_forward, size: 16),
+                              label: Text(
+                                'Buka ${formatDeepLinkDestination(a.deepLink)}',
+                              ),
+                              onPressed: () {
+                                final link = a.deepLink!.trim();
+                                final target = link.startsWith('/home')
+                                    ? link
+                                    : (link.startsWith('/')
+                                          ? '/home$link'
+                                          : '/home/$link');
+                                context.push(target);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
       ),
     );
   }

@@ -404,8 +404,12 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     }
 
     final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
-    if ((jab == 'sosial' || jab == 'operasional') &&
+    if (jab == 'operasional' &&
         (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
+      return '/home';
+    }
+    if (jab == 'sosial' &&
+        (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
       return '/home';
     }
 
@@ -925,8 +929,12 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
-          if ((jabatan == 'sosial' || jabatan == 'operasional') &&
+          if (jabatan == 'operasional' &&
               (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
+            return '/home';
+          }
+          if (jabatan == 'sosial' &&
+              (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
             return '/home';
           }
           if (loc.startsWith('/home/lokasi-dana')) {

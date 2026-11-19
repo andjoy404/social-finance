@@ -46,16 +46,10 @@ class _FakeKasApiClient implements KasApiClient {
     String? search,
     int page = 1,
     int pageSize = 20,
-  }) async =>
-      const PaginatedResponse<BackendTransaction>(
-        data: [],
-        pagination: PaginationInfo(
-          page: 1,
-          pageSize: 20,
-          total: 0,
-          totalPages: 0,
-        ),
-      );
+  }) async => const PaginatedResponse<BackendTransaction>(
+    data: [],
+    pagination: PaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 0),
+  );
 
   @override
   Future<List<BackendCategory>> listCategories({bool? isActive}) async => [];
@@ -100,33 +94,31 @@ class _FakeKasApiClient implements KasApiClient {
     DateTime? occurredAt,
     String? paymentMethod,
     String? locationId,
-  }) =>
-      throw UnimplementedError();
+  }) => throw UnimplementedError();
 
   @override
   Future<Map<String, dynamic>> updateOpeningBalance({
     required String period,
     required String openingBalance,
     String? reason,
-  }) =>
-      Future.value({});
+  }) => Future.value({});
 
   @override
   Future<BackendBalance> getBalance({
     String? period,
     String? startDate,
     String? endDate,
-  }) =>
-      Future.value(const BackendBalance(
-        totalIncome: '0',
-        totalExpense: '0',
-        netBalance: '0',
-        openingBalance: '0',
-        closingBalance: '0',
-        netMovement: '0',
-        transactionCount: 0,
-      ));
-
+  }) => Future.value(
+    const BackendBalance(
+      totalIncome: '0',
+      totalExpense: '0',
+      netBalance: '0',
+      openingBalance: '0',
+      closingBalance: '0',
+      netMovement: '0',
+      transactionCount: 0,
+    ),
+  );
 
   Future<Map<String, dynamic>> getDashboardSummary([String? period]) =>
       Future.value({});
@@ -182,6 +174,21 @@ const _kasKeluarPath = '/home/kas/keluar';
 const _iuranFormPath = '/home/iuran/form';
 const _wargaBaruPath = '/home/warga/baru';
 
+Future<void> _openKasTab(WidgetTester tester) async {
+  final kasTab = find.byKey(const Key('nav-item-kas'));
+  if (kasTab.evaluate().isEmpty) {
+    final menuTab = find.byKey(const Key('nav-item-menu'));
+    if (menuTab.evaluate().isNotEmpty) {
+      await tester.tap(menuTab);
+      await tester.pumpAndSettle();
+    }
+  }
+  final found = find.byKey(const Key('nav-item-kas'));
+  await tester.ensureVisible(found);
+  await tester.tap(found);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() {
     KasFormNavigationGuard.resetForTesting();
@@ -198,7 +205,7 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
@@ -206,7 +213,9 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(KasMasukScreen), findsOneWidget);
-        final state = GoRouterState.of(tester.element(find.byType(KasMasukScreen)));
+        final state = GoRouterState.of(
+          tester.element(find.byType(KasMasukScreen)),
+        );
 
         expect(state.uri.path, equals(_kasMasukPath));
         expect(state.matchedLocation, equals(_kasMasukPath));
@@ -227,7 +236,7 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
@@ -235,7 +244,9 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(KasKeluarScreen), findsOneWidget);
-        final state = GoRouterState.of(tester.element(find.byType(KasKeluarScreen)));
+        final state = GoRouterState.of(
+          tester.element(find.byType(KasKeluarScreen)),
+        );
 
         expect(state.uri.path, equals(_kasKeluarPath));
 
@@ -248,12 +259,9 @@ void main() {
       },
     );
 
-    testWidgets(
-      'P1.3: isFormPath matches /home/iuran/form',
-      (tester) async {
-        expect(KasFormNavigationGuard.isFormPath(_iuranFormPath), isTrue);
-      },
-    );
+    testWidgets('P1.3: isFormPath matches /home/iuran/form', (tester) async {
+      expect(KasFormNavigationGuard.isFormPath(_iuranFormPath), isTrue);
+    });
 
     testWidgets(
       'P1.4: isFormPath matches /home/iuran/pembayaran/:billId via prefix',
@@ -263,12 +271,9 @@ void main() {
       },
     );
 
-    testWidgets(
-      'P1.5: isFormPath matches /home/warga/baru',
-      (tester) async {
-        expect(KasFormNavigationGuard.isFormPath(_wargaBaruPath), isTrue);
-      },
-    );
+    testWidgets('P1.5: isFormPath matches /home/warga/baru', (tester) async {
+      expect(KasFormNavigationGuard.isFormPath(_wargaBaruPath), isTrue);
+    });
 
     testWidgets(
       'P1.6: isFormPath matches /home/warga/edit/household/:id via prefix',
@@ -278,34 +283,33 @@ void main() {
       },
     );
 
-    testWidgets(
-      'P1.7: allowExitFor ignores non-guarded paths',
-      (tester) async {
-        // allowExitFor checks isFormPath internally
-        // Non-guarded paths should be silently ignored
-        KasFormNavigationGuard.allowExitFor('/home');
-        KasFormNavigationGuard.allowExitFor('/login');
-        KasFormNavigationGuard.allowExitFor('/home/kas');
+    testWidgets('P1.7: allowExitFor ignores non-guarded paths', (tester) async {
+      // allowExitFor checks isFormPath internally
+      // Non-guarded paths should be silently ignored
+      KasFormNavigationGuard.allowExitFor('/home');
+      KasFormNavigationGuard.allowExitFor('/login');
+      KasFormNavigationGuard.allowExitFor('/home/kas');
 
-        // These should NOT affect guarded routes
-        // (We verify by checking isFormPath returns false)
-        expect(KasFormNavigationGuard.isFormPath('/home'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/login'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/kas'), isFalse);
-      },
-    );
+      // These should NOT affect guarded routes
+      // (We verify by checking isFormPath returns false)
+      expect(KasFormNavigationGuard.isFormPath('/home'), isFalse);
+      expect(KasFormNavigationGuard.isFormPath('/login'), isFalse);
+      expect(KasFormNavigationGuard.isFormPath('/home/kas'), isFalse);
+    });
 
-    testWidgets(
-      'P1.8: isFormPath does NOT match unguarded routes',
-      (tester) async {
-        expect(KasFormNavigationGuard.isFormPath('/home'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/kas'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/iuran'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/iuran/detail/abc'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/warga'), isFalse);
-        expect(KasFormNavigationGuard.isFormPath('/home/profil'), isFalse);
-      },
-    );
+    testWidgets('P1.8: isFormPath does NOT match unguarded routes', (
+      tester,
+    ) async {
+      expect(KasFormNavigationGuard.isFormPath('/home'), isFalse);
+      expect(KasFormNavigationGuard.isFormPath('/home/kas'), isFalse);
+      expect(KasFormNavigationGuard.isFormPath('/home/iuran'), isFalse);
+      expect(
+        KasFormNavigationGuard.isFormPath('/home/iuran/detail/abc'),
+        isFalse,
+      );
+      expect(KasFormNavigationGuard.isFormPath('/home/warga'), isFalse);
+      expect(KasFormNavigationGuard.isFormPath('/home/profil'), isFalse);
+    });
   });
 
   // ========================================================================
@@ -319,7 +323,7 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
@@ -340,7 +344,7 @@ void main() {
         expect(find.byType(DashboardScreen), findsOneWidget);
 
         // Reopen Kas Masuk
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
@@ -353,8 +357,11 @@ void main() {
         // Second tap Beranda — should show dialog (bypass consumed)
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Bypass should be consumed after first use');
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'Bypass should be consumed after first use',
+        );
       },
     );
 
@@ -364,14 +371,17 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Catat Kas Masuk'));
         await tester.pumpAndSettle();
 
-        final nominalField = find.widgetWithText(TextFormField, 'Masukkan nominal');
+        final nominalField = find.widgetWithText(
+          TextFormField,
+          'Masukkan nominal',
+        );
 
         // Enter a value that won't be locale-formatted (e.g., 500)
         await tester.enterText(nominalField, '500');
@@ -379,7 +389,9 @@ void main() {
         await tester.pump();
 
         // Read value before dialog
-        final fieldState = tester.firstState<FormFieldState<String>>(nominalField);
+        final fieldState = tester.firstState<FormFieldState<String>>(
+          nominalField,
+        );
         final valueBefore = fieldState.value;
         expect(valueBefore, isNotNull);
 
@@ -394,16 +406,24 @@ void main() {
         expect(find.byType(KasMasukScreen), findsOneWidget);
 
         // Read value after "Tidak" — should still be preserved
-        final fieldStateAfter = tester.firstState<FormFieldState<String>>(nominalField);
+        final fieldStateAfter = tester.firstState<FormFieldState<String>>(
+          nominalField,
+        );
         final valueAfter = fieldStateAfter.value;
-        expect(valueAfter, equals(valueBefore),
-            reason: 'Input should be preserved after "Tidak"');
+        expect(
+          valueAfter,
+          equals(valueBefore),
+          reason: 'Input should be preserved after "Tidak"',
+        );
 
         // Route is STILL guarded — "Tidak" does NOT register bypass
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Route stays guarded after "Tidak"');
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'Route stays guarded after "Tidak"',
+        );
       },
     );
 
@@ -413,7 +433,7 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
@@ -436,92 +456,104 @@ void main() {
         GoRouter.of(ctx).go('/home/kas/keluar');
         await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Bypass for Kas Masuk should NOT apply to Kas Keluar');
-      },
-    );
-
-    testWidgets(
-      'P2.4: Hardware back — PopScope intercepts, shows dialog',
-      (tester) async {
-        await tester.pumpWidget(_buildTestApp());
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Catat Kas Masuk'));
-        await tester.pumpAndSettle();
-
-        await tester.enterText(_nominalField(), '5000');
-        await tester.pump();
-
-        final handled = await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
-
-        expect(handled, isTrue,
-            reason: 'PopScope should intercept hardware back');
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Hardware back should show dialog');
-
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'P2.5: AppBar back button — triggers onRouteExit',
-      (tester) async {
-        await tester.pumpWidget(_buildTestApp());
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Catat Kas Masuk'));
-        await tester.pumpAndSettle();
-
-        final backBtn = find.byType(BackButton);
-        expect(backBtn, findsOneWidget);
-        await tester.tap(backBtn);
-        await tester.pumpAndSettle();
-
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'AppBar back button should show dialog');
-      },
-    );
-
-    testWidgets(
-      'P2.6: Batal button — calls requestFormCancel, shows dialog',
-      (tester) async {
-        await tester.pumpWidget(_buildTestApp());
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Catat Kas Masuk'));
-        await tester.pumpAndSettle();
-
-        final batalBtn = find.text('Batal');
-        await tester.scrollUntilVisible(
-          batalBtn,
-          300,
-          scrollable: find.byType(Scrollable).first,
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'Bypass for Kas Masuk should NOT apply to Kas Keluar',
         );
-        await tester.pumpAndSettle();
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
-
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Batal button should show confirmation dialog');
       },
     );
+
+    testWidgets('P2.4: Hardware back — PopScope intercepts, shows dialog', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      await _openKasTab(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Catat Kas Masuk'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(_nominalField(), '5000');
+      await tester.pump();
+
+      final handled = await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(
+        handled,
+        isTrue,
+        reason: 'PopScope should intercept hardware back',
+      );
+      expect(
+        find.byType(AlertDialog),
+        findsOneWidget,
+        reason: 'Hardware back should show dialog',
+      );
+
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsOneWidget);
+    });
+
+    testWidgets('P2.5: AppBar back button — triggers onRouteExit', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      await _openKasTab(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Catat Kas Masuk'));
+      await tester.pumpAndSettle();
+
+      final backBtn = find.byType(BackButton);
+      expect(backBtn, findsOneWidget);
+      await tester.tap(backBtn);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(AlertDialog),
+        findsOneWidget,
+        reason: 'AppBar back button should show dialog',
+      );
+    });
+
+    testWidgets('P2.6: Batal button — calls requestFormCancel, shows dialog', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildTestApp());
+      await tester.pumpAndSettle();
+
+      await _openKasTab(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Catat Kas Masuk'));
+      await tester.pumpAndSettle();
+
+      final batalBtn = find.text('Batal');
+      await tester.scrollUntilVisible(
+        batalBtn,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(AlertDialog),
+        findsOneWidget,
+        reason: 'Batal button should show confirmation dialog',
+      );
+    });
 
     testWidgets(
       'P2.7: Shell navigation — confirmShellNavigation asks for guarded forms',
@@ -529,26 +561,33 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('kas-add-transaction-btn')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Catat Kas Masuk'));
         await tester.pumpAndSettle();
 
-        final scaffolds = tester.stateList<ScaffoldState>(find.byType(Scaffold));
+        final scaffolds = tester.stateList<ScaffoldState>(
+          find.byType(Scaffold),
+        );
         final shellScaffold = scaffolds.firstWhere((s) => s.hasDrawer);
         shellScaffold.openDrawer();
         await tester.pumpAndSettle();
 
-        await tester.tap(find.descendant(
-          of: find.byType(Drawer),
-          matching: find.text('Warga'),
-        ));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(Drawer),
+            matching: find.text('Warga'),
+          ),
+        );
         await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'Shell navigation from guarded form shows dialog');
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'Shell navigation from guarded form shows dialog',
+        );
       },
     );
 
@@ -558,7 +597,7 @@ void main() {
         await tester.pumpWidget(_buildTestApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('nav-item-kas')));
+        await _openKasTab(tester);
         await tester.pumpAndSettle();
         expect(find.byType(KasScreen), findsOneWidget);
 

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:excel/excel.dart' as xls;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -298,6 +299,30 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     }
   }
 
+  void _showPhotoPreview(BuildContext context, String filePath) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Center(
+              child: InteractiveViewer(
+                child: Image.file(File(filePath), fit: BoxFit.contain),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openCreateGuestDialog() async {
     final s = _session;
     if (s == null) return;
@@ -307,79 +332,241 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     final destinationCtrl = TextEditingController();
     final plateCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
+    XFile? capturedPhoto;
+    bool isProcessingCamera = false;
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Catat Tamu Masuk'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Tamu *',
-                  border: OutlineInputBorder(),
-                ),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Catat Tamu Masuk'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Tamu *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: phoneCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'No. HP (Opsional)',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: destinationCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Rumah / Tujuan *',
+                      hintText: 'Contoh: Rumah No. 12 Pak Budi',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: purposeCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Keperluan *',
+                      hintText: 'Contoh: Mengantar Paket / Bertamu',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: plateCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Plat Kendaraan (Opsional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Catatan (Opsional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Foto Tamu (Kamera Lapangan)',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (capturedPhoto != null) ...[
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () =>
+                              _showPhotoPreview(ctx, capturedPhoto!.path),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: AppColors.accent,
+                                  width: 2,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Image.file(
+                                File(capturedPhoto!.path),
+                                width: 80,
+                                height: 80,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text(
+                                  'Ambil Ulang',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                                onPressed: isProcessingCamera
+                                    ? null
+                                    : () async {
+                                        setDialogState(
+                                          () => isProcessingCamera = true,
+                                        );
+                                        try {
+                                          final picker = ImagePicker();
+                                          final photo = await picker.pickImage(
+                                            source: ImageSource.camera,
+                                            imageQuality: 85,
+                                            maxWidth: 1280,
+                                          );
+                                          if (photo != null) {
+                                            setDialogState(
+                                              () => capturedPhoto = photo,
+                                            );
+                                          }
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Gagal mengakses kamera: $e',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        } finally {
+                                          setDialogState(
+                                            () => isProcessingCamera = false,
+                                          );
+                                        }
+                                      },
+                              ),
+                              const SizedBox(height: 4),
+                              TextButton.icon(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 16,
+                                  color: AppColors.danger,
+                                ),
+                                label: const Text(
+                                  'Hapus Foto',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.danger,
+                                  ),
+                                ),
+                                onPressed: isProcessingCamera
+                                    ? null
+                                    : () {
+                                        setDialogState(
+                                          () => capturedPhoto = null,
+                                        );
+                                      },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      icon: isProcessingCamera
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Ambil Foto Tamu (Kamera)'),
+                      onPressed: isProcessingCamera
+                          ? null
+                          : () async {
+                              setDialogState(() => isProcessingCamera = true);
+                              try {
+                                final picker = ImagePicker();
+                                final photo = await picker.pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 85,
+                                  maxWidth: 1280,
+                                );
+                                if (photo != null) {
+                                  setDialogState(() => capturedPhoto = photo);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Gagal mengakses kamera: $e',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } finally {
+                                setDialogState(
+                                  () => isProcessingCamera = false,
+                                );
+                              }
+                            },
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'No. HP (Opsional)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Batal'),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: destinationCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Rumah / Tujuan *',
-                  hintText: 'Contoh: Rumah No. 12 Pak Budi',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: purposeCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Keperluan *',
-                  hintText: 'Contoh: Mengantar Paket / Bertamu',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: plateCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Plat Kendaraan (Opsional)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: notesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Catatan (Opsional)',
-                  border: OutlineInputBorder(),
-                ),
+              ElevatedButton(
+                onPressed: isProcessingCamera
+                    ? null
+                    : () => Navigator.of(ctx).pop(true),
+                child: const Text('Simpan Tamu'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Simpan Tamu'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (ok != true || !mounted) return;
     if (nameCtrl.text.trim().isEmpty ||
@@ -393,6 +580,12 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
       return;
     }
 
+    final combinedNotes = capturedPhoto != null
+        ? (notesCtrl.text.trim().isNotEmpty
+              ? '${notesCtrl.text.trim()}\n[Foto: ${capturedPhoto!.name}]'
+              : '[Foto: ${capturedPhoto!.name}]')
+        : (notesCtrl.text.trim().isNotEmpty ? notesCtrl.text.trim() : null);
+
     try {
       await ref
           .read(securityApiClientProvider)
@@ -403,7 +596,7 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
             purpose: purposeCtrl.text,
             destinationLabel: destinationCtrl.text,
             vehiclePlate: plateCtrl.text,
-            notes: notesCtrl.text,
+            notes: combinedNotes,
           );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1142,23 +1335,27 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     if (session == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sesi pos sudah berakhir. Aktifkan ulang.')),
+          const SnackBar(
+            content: Text('Sesi pos sudah berakhir. Aktifkan ulang.'),
+          ),
         );
       }
       return;
     }
 
     try {
-      await ref.read(securityApiClientProvider).updateSampahNote(
-        session,
-        householdOccupancyId: item.householdOccupancyId,
-        note: note,
-      );
+      await ref
+          .read(securityApiClientProvider)
+          .updateSampahNote(
+            session,
+            householdOccupancyId: item.householdOccupancyId,
+            note: note,
+          );
       await _loadSampah();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Catatan tersimpan')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Catatan tersimpan')));
       }
     } catch (e) {
       if (mounted) {
@@ -1202,7 +1399,9 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
       evalLabel = DateFormat('dd/MM/yyyy').format(DateTime.now());
     } else {
       try {
-        evalLabel = DateFormat('dd/MM/yyyy').format(DateTime.parse(_sampahEvalDate));
+        evalLabel = DateFormat(
+          'dd/MM/yyyy',
+        ).format(DateTime.parse(_sampahEvalDate));
       } catch (_) {
         evalLabel = _sampahEvalDate;
       }
@@ -1216,10 +1415,7 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
         build: (context) => [
           pw.Text(
             'LAPORAN MONITORING KEBERSIHAN',
-            style: pw.TextStyle(
-              fontSize: 16,
-              fontWeight: pw.FontWeight.bold,
-            ),
+            style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
           pw.Text('RT $rt'),
@@ -1229,9 +1425,7 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
             headers: const ['No.', 'RT', 'No. Rumah', 'Catatan'],
             data: _sampahReportRows(),
             border: pw.TableBorder.all(width: 0.5),
-            headerDecoration: const pw.BoxDecoration(
-              color: PdfColors.grey300,
-            ),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             cellPadding: const pw.EdgeInsets.all(4),
           ),
         ],
@@ -1242,16 +1436,20 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
 
   Future<Uint8List> _buildSampahExcel() async {
     final rt = _deviceRtCodePadded;
-    final evalLabel =
-        _sampahEvalDate.isEmpty ? DateTime.now().toIso8601String().split('T').first : _sampahEvalDate;
+    final evalLabel = _sampahEvalDate.isEmpty
+        ? DateTime.now().toIso8601String().split('T').first
+        : _sampahEvalDate;
 
     final excel = xls.Excel.createExcel();
-    final sheetName = excel.tables.keys.isNotEmpty ? excel.tables.keys.first : 'Sheet1';
+    final sheetName = excel.tables.keys.isNotEmpty
+        ? excel.tables.keys.first
+        : 'Sheet1';
     final sheet = excel[sheetName];
 
     void setCell(String ref, String value) {
-      sheet.cell(xls.CellIndex.indexByString(ref)).value =
-          xls.TextCellValue(value);
+      sheet.cell(xls.CellIndex.indexByString(ref)).value = xls.TextCellValue(
+        value,
+      );
     }
 
     setCell('A1', 'LAPORAN MONITORING KEBERSIHAN');
@@ -1283,7 +1481,9 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     final now = DateTime.now();
     final date =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final rtLabel = _deviceRtCodePadded.isEmpty ? 'RT' : 'RT${_deviceRtCodePadded}';
+    final rtLabel = _deviceRtCodePadded.isEmpty
+        ? 'RT'
+        : 'RT${_deviceRtCodePadded}';
     final fileName = 'Monitoring_Kebersihan_${rtLabel}_$date.$ext';
 
     Directory? targetDir;
@@ -1295,12 +1495,14 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
         try {
           targetDir = await getDownloadsDirectory();
         } catch (_) {}
-        targetDir ??= await getExternalStorageDirectory() ??
+        targetDir ??=
+            await getExternalStorageDirectory() ??
             await getApplicationDocumentsDirectory();
       }
     } else {
       targetDir =
-          await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+          await getDownloadsDirectory() ??
+          await getApplicationDocumentsDirectory();
     }
     if (!await targetDir.exists()) {
       await targetDir.create(recursive: true);
@@ -1310,8 +1512,7 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     var savePath = '${targetDir.path}/$fileName';
     var finalName = fileName;
     final dotIdx = fileName.lastIndexOf('.');
-    final baseName =
-        dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
+    final baseName = dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
     final extDot = dotIdx != -1 ? fileName.substring(dotIdx) : '';
     while (await File(savePath).exists()) {
       finalName = '${baseName}_$counter$extDot';
@@ -1325,11 +1526,9 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
       throw const FileSystemException('File export tidak tersimpan utuh.');
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Tersimpan: $finalName'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Tersimpan: $finalName')));
   }
 
   Future<void> _exportSampahExcel() async {
@@ -1399,28 +1598,26 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
   }
 
   Widget _buildSampahTab() => Column(
-        children: [
-          Expanded(
-            child: SecurityWasteList(
-              households: _sampahList,
-              evalDate: _sampahEvalDate,
-              loading: _loadingSampah,
-              error: _sampahError,
-              onRetry: _loadSampah,
-              onNoteEdit: _showSampahNoteDialog,
-            ),
-          ),
-          if (!_loadingSampah &&
-              _sampahError == null &&
-              _sampahList.isNotEmpty)
-            _SampahExportBar(
-              exporting: _exportingSampah,
-              onExportExcel: _exportSampahExcel,
-              onExportPdf: _exportSampahPDF,
-              onPrint: _printSampahPDF,
-            ),
-        ],
-      );
+    children: [
+      Expanded(
+        child: SecurityWasteList(
+          households: _sampahList,
+          evalDate: _sampahEvalDate,
+          loading: _loadingSampah,
+          error: _sampahError,
+          onRetry: _loadSampah,
+          onNoteEdit: _showSampahNoteDialog,
+        ),
+      ),
+      if (!_loadingSampah && _sampahError == null && _sampahList.isNotEmpty)
+        _SampahExportBar(
+          exporting: _exportingSampah,
+          onExportExcel: _exportSampahExcel,
+          onExportPdf: _exportSampahPDF,
+          onPrint: _printSampahPDF,
+        ),
+    ],
+  );
 }
 
 /// Card matching the Petugas Keamanan Warga list layout (avatar left → name +
@@ -1436,13 +1633,16 @@ class _HouseholdCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isOwner =
-        household.occupancyType.trim().toUpperCase() == 'OWNER';
+    final isOwner = household.occupancyType.trim().toUpperCase() == 'OWNER';
     final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
     final occupiedCount = household.residentCount;
     final occupancyLabel = isOwner ? 'Pemilik' : 'Penyewa';
-    final homeIconColor = isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
-    final memberIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
+    final homeIconColor = isDark
+        ? const Color(0xFFFBBF24)
+        : const Color(0xFFD97706);
+    final memberIconColor = isDark
+        ? AppColors.success
+        : const Color(0xFF16A34A);
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -1526,8 +1726,7 @@ class _HouseholdCard extends StatelessWidget {
                     child: Text(
                       [
                         'No. ${household.houseNumber}',
-                        if (household.block != null)
-                          'Blok ${household.block}',
+                        if (household.block != null) 'Blok ${household.block}',
                       ].join(' · '),
                       style: theme.textTheme.bodyMedium,
                       maxLines: 1,
@@ -1539,8 +1738,7 @@ class _HouseholdCard extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Icon(Icons.people_outline,
-                      size: 16, color: memberIconColor),
+                  Icon(Icons.people_outline, size: 16, color: memberIconColor),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(

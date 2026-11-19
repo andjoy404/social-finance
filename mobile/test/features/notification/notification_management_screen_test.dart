@@ -187,7 +187,7 @@ void main() {
       expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
       expect(find.text('NOTIFIKASI'), findsOneWidget);
       expect(find.text('TEMPLATE'), findsOneWidget);
-      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.textContaining('SISTEM'), findsOneWidget);
       expect(find.text('RIWAYAT SAYA'), findsOneWidget);
       expect(find.text('KUSTOM'), findsNothing);
       expect(find.text('PENJADWALAN'), findsNothing);
@@ -202,7 +202,7 @@ void main() {
 
       final configTabs = find.byType(TabBar).last;
       final configRect = tester.getRect(configTabs);
-      expect(tester.getRect(find.text('SISTEM').last).center.dx, closeTo(configRect.left + configRect.width / 6, 2));
+      expect(tester.getRect(find.textContaining('SISTEM').last).center.dx, closeTo(configRect.left + configRect.width / 6, 2));
       expect(tester.getRect(find.text('KUSTOM')).center.dx, closeTo(configRect.center.dx, 2));
       expect(tester.getRect(find.text('PENJADWALAN')).center.dx, closeTo(configRect.left + configRect.width * 5 / 6, 2));
       expect(find.text('Penerbitan Tagihan Iuran'), findsOneWidget);
@@ -226,7 +226,7 @@ void main() {
 
       final configTabs = find.byType(TabBar).last;
       final topBefore = tester.getTopLeft(configTabs).dy;
-      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.textContaining('SISTEM'), findsOneWidget);
       expect(find.text('KUSTOM'), findsOneWidget);
       expect(find.text('PENJADWALAN'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -235,7 +235,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.getTopLeft(configTabs).dy, topBefore);
-      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.textContaining('SISTEM'), findsOneWidget);
       expect(find.text('KUSTOM'), findsOneWidget);
       expect(find.text('PENJADWALAN'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -267,7 +267,7 @@ void main() {
 
       await tester.tap(find.text('NOTIFIKASI'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('SISTEM'));
+      await tester.tap(find.textContaining('SISTEM').first);
       await tester.pumpAndSettle();
 
       expect(requestedHistoryCategories, contains('system'));
@@ -296,7 +296,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // SISTEM subtab is the default config subtab.
-      expect(find.text('SISTEM'), findsWidgets);
+      expect(find.textContaining('SISTEM'), findsWidgets);
       // By System badge on the bill card, Manual Trigger badge on the waste-truck card.
       expect(find.text('By System'), findsOneWidget);
       expect(find.text('Manual Trigger'), findsOneWidget);
@@ -361,6 +361,56 @@ void main() {
       // Riwayat list is rendered directly
       expect(find.text('Halo Warga!'), findsOneWidget);
       expect(find.text('Mohon lunasi tagihan nomor 101'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'renders notification history on narrow screen (312px) without RenderFlex overflow',
+    (tester) async {
+      tester.view.physicalSize = const Size(312, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      // Open NOTIFIKASI tab -> SISTEM history
+      await tester.tap(find.text('NOTIFIKASI'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('SISTEM').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifikasi Terjadwal'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Switch to RIWAYAT SAYA on narrow screen
+      await tester.tap(find.text('RIWAYAT SAYA'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aktivitas Saya'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'renders notification history on normal screen (390px) without RenderFlex overflow',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('NOTIFIKASI'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('SISTEM').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifikasi Terjadwal'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 }

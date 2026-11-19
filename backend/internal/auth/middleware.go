@@ -396,6 +396,66 @@ func RequirePermission(pool *database.Pool, permission string) func(http.Handler
 	}
 }
 
+// RequirePermissionOrJabatan returns a middleware that enforces position-based permissions
+// for jabatan-based users, but allows users with specific jabatans to pass through.
+// Super admin always passes. Role-based users (no jabatan) pass through to be evaluated by RequireRole.
+func RequirePermissionOrJabatan(pool *database.Pool, permission string, allowedJabatans ...Jabatan) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+
+			// Super admin always passes.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Role-based users (no jabatan) pass through RequirePermission;
+			// their access is enforced by RequireRole middleware stacked on the route.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Explicitly allowed jabatans pass through directly.
+			for _, aj := range allowedJabatans {
+				if ac.Jabatan == aj {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+
+			tx, err := pool.BeginTx(ctx)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+				return
+			}
+			defer tx.Rollback()
+
+			pr := NewPermissionResolver(pool)
+			has, err := pr.HasPermission(ctx, tx, ac, permission)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to check permission")
+				return
+			}
+
+			if !has {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // GetAuthContext returns the AuthContext from the request, or nil.
 func GetAuthContext(r *http.Request) *AuthContext {
 	ac, _ := r.Context().Value(AuthContextKey).(*AuthContext)
@@ -713,6 +773,52 @@ func RequireAllowedRT(pool *database.Pool, cfg ScopingConfig) func(http.Handler)
 			}
 
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAllowedRTForWarga returns a middleware for Warga and household management routes.
+// SuperAdmin has platform-wide authority over Warga across all RT and RW scopes,
+// without requiring an RT membership or SCOPED_RT_IDS pinning, even during initial provisioning.
+// If SuperAdmin explicitly provides a target RT, it is verified to be active (any active RT across all RW/RT).
+// For all tenant roles (non-SuperAdmin), it strictly delegates to RequireAllowedRT.
+func RequireAllowedRTForWarga(pool *database.Pool, cfg ScopingConfig) func(http.Handler) http.Handler {
+	allowedRT := RequireAllowedRT(pool, cfg)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+
+			// SuperAdmin platform-wide access to Warga across all RT/RW scopes
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				targetRT := ac.RTID
+				if targetRT == "" {
+					targetRT = strings.TrimSpace(r.Header.Get("X-RT-ID"))
+				}
+				if targetRT != "" {
+					effectivePool := pool
+					if effectivePool == nil {
+						effectivePool = AuthDBPool
+					}
+					if effectivePool != nil {
+						ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+						defer cancel()
+						var isActive bool
+						err := effectivePool.Raw().QueryRowContext(ctx, "SELECT is_active FROM rts WHERE id = $1", targetRT).Scan(&isActive)
+						if err != nil || !isActive {
+							httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
+							return
+						}
+					}
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			allowedRT(next).ServeHTTP(w, r)
 		})
 	}
 }

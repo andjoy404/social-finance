@@ -699,7 +699,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// role-based users still pass through RequireRole.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/households", hh.ListHouseholds)
@@ -713,7 +713,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Both role-based (Bendahara, Pengurus) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.export"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
@@ -729,7 +729,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Sekretaris RT is strictly revoked from creating warga.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequireAccess(
@@ -745,7 +745,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Hanya pengurus (Ketua/WakilKetua/Sekretaris/Bendahara) atau super admin yang berwenang.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
 			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
@@ -759,7 +759,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Sekretaris RT is strictly revoked from mutating warga.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequireAccess(
@@ -780,7 +780,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequirePermission(pool, "warga.import"))
@@ -899,14 +899,21 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
 	})
 
-	// Iuran personal bills/payments and overdue warning summary —
-	// accessible by all finance.read users including Sekretaris RT (personal scoping enforced by handlers).
+	// Overdue warning summary — accessible by any authenticated user
+	// (SuperAdmin returns zeros, residents return personal household summary).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
+	})
+
+	// Iuran personal bills/payments —
+	// accessible by all finance.read users including Sekretaris RT, as well as RT jabatan Sosial
+	// (personal scoping to user's household enforced by handlers).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequirePermission(pool, "finance.read"))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
-		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
@@ -915,11 +922,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	})
 
 	// Iuran self-payment — warga can submit payments for their own bills.
-	// Sekretaris RT can submit their own payments but cannot manage others'.
+	// Sekretaris RT and jabatan Sosial can submit their own payments but cannot manage others'.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequirePermission(pool, "finance.read"))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Post("/api/v1/payments", finH.CreatePayment)
 		r.Post("/api/v1/payments/multi-period", finH.CreateMultiPeriodPayment)

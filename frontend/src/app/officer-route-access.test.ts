@@ -36,15 +36,20 @@ describe('special officer route access', () => {
     }
   })
 
-  it('blocks kas and iuran routes for sosial and operasional', () => {
-    for (const pos of ['sosial', 'operasional']) {
-      expect(getOfficerRouteDestination(pos, '/kas')).toBe('/')
-      expect(getOfficerRouteDestination(pos, '/kas/masuk')).toBe('/')
-      expect(getOfficerRouteDestination(pos, '/iuran')).toBe('/')
-      expect(getOfficerRouteDestination(pos, '/iuran/123')).toBe('/')
-      expect(getOfficerRouteDestination(pos, '/warga')).toBeNull()
-      expect(getOfficerRouteDestination(pos, '/')).toBeNull()
-    }
+  it('blocks kas and iuran routes for operasional, and kas only for sosial', () => {
+    expect(getOfficerRouteDestination('operasional', '/kas')).toBe('/')
+    expect(getOfficerRouteDestination('operasional', '/kas/masuk')).toBe('/')
+    expect(getOfficerRouteDestination('operasional', '/iuran')).toBe('/')
+    expect(getOfficerRouteDestination('operasional', '/iuran/123')).toBe('/')
+    expect(getOfficerRouteDestination('operasional', '/warga')).toBeNull()
+    expect(getOfficerRouteDestination('operasional', '/')).toBeNull()
+
+    expect(getOfficerRouteDestination('sosial', '/kas')).toBe('/')
+    expect(getOfficerRouteDestination('sosial', '/kas/masuk')).toBe('/')
+    expect(getOfficerRouteDestination('sosial', '/iuran')).toBeNull()
+    expect(getOfficerRouteDestination('sosial', '/iuran/123')).toBeNull()
+    expect(getOfficerRouteDestination('sosial', '/warga')).toBeNull()
+    expect(getOfficerRouteDestination('sosial', '/')).toBeNull()
   })
 
   it('does not alter routes for other positions', () => {

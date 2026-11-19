@@ -2308,47 +2308,65 @@ func canViewContact(ac *auth.AuthContext, rtID string) bool {
 }
 
 func redactResidentsNik(residents []*Resident, ac *auth.AuthContext, rtID string) []*Resident {
-	if canViewNik(ac, rtID) {
-		return residents
-	}
+	canNik := canViewNik(ac, rtID)
+	canContact := canViewContact(ac, rtID)
 	for _, r := range residents {
 		if r != nil {
-			r.Nik = nil
+			if !canNik {
+				r.Nik = nil
+			}
+			isSelf := ac != nil && ac.UserID != "" && r.UserID != nil && *r.UserID == ac.UserID
+			if !isSelf && !canContact {
+				r.Phone = nil
+				r.Email = nil
+			}
 		}
 	}
 	return residents
 }
 
 func redactResidentNik(resident *Resident, ac *auth.AuthContext, rtID string) *Resident {
-	if resident == nil || canViewNik(ac, rtID) {
+	if resident == nil {
 		return resident
 	}
-	resident.Nik = nil
+	if !canViewNik(ac, rtID) {
+		resident.Nik = nil
+	}
+	isSelf := ac != nil && ac.UserID != "" && resident.UserID != nil && *resident.UserID == ac.UserID
+	if !isSelf && !canViewContact(ac, rtID) {
+		resident.Phone = nil
+		resident.Email = nil
+	}
 	return resident
 }
 
 func redactHouseholdsNik(households []*Household, ac *auth.AuthContext, rtID string) []*Household {
-	if canViewNik(ac, rtID) {
-		return households
-	}
 	for _, h := range households {
-		if h != nil {
-			h.Nik = nil
-			if h.HeadResident != nil {
-				h.HeadResident.Nik = nil
-			}
-		}
+		redactHouseholdNik(h, ac, rtID)
 	}
 	return households
 }
 
 func redactHouseholdNik(household *Household, ac *auth.AuthContext, rtID string) *Household {
-	if household == nil || canViewNik(ac, rtID) {
+	if household == nil {
 		return household
 	}
-	household.Nik = nil
-	if household.HeadResident != nil {
-		household.HeadResident.Nik = nil
+	canNik := canViewNik(ac, rtID)
+	canContact := canViewContact(ac, rtID)
+	if !canNik {
+		household.Nik = nil
+		if household.HeadResident != nil {
+			household.HeadResident.Nik = nil
+		}
+	}
+	if !canContact {
+		if household.HeadResident != nil {
+			isSelf := ac != nil && ac.UserID != "" && household.HeadResident.UserID != nil && *household.HeadResident.UserID == ac.UserID
+			if !isSelf {
+				household.HeadResident.Phone = nil
+				household.HeadResident.Email = nil
+			}
+		}
 	}
 	return household
 }

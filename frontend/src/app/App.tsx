@@ -63,16 +63,16 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
 }
 
 // Iuran access route — all authenticated RT users can access Iuran personal view.
-// Sekretaris RT can view their own bills and payments.
+// Sekretaris RT and Sosial RT can view their own bills and payments.
 // Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
-// Sosial and Operasional cannot access Kas or Iuran.
+// Operasional cannot access Kas or Iuran; Sosial cannot access Kas.
 function IuranAccessRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
   const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
-  if (jabatan === 'sosial' || jabatan === 'operasional') {
+  if (jabatan === 'operasional') {
     return <Navigate to="/" replace />
   }
   if (!isAllowedRT(user)) {
@@ -123,9 +123,16 @@ export function getOfficerRouteDestination(
 ): string | null {
   const normalized = (jabatan ?? '').trim().toLowerCase()
 
-  // Sosial and Operasional: hide/block Kas and Iuran
-  if (normalized === 'sosial' || normalized === 'operasional') {
+  // Operasional: hide/block Kas and Iuran
+  if (normalized === 'operasional') {
     if (pathname.startsWith('/kas') || pathname.startsWith('/iuran')) {
+      return '/'
+    }
+  }
+
+  // Sosial: hide/block Kas, allow Iuran (personal household bills)
+  if (normalized === 'sosial') {
+    if (pathname.startsWith('/kas')) {
       return '/'
     }
   }
