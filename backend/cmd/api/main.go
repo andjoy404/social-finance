@@ -1339,13 +1339,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Post("/api/v1/security/patrol/photos", securityH.UploadPatrolPhoto)
 		r.Get("/api/v1/security/patrol/photos/{photoId}", securityH.GetPatrolPhoto)
 
-		// Paket endpoints
+		// Paket management endpoints (Ketua RT, Petugas Keamanan, Super Admin)
 		r.Get("/api/v1/security/paket/reports", securityH.ListPaketReports)
-		r.Get("/api/v1/security/paket/reports/{id}", securityH.GetPaketReport)
 		r.Post("/api/v1/security/paket/reports", securityH.CreatePaketReport)
 		r.Patch("/api/v1/security/paket/reports/{id}/items/{itemId}/status", securityH.UpdatePaketItemStatus)
 		r.Post("/api/v1/security/paket/photos", securityH.UploadPaketPhoto)
-		r.Get("/api/v1/security/paket/photos/{photoId}", securityH.GetPaketPhoto)
 
 		// Warga masked search for security
 		r.Get("/api/v1/security/warga/search", securityH.SearchWargaMasked)
@@ -1353,6 +1351,16 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		// Security alerts & read receipts
 		r.Get("/api/v1/security/alerts", securityH.GetSecurityAlerts)
 		r.Post("/api/v1/security/read-receipts", securityH.MarkReadReceipts)
+	})
+
+	// Authenticated Paket report & photo read endpoints (Ketua RT, Petugas Keamanan, Super Admin,
+	// and verified resident recipient of the package report within their RT).
+	// RequireAllowedRT enforces tenant isolation. Handler enforces specific item & photo recipient authorization.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Get("/api/v1/security/paket/reports/{id}", securityH.GetPaketReport)
+		r.Get("/api/v1/security/paket/photos/{photoId}", securityH.GetPaketPhoto)
 	})
 
 	// Authenticated Security Pos Device endpoints (scoped to bound RT only, non-user identity).

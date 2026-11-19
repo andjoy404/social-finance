@@ -700,6 +700,18 @@ class SecurityApiClient {
     }
   }
 
+  Future<PaketReport> getPaketReport(String reportId) async {
+    try {
+      final res = await apiClient.dio.get('/api/v1/security/paket/reports/$reportId');
+      final data = (res.data?['data'] as Map?)?.cast<String, dynamic>() ??
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          {};
+      return PaketReport.fromJson(data);
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal memuat detail paket');
+    }
+  }
+
   Future<PaketItem> updatePaketItemStatus(
     String reportId,
     String itemId, {

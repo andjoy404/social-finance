@@ -713,3 +713,11 @@ func (s *Service) GetPatrolPhotoKey(ctx context.Context, rtID, photoID string) (
 func (s *Service) GetPaketPhotoKey(ctx context.Context, rtID, photoID string) (string, error) {
 	return s.repo.GetPaketPhotoKey(ctx, rtID, photoID)
 }
+
+func (s *Service) IsPaketReceiver(ctx context.Context, rtID, reportID, userID string) (bool, error) {
+	return s.repo.IsPaketReceiver(ctx, rtID, reportID, userID)
+}
+
+func (s *Service) IsPaketPhotoReceiver(ctx context.Context, rtID, photoID, userID string) (bool, error) {
+	return s.repo.IsPaketPhotoReceiver(ctx, rtID, photoID, userID)
+}

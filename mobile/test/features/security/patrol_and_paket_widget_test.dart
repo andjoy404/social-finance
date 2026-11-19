@@ -120,6 +120,13 @@ class _PatrolPaketMockApi extends SecurityApiClient {
   Future<List<PatrolBundle>> listPatrolBundles() async => bundles;
   @override
   Future<List<PaketReport>> listPaketReports({String? status}) async => reports;
+  @override
+  Future<PaketReport> getPaketReport(String reportId) async {
+    return reports.firstWhere(
+      (r) => r.id == reportId,
+      orElse: () => throw Exception('Laporan paket tidak ditemukan'),
+    );
+  }
 }
 
 void main() {
@@ -241,12 +248,12 @@ void main() {
     });
     expect(patrolDedupLink, equals('/home/security-management?tab=patrol&subtab=history&bundle_id=bnd-999'));
 
-    // Paket with report_id in payload
+    // Paket with report_id in payload routes to full-page paket detail
     final paketLink = normalizeNotificationTarget(null, payload: {
       'type': 'paket_received',
       'report_id': 'rep-456',
     });
-    expect(paketLink, equals('/home/security-management?tab=paket&subtab=list&report_id=rep-456'));
+    expect(paketLink, equals('/home/paket/detail/rep-456'));
 
     // Paket with dedup_key fallback
     final paketDedupLink = normalizeNotificationTarget(null, payload: {

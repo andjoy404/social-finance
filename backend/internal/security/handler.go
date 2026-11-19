@@ -1487,17 +1487,26 @@ func (h *Handler) GetPaketReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	id := chi.URLParam(r, "id")
+
 	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance")
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	if !allowed {
-		httpx.WriteForbidden(w, "insufficient permission")
-		return
+		// Non-officer/warga: only allowed if they are the recipient of this package report in their RT
+		isReceiver, err := h.svc.IsPaketReceiver(r.Context(), rtID, id, ac.UserID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if !isReceiver {
+			httpx.WriteForbidden(w, "insufficient permission")
+			return
+		}
 	}
 
-	id := chi.URLParam(r, "id")
 	report, err := h.svc.GetPaketReport(r.Context(), rtID, id)
 	if err != nil {
 		writeServiceError(w, err)
@@ -1614,17 +1623,26 @@ func (h *Handler) GetPaketPhoto(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	photoID := chi.URLParam(r, "photoId")
+
 	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance")
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	if !allowed {
-		httpx.WriteForbidden(w, "insufficient permission")
-		return
+		// Non-officer/warga: only allowed if they are the recipient of the package containing this photo
+		isReceiver, err := h.svc.IsPaketPhotoReceiver(r.Context(), rtID, photoID, ac.UserID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if !isReceiver {
+			httpx.WriteForbidden(w, "insufficient permission")
+			return
+		}
 	}
 
-	photoID := chi.URLParam(r, "photoId")
 	key, err := h.svc.GetPaketPhotoKey(r.Context(), rtID, photoID)
 	if err != nil {
 		writeServiceError(w, err)

@@ -23,6 +23,7 @@ import '../utils/attendance_order.dart';
 import '../widgets/attendance_status_badge.dart';
 import '../widgets/guest_visit_status_badge.dart';
 import '../widgets/security_photo_viewer.dart';
+import '../widgets/paket_detail_content.dart';
 
 enum SecurityManagementMode { full, officerPatrol, officerPaket }
 
@@ -418,7 +419,7 @@ class _SecurityManagementScreenState
         if (found != null && found.items.isNotEmpty) {
           _targetDialogOpened = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _viewPaketPhotos(found.items.first);
+            if (mounted) _openPaketDetailModal(found);
           });
         }
       }
@@ -3671,6 +3672,78 @@ class _SecurityManagementScreenState
     );
   }
 
+  void _openPaketDetailModal(PaketReport report) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        final theme = Theme.of(sheetCtx);
+        final isDark = theme.brightness == Brightness.dark;
+
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.45,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (ctx, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12, bottom: 4),
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Detail Paket',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('paket_modal_close_button'),
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Tutup',
+                          onPressed: () => Navigator.of(sheetCtx).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: PaketDetailContent(
+                      report: report,
+                      isModal: true,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _paketListTab() {
     final theme = Theme.of(context);
     final filtered = _paketReports.where((r) {
@@ -3731,10 +3804,15 @@ class _SecurityManagementScreenState
                     itemBuilder: (ctx, idx) {
                       final r = filtered[idx];
                       return Card(
+                        key: Key('paket_report_card_${r.id}'),
                         margin: const EdgeInsets.only(bottom: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          key: Key('paket_report_tap_${r.id}'),
+                          onTap: () => _openPaketDetailModal(r),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
@@ -4019,7 +4097,8 @@ class _SecurityManagementScreenState
                             ],
                           ),
                         ),
-                      );
+                      ),
+                    );
                     },
                   ),
           ),

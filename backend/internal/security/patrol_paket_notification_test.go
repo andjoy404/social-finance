@@ -50,10 +50,11 @@ func createTestResident(t *testing.T, pool *database.Pool, ctx context.Context, 
 func createTestRT(t *testing.T, pool *database.Pool, ctx context.Context, code string) string {
 	t.Helper()
 	rtID := uuid.New().String()
+	rwNum := int(time.Now().UnixNano()%80000) + 1000
 	_, err := pool.Raw().ExecContext(ctx, `
 		INSERT INTO rts (id, rw, rt, name, is_active)
-		VALUES ($1, 99, $2, $3, true)
-	`, rtID, code, fmt.Sprintf("RT %s", code))
+		VALUES ($1, $2, $3, $4, true)
+	`, rtID, rwNum, code, fmt.Sprintf("RT %s", code))
 	if err != nil {
 		t.Fatalf("failed to create RT: %v", err)
 	}
@@ -479,6 +480,56 @@ func TestPatrolAndPaket_TenantIsolationAndSecurityAudit(t *testing.T) {
 		_, err = svc.GetPaketPhotoKey(ctx, rtB, photoID)
 		if err == nil {
 			t.Fatal("RT B must not be able to get RT A paket photo key, expected 404")
+		}
+	})
+
+	// 15. Paket: Recipient warga access control vs other warga
+	t.Run("IsPaketReceiver_AuthorizationValidation", func(t *testing.T) {
+		if validPaketA == nil {
+			t.Skip("missing test report")
+		}
+		// Recipient warga in RT A must be authorized
+		isRecv, err := svc.IsPaketReceiver(ctx, rtA, validPaketA.ID, wargaAUser)
+		if err != nil {
+			t.Fatalf("unexpected error checking recipient: %v", err)
+		}
+		if !isRecv {
+			t.Error("expected wargaAUser to be confirmed as recipient of validPaketA")
+		}
+
+		// Other warga in RT B must be rejected
+		isRecvB, err := svc.IsPaketReceiver(ctx, rtA, validPaketA.ID, wargaBUser)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isRecvB {
+			t.Error("expected wargaBUser to NOT be recipient of validPaketA")
+		}
+
+		// Cross-RT check must be false
+		isRecvCross, err := svc.IsPaketReceiver(ctx, rtB, validPaketA.ID, wargaAUser)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if isRecvCross {
+			t.Error("expected cross-RT check to return false")
+		}
+
+		// Photo receiver check
+		rep, err := svc.GetPaketReport(ctx, rtA, validPaketA.ID)
+		if err != nil || len(rep.Items) == 0 || len(rep.Items[0].Photos) == 0 {
+			t.Skip("no photos in paket")
+		}
+		photoID := rep.Items[0].Photos[0].ID
+
+		isPhotoRecv, err := svc.IsPaketPhotoReceiver(ctx, rtA, photoID, wargaAUser)
+		if err != nil || !isPhotoRecv {
+			t.Errorf("expected wargaAUser to be authorized for photo, got: %v, err: %v", isPhotoRecv, err)
+		}
+
+		isPhotoRecvB, err := svc.IsPaketPhotoReceiver(ctx, rtA, photoID, wargaBUser)
+		if err != nil || isPhotoRecvB {
+			t.Errorf("expected wargaBUser to NOT be authorized for photo, got: %v, err: %v", isPhotoRecvB, err)
 		}
 	})
 }

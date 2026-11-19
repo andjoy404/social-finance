@@ -3557,7 +3557,7 @@ func (r *Repository) CreatePaketReport(ctx context.Context, rtID, createdBy, rec
 		dedup := fmt.Sprintf("paket_recv:%s:%s", reportID, receiverUserID.String)
 		_, _ = tx.ExecContext(ctx, `
 			INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
-			VALUES ($1, $2, 'paket_received', $3, 'Paket Baru Dititipkan', 'Ada paket baru yang dititipkan di pos keamanan untuk Anda.', 'SENT', $4, json_build_object('report_id', $5::text))
+			VALUES ($1, $2, 'paket_received', $3, 'Paket Baru Dititipkan', 'Ada paket baru yang dititipkan di pos keamanan untuk Anda.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text))
 			ON CONFLICT DO NOTHING
 		`, rtID, receiverUserID.String, dedup, now, reportID)
 	}
@@ -3581,7 +3581,7 @@ func (r *Repository) CreatePaketReport(ctx context.Context, rtID, createdBy, rec
 			dedup := fmt.Sprintf("paket_ketua:%s:%s", reportID, kid)
 			_, _ = tx.ExecContext(ctx, `
 				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
-				VALUES ($1, $2, 'paket_received', $3, 'Laporan Paket Masuk', 'Ada paket titipan baru di pos keamanan.', 'SENT', $4, json_build_object('report_id', $5::text))
+				VALUES ($1, $2, 'paket_received', $3, 'Laporan Paket Masuk', 'Ada paket titipan baru di pos keamanan.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text))
 				ON CONFLICT DO NOTHING
 			`, rtID, kid, dedup, now, reportID)
 		}
@@ -3662,7 +3662,9 @@ func (r *Repository) GetPaketReport(ctx context.Context, rtID, reportID string) 
 			LIMIT 1
 		) h ON true
 		LEFT JOIN users u ON u.id = pr.created_by
-		WHERE pr.id = $1 AND pr.rt_id = $2
+		WHERE (pr.id = $1 OR pr.id IN (SELECT pi.paket_report_id FROM paket_items pi WHERE pi.id = $1))
+		  AND pr.rt_id = $2
+		LIMIT 1
 	`, reportID, rtID).Scan(&rep.ID, &rep.RTID, &rep.ReceiverWargaID, &rep.ReceiverName, &rep.ReceiverHouseNumber,
 		&rep.CreatedBy, &rep.CreatedByName, &rep.CreatedAt, &rep.UpdatedAt)
 	if err != nil {
@@ -3840,10 +3842,10 @@ func (r *Repository) UpdatePaketItemStatus(ctx context.Context, rtID, reportID, 
 		if receiverUserID.Valid && receiverUserID.String != "" {
 			dedup := fmt.Sprintf("paket_pickup:%s:%s", itemID, receiverUserID.String)
 			_, _ = tx.ExecContext(ctx, `
-				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
-				VALUES ($1, $2, 'paket_picked_up', $3, 'Paket Telah Diambil', 'Paket Anda di pos keamanan telah diambil dengan bukti penyerahan.', 'SENT', $4)
+				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+				VALUES ($1, $2, 'paket_picked_up', $3, 'Paket Telah Diambil', 'Paket Anda di pos keamanan telah diambil dengan bukti penyerahan.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text, 'item_id', $6::text))
 				ON CONFLICT DO NOTHING
-			`, rtID, receiverUserID.String, dedup, now)
+			`, rtID, receiverUserID.String, dedup, now, reportID, itemID)
 		}
 	}
 
@@ -4026,4 +4028,38 @@ func (r *Repository) GetPaketPhotoKey(ctx context.Context, rtID, photoID string)
 		return "", err
 	}
 	return key, nil
+}
+
+func (r *Repository) IsPaketReceiver(ctx context.Context, rtID, reportID, userID string) (bool, error) {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM paket_reports pr
+			JOIN residents res ON res.id = pr.receiver_warga_id
+			WHERE (pr.id = $1 OR pr.id IN (SELECT pi.paket_report_id FROM paket_items pi WHERE pi.id = $1))
+			  AND pr.rt_id = $2
+			  AND res.rt_id = $2
+			  AND res.user_id = $3
+		)
+	`, reportID, rtID, userID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *Repository) IsPaketPhotoReceiver(ctx context.Context, rtID, photoID, userID string) (bool, error) {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM paket_photos pp
+			JOIN paket_reports pr ON pr.id = pp.paket_report_id
+			JOIN residents res ON res.id = pr.receiver_warga_id
+			WHERE pp.id = $1 AND pr.rt_id = $2 AND res.rt_id = $2 AND res.user_id = $3
+		)
+	`, photoID, rtID, userID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }

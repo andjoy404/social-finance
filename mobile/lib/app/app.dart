@@ -61,6 +61,7 @@ import '../features/security/presentation/screens/pos_kiosk_screen.dart';
 import '../features/security/presentation/screens/security_absen_screen.dart';
 import '../features/security/presentation/screens/security_management_screen.dart';
 import '../features/security/presentation/screens/security_guest_book_screen.dart';
+import '../features/security/presentation/screens/paket_detail_screen.dart';
 
 /// Normalizes a notification deep link and/or FCM data payload into a valid
 /// internal GoRouter destination path.
@@ -121,6 +122,18 @@ String normalizeNotificationTarget(
 
   // 1. Check explicit /iuran/detail/:billId or /iuran/:billId patterns
   if (!isDetailNotificationType && path.isNotEmpty) {
+    final paketMatch = RegExp(
+      r'^/(?:home/)?(?:paket/detail|paket-detail)/([a-zA-Z0-9_-]+)$',
+    ).firstMatch(path);
+    if (paketMatch != null) {
+      final matchedReportId = paketMatch.group(1);
+      if (matchedReportId != null &&
+          matchedReportId.isNotEmpty &&
+          matchedReportId != 'detail') {
+        return '/home/paket/detail/$matchedReportId';
+      }
+    }
+
     final billMatch = RegExp(
       r'^/(?:home/)?iuran/(?:detail/)?([a-zA-Z0-9_-]+)$',
     ).firstMatch(path);
@@ -208,13 +221,41 @@ String normalizeNotificationTarget(
     return '/home/security-management?tab=patrol&subtab=history$q';
   }
 
-  if (type == 'paket_received' || title.contains('Laporan Paket') || title.contains('Paket Baru Dititipkan')) {
-    var reportId = cleanString(payload?['report_id'] ?? existingQuery['report_id']);
+  if (type == 'paket_received' ||
+      type == 'paket_picked_up' ||
+      title.contains('Laporan Paket') ||
+      title.contains('Paket Baru Dititipkan') ||
+      title.contains('Paket Telah Diambil')) {
+    var reportId = cleanString(
+      payload?['report_id'] ??
+      payload?['paket_id'] ??
+      payload?['package_id'] ??
+      existingQuery['report_id'] ??
+      existingQuery['paket_id'] ??
+      existingQuery['package_id'],
+    );
     if (reportId.isEmpty && payload?['dedup_key'] != null) {
       final parts = cleanString(payload!['dedup_key']).split(':');
-      if (parts.length >= 2 && (parts[0] == 'paket_ketua' || parts[0] == 'paket_recv')) {
+      if (parts.length >= 2 &&
+          (parts[0] == 'paket_ketua' ||
+           parts[0] == 'paket_recv' ||
+           parts[0] == 'paket_pickup')) {
         reportId = parts[1];
       }
+    }
+    final dedupKey = payload?['dedup_key']?.toString() ?? '';
+    final isKetua = title.contains('Laporan Paket Masuk') ||
+        dedupKey.startsWith('paket_ketua');
+    final isWarga = title.contains('Paket Baru Dititipkan') ||
+        title.contains('Paket Telah Diambil') ||
+        dedupKey.startsWith('paket_recv') ||
+        dedupKey.startsWith('paket_pickup');
+
+    if (reportId.isNotEmpty && !isKetua) {
+      return '/home/paket/detail/$reportId';
+    }
+    if (isWarga) {
+      return '/home/notifikasi';
     }
     final q = reportId.isNotEmpty ? '&report_id=$reportId' : '';
     return '/home/security-management?tab=paket&subtab=list$q';
@@ -274,6 +315,7 @@ String normalizeNotificationTarget(
       candidatePath == '/home/security-management' ||
       candidatePath == '/home/patroli' ||
       candidatePath == '/home/paket' ||
+      candidatePath.startsWith('/home/paket/') ||
       candidatePath == '/home/notifikasi' ||
       candidatePath.startsWith('/home/notifikasi/');
 
@@ -389,6 +431,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   String _resolveAuthorizedTarget(String target, Map<String, dynamic>? user) {
     final uri = Uri.tryParse(target);
     final loc = uri?.path ?? target;
+
+    if (loc.startsWith('/home/paket/detail/')) {
+      return target;
+    }
 
     if (loc == '/home/notifikasi' && !_canUserAccessNotificationMenu(user)) {
       return '/home';
@@ -844,6 +890,16 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               !perms.contains('security.guest_book') &&
               !perms.contains('patrol.read') &&
               !perms.contains('paket.read')))) {
+            final reportId = state.uri.queryParameters['report_id'];
+            if (reportId != null && reportId.isNotEmpty) {
+              return '/home/paket/detail/$reportId';
+            }
+            return '/home';
+          }
+          if (loc == '/home/paket' &&
+              jabatan != 'keamanan' &&
+              !perms.contains('paket.read') &&
+              !perms.contains('paket.create')) {
             return '/home';
           }
           if (loc == '/home/security-guestbook' &&
@@ -885,6 +941,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   loc.startsWith('/home/warga/') ||
                   loc == '/home/notifikasi' ||
                   loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
                   loc == '/home/profile' ||
                   loc.startsWith('/home/profile/')) {
                 return null;
@@ -898,6 +955,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   loc.startsWith('/home/warga/') ||
                   loc == '/home/notifikasi' ||
                   loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
                   loc == '/home/profile' ||
                   loc.startsWith('/home/profile/')) {
                 return null;
@@ -1207,6 +1265,21 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               builder: (context, state) => const SecurityManagementScreen(
                 mode: SecurityManagementMode.officerPaket,
               ),
+              routes: [
+                GoRoute(
+                  path: 'detail/:id',
+                  name: 'paket_detail',
+                  builder: (context, state) {
+                    final reportId = state.pathParameters['id'] ?? '';
+                    final from =
+                        state.uri.queryParameters['from'] ?? 'notifikasi';
+                    return PaketDetailScreen(
+                      reportId: reportId,
+                      from: from,
+                    );
+                  },
+                ),
+              ],
             ),
             GoRoute(
               path: '/home/security-guestbook',
