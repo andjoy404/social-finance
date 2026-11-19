@@ -656,7 +656,15 @@ export function Dashboard() {
                       }}
                     >
                       {node.members.length > 0 ? (
-                        node.members.map((member) => (
+                        node.members.map((member) => {
+                          const posLower = (member.jabatan ?? '').toLowerCase()
+                          const isKetua = posLower === 'ketua' || posLower === 'ketua_rt'
+                          const isSecurity = ['keamanan', 'keamanan_rt', 'seksi_keamanan', 'seksi_keamanan_rt'].includes(posLower)
+                          const isOperasional = ['operasional', 'operasional_rt'].includes(posLower)
+                          const isKebersihan = ['kebersihan', 'kebersihan_rt'].includes(posLower)
+                          const dividerBelowName = isOperasional || isKebersihan
+                          const showPhone = isKetua || isSecurity
+                          return (
                           <div
                             key={member.user_id}
                             style={{
@@ -685,22 +693,10 @@ export function Dashboard() {
                               <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sf-text)' }}>
                                 {member.full_name}
                               </div>
-                              {member.house_number && (
-                                <div
-                                  style={{
-                                    fontSize: 12,
-                                    color: 'var(--sf-accent)',
-                                    marginTop: 4,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  <HomeOutlined style={{ fontSize: 11, color: 'var(--sf-accent)' }} /> No. Rumah: {member.house_number}
-                                </div>
+                              {dividerBelowName && (
+                                <div style={{ height: 1, background: 'var(--sf-border)', margin: '8px 0' }} />
                               )}
-                              {member.phone && (
+                              {member.house_number && (
                                 <div
                                   style={{
                                     fontSize: 12,
@@ -711,12 +707,32 @@ export function Dashboard() {
                                     gap: 4,
                                   }}
                                 >
-                                  <PhoneOutlined style={{ fontSize: 11, color: '#16A34A' }} /> {member.phone}
+                                  <HomeOutlined style={{ fontSize: 11, color: 'var(--sf-accent)' }} />
+                                  <span>{member.house_number}</span>
                                 </div>
+                              )}
+                              {showPhone && member.phone && (
+                                <div
+                                  style={{
+                                    fontSize: 12,
+                                    color: 'var(--sf-text-muted)',
+                                    marginTop: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <PhoneOutlined style={{ fontSize: 11, color: '#16A34A' }} />
+                                  <span>{member.phone}</span>
+                                </div>
+                              )}
+                              {!dividerBelowName && (
+                                <div style={{ height: 1, background: 'var(--sf-border)', margin: '8px 0' }} />
                               )}
                             </div>
                           </div>
-                        ))
+                          )
+                        })
                       ) : (
                         <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', fontStyle: 'italic' }}>
                           Belum ditentukan
