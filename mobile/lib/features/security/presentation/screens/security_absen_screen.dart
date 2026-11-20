@@ -75,10 +75,34 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
     return DateFormat('HH:mm').format(dt);
   }
 
-  Future<void> _openScanner({String actionMode = 'auto'}) async {
+  String _dateLabelText(String label, String labelId, String shiftDate) {
+    if (labelId.isNotEmpty) {
+      return '$labelId ($shiftDate)';
+    }
+    switch (label) {
+      case 'kemarin':
+        return 'Kemarin ($shiftDate)';
+      case 'hari_ini':
+        return 'Hari Ini ($shiftDate)';
+      case 'besok':
+        return 'Besok ($shiftDate)';
+      case 'lusa':
+        return 'Lusa ($shiftDate)';
+      default:
+        return shiftDate;
+    }
+  }
+
+  Future<void> _openScanner({
+    String actionMode = 'auto',
+    String? shiftConfigId,
+  }) async {
     final result = await Navigator.of(context).push<AttendanceScanResult>(
       MaterialPageRoute(
-        builder: (_) => SecurityQrScannerScreen(actionMode: actionMode),
+        builder: (_) => SecurityQrScannerScreen(
+          actionMode: actionMode,
+          shiftConfigId: shiftConfigId,
+        ),
       ),
     );
     if (result == null || !mounted) return;
@@ -251,6 +275,111 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
             accept
                 ? 'Permintaan diterima. Menunggu persetujuan Ketua RT.'
                 : 'Permintaan tukar shift ditolak.',
+          ),
+        ),
+      );
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _openOccurrenceCorrectionDialog(
+    OfficerShiftOccurrence occ,
+  ) async {
+    String requestedStatus = 'hadir';
+    if (occ.status == 'hadir' || occ.status == 'terlambat') {
+      requestedStatus = 'sudah_absen_pulang';
+    }
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Ajukan Koreksi Absensi'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_dateLabelText(occ.dateLabel, occ.dateLabelId, occ.shiftDate)} · ${occ.shiftName} (${occ.statusLabel})',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: requestedStatus,
+                  decoration: const InputDecoration(
+                    labelText: 'Status yang Diajukan',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'hadir', child: Text('Hadir')),
+                    DropdownMenuItem(
+                      value: 'terlambat',
+                      child: Text('Terlambat'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'sudah_absen_pulang',
+                      child: Text('Sudah Absen Pulang'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) {
+                      setDialogState(() => requestedStatus = v);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Alasan Koreksi',
+                    hintText: 'Misal: Lupa scan pulang karena darurat',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Kirim Koreksi'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (reasonCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alasan koreksi wajib diisi.')),
+      );
+      return;
+    }
+    try {
+      await ref.read(securityApiClientProvider).createCorrection(
+            attendanceRecordId: occ.attendanceId,
+            scheduleId: occ.scheduleId,
+            shiftDate: occ.shiftDate,
+            requestType: 'status_change',
+            requestedStatus: requestedStatus,
+            reason: reasonCtrl.text.trim(),
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Pengajuan koreksi dikirim untuk persetujuan Ketua RT.',
           ),
         ),
       );
@@ -513,6 +642,7 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                         child: ElevatedButton.icon(
                           onPressed: () => _openScanner(
                             actionMode: canCheckOut ? 'check_out' : 'auto',
+                            shiftConfigId: currentSchedule.shiftConfigId,
                           ),
                           icon: const Icon(Icons.qr_code_scanner),
                           label: Text(
@@ -543,6 +673,94 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
             ),
           ),
           const SizedBox(height: 16),
+
+          // Dynamic Occurrences [-1, H, +1, +2]
+          if ((overview?.occurrences ?? []).isNotEmpty) ...[
+            const Text(
+              'Jadwal Shift (Kemarin, Hari Ini, Besok, Lusa)',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ...overview!.occurrences.map((occ) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _dateLabelText(
+                              occ.dateLabel,
+                              occ.dateLabelId,
+                              occ.shiftDate,
+                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          AttendanceStatusBadge(
+                            statusCode: occ.status,
+                            statusLabel: occ.statusLabel,
+                            fontSize: 12,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        occ.crossesMidnight
+                            ? '${occ.shiftName} (Lintas Tengah Malam)'
+                            : occ.shiftName,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Jam Tugas: ${occ.startTime.length >= 5 ? occ.startTime.substring(0, 5) : occ.startTime} - ${occ.endTime.length >= 5 ? occ.endTime.substring(0, 5) : occ.endTime} WIB',
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      if (occ.checkedInAt != null ||
+                          occ.checkedOutAt != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Masuk: ${_formatTime(occ.checkedInAt)} | Pulang: ${_formatTime(occ.checkedOutAt)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                      if (occ.canCheckIn || occ.canCheckOut) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _openScanner(
+                              actionMode:
+                                  occ.canCheckOut ? 'check_out' : 'check_in',
+                              shiftConfigId: occ.shiftConfigId,
+                            ),
+                            icon: const Icon(Icons.qr_code_scanner, size: 18),
+                            label: Text(
+                              occ.canCheckOut
+                                  ? 'Scan QR untuk Check-Out'
+                                  : 'Scan QR untuk Check-In',
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: occ.canCheckOut
+                                  ? AppColors.warning
+                                  : AppColors.accent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 16),
+          ],
 
           // Incoming Swap Requests for Target
           if (_swaps.isNotEmpty) ...[
@@ -641,15 +859,79 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
   }
 
   Widget _buildHistoryAndCorrectionTab() {
+    final occurrences = _overview?.occurrences ?? [];
+    final eligibleOccurrences = occurrences
+        .where((o) => o.dateLabel == 'kemarin' || o.dateLabel == 'hari_ini')
+        .toList();
     final history = [...?_overview?.recentHistory]
       ..sort(compareAttendanceRecency);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (eligibleOccurrences.isNotEmpty) ...[
           const Text(
-            'Riwayat Absensi',
+            'Pelaksanaan Shift (Kemarin & Hari Ini)',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 8),
+          ...eligibleOccurrences.map((occ) {
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${_dateLabelText(occ.dateLabel, occ.dateLabelId, occ.shiftDate)} · ${occ.shiftName}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        AttendanceStatusBadge(
+                          statusCode: occ.status,
+                          statusLabel: occ.statusLabel,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Jam Tugas: ${occ.startTime.length >= 5 ? occ.startTime.substring(0, 5) : occ.startTime} - ${occ.endTime.length >= 5 ? occ.endTime.substring(0, 5) : occ.endTime} WIB',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    if (occ.checkedInAt != null ||
+                        occ.checkedOutAt != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Masuk: ${_formatTime(occ.checkedInAt)} | Pulang: ${_formatTime(occ.checkedOutAt)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                    if (occ.canCorrect) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => _openOccurrenceCorrectionDialog(occ),
+                          icon: const Icon(Icons.edit_calendar, size: 16),
+                          label: const Text('Ajukan Koreksi'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+        const Text(
+          'Riwayat Absensi',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
           const SizedBox(height: 8),
           if (history.isEmpty)
             const Card(

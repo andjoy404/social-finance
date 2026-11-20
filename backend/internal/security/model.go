@@ -317,13 +317,34 @@ type AttendanceRecord struct {
 	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
+type OfficerShiftOccurrence struct {
+	DateLabel       string     `json:"date_label"`       // "kemarin", "hari_ini", "besok", "lusa"
+	DateLabelID     string     `json:"date_label_id"`    // "Kemarin", "Hari Ini", "Besok", "Lusa"
+	ShiftDate       string     `json:"shift_date"`       // "YYYY-MM-DD" (occurrence date, start date)
+	ScheduleID      string     `json:"schedule_id"`
+	ShiftConfigID   string     `json:"shift_config_id"`
+	ShiftName       string     `json:"shift_name"`
+	StartTime       string     `json:"start_time"`       // "HH:MM"
+	EndTime         string     `json:"end_time"`         // "HH:MM"
+	CrossesMidnight bool       `json:"crosses_midnight"`
+	Status          string     `json:"status"`           // "belum_hadir", "hadir", "terlambat", "sudah_absen_pulang", "tidak_hadir"
+	StatusLabel     string     `json:"status_label"`     // "Belum Hadir", "Hadir", "Terlambat", "Sudah Absen Pulang", "Tidak Hadir"
+	AttendanceID    string     `json:"attendance_id,omitempty"`
+	CheckedInAt     *time.Time `json:"checked_in_at,omitempty"`
+	CheckedOutAt    *time.Time `json:"checked_out_at,omitempty"`
+	CanCheckIn      bool       `json:"can_check_in"`
+	CanCheckOut     bool       `json:"can_check_out"`
+	CanCorrect      bool       `json:"can_correct"`
+}
+
 type OfficerAttendanceOverview struct {
-	ServerTime      time.Time          `json:"server_time"`
-	Timezone        string             `json:"timezone"`
-	CurrentSchedule *SecuritySchedule  `json:"current_schedule,omitempty"`
-	CurrentRecord   *AttendanceRecord  `json:"current_record,omitempty"`
-	UpcomingShifts  []SecuritySchedule `json:"upcoming_shifts"`
-	RecentHistory   []AttendanceRecord `json:"recent_history"`
+	ServerTime      time.Time                `json:"server_time"`
+	Timezone        string                   `json:"timezone"`
+	CurrentSchedule *SecuritySchedule        `json:"current_schedule,omitempty"`
+	CurrentRecord   *AttendanceRecord        `json:"current_record,omitempty"`
+	UpcomingShifts  []SecuritySchedule       `json:"upcoming_shifts"`
+	RecentHistory   []AttendanceRecord       `json:"recent_history"`
+	Occurrences     []OfficerShiftOccurrence `json:"occurrences"`
 }
 
 type AttendanceScanResult struct {
@@ -505,12 +526,15 @@ type SwapDecideRequest struct {
 }
 
 type ScanQRRequest struct {
-	QRToken string `json:"qr_token"`
-	Action  string `json:"action"` // "check_in", "check_out", or "auto"/empty
+	QRToken       string `json:"qr_token"`
+	Action        string `json:"action"` // "check_in", "check_out", or "auto"/empty
+	ShiftConfigID string `json:"shift_config_id,omitempty"`
 }
 
 type CreateCorrectionRequest struct {
-	AttendanceRecordID    string  `json:"attendance_record_id"`
+	AttendanceRecordID    string  `json:"attendance_record_id,omitempty"`
+	ScheduleID            string  `json:"schedule_id,omitempty"`
+	ShiftDate             string  `json:"shift_date,omitempty"`
 	RequestType           string  `json:"request_type"`
 	RequestedStatus       string  `json:"requested_status"`
 	RequestedCheckedInAt  *string `json:"requested_checked_in_at,omitempty"`

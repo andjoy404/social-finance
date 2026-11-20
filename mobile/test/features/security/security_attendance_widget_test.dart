@@ -112,6 +112,7 @@ class _FakeSecurityApiClient extends SecurityApiClient {
           status: 'scheduled',
         ),
       ],
+      occurrences: customOccurrences,
       recentHistory: customHistory.isNotEmpty ? customHistory : const [],
     );
   }
@@ -138,7 +139,10 @@ class _FakeSecurityApiClient extends SecurityApiClient {
 
   List<AttendanceCorrection> correctionsList = [];
   List<AttendanceRecord> customHistory = [];
+  List<OfficerShiftOccurrence> customOccurrences = [];
   String? lastCreatedRecordId;
+  String? lastCreatedScheduleId;
+  String? lastCreatedShiftDate;
   String? lastCreatedStatus;
   String? lastCreatedReason;
 
@@ -147,7 +151,9 @@ class _FakeSecurityApiClient extends SecurityApiClient {
 
   @override
   Future<AttendanceCorrection> createCorrection({
-    required String attendanceRecordId,
+    String? attendanceRecordId,
+    String? scheduleId,
+    String? shiftDate,
     required String requestType,
     required String requestedStatus,
     String? requestedCheckedInAt,
@@ -155,15 +161,17 @@ class _FakeSecurityApiClient extends SecurityApiClient {
     required String reason,
   }) async {
     lastCreatedRecordId = attendanceRecordId;
+    lastCreatedScheduleId = scheduleId;
+    lastCreatedShiftDate = shiftDate;
     lastCreatedStatus = requestedStatus;
     lastCreatedReason = reason;
     final created = AttendanceCorrection(
       id: 'corr-new',
-      attendanceRecordId: attendanceRecordId,
-      scheduleId: 'sch-today',
+      attendanceRecordId: attendanceRecordId ?? 'att-generated',
+      scheduleId: scheduleId ?? 'sch-today',
       officerName: 'Pak Budi',
       requestedBy: 'user-sec-1',
-      shiftDate: '2026-11-12',
+      shiftDate: shiftDate ?? '2026-11-12',
       shiftName: 'Shift Malam',
       requestType: requestType,
       originalStatus: 'terlambat',
@@ -728,6 +736,147 @@ void main() {
         find.textContaining('Alasan: Lupa scan pulang karena patroli darurat'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'SecurityAbsenScreen renders occurrences for [-1, H, +1, +2] and supports occurrence-based correction',
+    (tester) async {
+      final fakeApi = _FakeSecurityApiClient();
+      final securityUser = {
+        'id': 'user-sec-1',
+        'name': 'Pak Budi',
+        'role': AppRole.warga,
+        'jabatan': 'keamanan',
+      };
+
+      fakeApi.customOccurrences = [
+        const OfficerShiftOccurrence(
+          dateLabel: 'kemarin',
+          dateLabelId: 'Kemarin',
+          shiftDate: '2026-11-11',
+          scheduleId: 'sch-kemarin',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: true,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'hari_ini',
+          dateLabelId: 'Hari Ini',
+          shiftDate: '2026-11-12',
+          scheduleId: 'sch-today',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: true,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'besok',
+          dateLabelId: 'Besok',
+          shiftDate: '2026-11-13',
+          scheduleId: 'sch-besok',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'lusa',
+          dateLabelId: 'Lusa',
+          shiftDate: '2026-11-14',
+          scheduleId: 'sch-lusa',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith(
+              (_) => _FakeAuthRepository(AsyncData(securityUser)),
+            ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
+            securityApiClientProvider.overrideWithValue(fakeApi),
+          ],
+          child: const MaterialApp(home: SecurityAbsenScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 1. Verify occurrences are listed in Absen & Jadwal tab
+      expect(
+        find.text('Jadwal Shift (Kemarin, Hari Ini, Besok, Lusa)'),
+        findsOneWidget,
+      );
+      expect(find.text('Kemarin (2026-11-11)'), findsOneWidget);
+      expect(find.text('Hari Ini (2026-11-12)'), findsOneWidget);
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Besok (2026-11-13)'), findsOneWidget);
+      expect(find.text('Lusa (2026-11-14)'), findsOneWidget);
+
+      // 2. Switch to Riwayat & Koreksi tab
+      await tester.tap(find.text('Riwayat & Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 3. Verify Pelaksanaan Shift (Kemarin & Hari Ini) is visible with Ajukan Koreksi button on Kemarin
+      expect(
+        find.text('Pelaksanaan Shift (Kemarin & Hari Ini)'),
+        findsOneWidget,
+      );
+      expect(find.text('Kemarin (2026-11-11) · Shift Malam'), findsOneWidget);
+      final ajukanBtn = find.widgetWithText(TextButton, 'Ajukan Koreksi');
+      expect(ajukanBtn, findsOneWidget);
+
+      // 4. Tap 'Ajukan Koreksi' and submit with reason
+      await tester.tap(ajukanBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ajukan Koreksi Absensi'), findsOneWidget);
+      await tester.enterText(
+        find.byType(TextField),
+        'Hadir bertugas namun sistem error',
+      );
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kirim Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 5. Verify API called with scheduleId and shiftDate
+      expect(fakeApi.lastCreatedScheduleId, 'sch-kemarin');
+      expect(fakeApi.lastCreatedShiftDate, '2026-11-11');
+      expect(fakeApi.lastCreatedReason, 'Hadir bertugas namun sistem error');
     },
   );
 }

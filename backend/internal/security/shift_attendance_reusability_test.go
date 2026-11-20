@@ -2,7 +2,6 @@ package security
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -94,7 +93,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 
 	// ── SCENARIO 1: Officer A successfully attends Shift Pagi on date D ──
 	dateD := time.Date(2026, 11, 20, 6, 10, 0, 0, JakartaLoc)
-	resInA, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD), "check_in", "", dateD)
+	resInA, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD), "check_in", "", "", dateD)
 	if err != nil {
 		t.Fatalf("scenario 1 check-in failed: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	}
 
 	dateDOut := time.Date(2026, 11, 20, 14, 5, 0, 0, JakartaLoc)
-	resOutA, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDOut), "check_out", "", dateDOut)
+	resOutA, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDOut), "check_out", "", "", dateDOut)
 	if err != nil {
 		t.Fatalf("scenario 1 check-out failed: %v", err)
 	}
@@ -111,19 +110,25 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 		t.Fatalf("scenario 1 expected sudah_absen_pulang, got %s", resOutA.Record.Status)
 	}
 
-	// ── SCENARIO 4: Officer B cannot claim Shift Pagi on date D after Officer A has claimed it ──
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD), "check_in", "", dateD)
-	if err == nil {
-		t.Fatalf("scenario 4 failed: Officer B should have been rejected for already claimed shift on date D")
+	// ── SCENARIO 4: Officer B CAN ALSO attend Shift Pagi on date D simultaneously (Multi-officer support) ──
+	resInB, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD), "check_in", "", "", dateD)
+	if err != nil {
+		t.Fatalf("scenario 4 multi-officer check-in failed: %v", err)
 	}
-	var appErr *AppError
-	if !errors.As(err, &appErr) || appErr.Status != 409 || appErr.Code != "shift_already_claimed" {
-		t.Fatalf("scenario 4 expected 409 shift_already_claimed, got: %v", err)
+	if resInB.Record.Status != StatusHadir || resInB.Record.ShiftDate != "2026-11-20" {
+		t.Fatalf("scenario 4 expected officer B hadir on 2026-11-20, got %+v", resInB.Record)
+	}
+	resOutB, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateDOut), "check_out", "", "", dateDOut)
+	if err != nil {
+		t.Fatalf("scenario 4 multi-officer check-out failed: %v", err)
+	}
+	if resOutB.Record.Status != StatusSudahAbsenPulang {
+		t.Fatalf("scenario 4 expected officer B sudah_absen_pulang, got %s", resOutB.Record.Status)
 	}
 
-	// ── SCENARIO 3: Officer A successfully attends Shift Malam on date D after Shift Pagi ──
+	// ── SCENARIO 3: Officer A successfully attends Shift Malam on date D after Shift Pagi (Jumping Shift) ──
 	dateDMalamIn := time.Date(2026, 11, 20, 18, 5, 0, 0, JakartaLoc)
-	resInAMalam, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDMalamIn), "check_in", "", dateDMalamIn)
+	resInAMalam, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDMalamIn), "check_in", "", "", dateDMalamIn)
 	if err != nil {
 		t.Fatalf("scenario 3 malam check-in failed: %v", err)
 	}
@@ -131,7 +136,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 		t.Fatalf("scenario 3 expected shift malam, got %s", resInAMalam.Record.ShiftConfigID)
 	}
 	dateDMalamOut := time.Date(2026, 11, 21, 2, 5, 0, 0, JakartaLoc)
-	resOutAMalam, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDMalamOut), "check_out", "", dateDMalamOut)
+	resOutAMalam, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateDMalamOut), "check_out", "", "", dateDMalamOut)
 	if err != nil {
 		t.Fatalf("scenario 3 malam check-out failed: %v", err)
 	}
@@ -141,7 +146,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 
 	// ── SCENARIO 2: Officer A successfully attends Shift Pagi again on date D+1 (reusable daily shift) ──
 	dateD1In := time.Date(2026, 11, 21, 6, 12, 0, 0, JakartaLoc)
-	resInAD1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD1In), "check_in", "", dateD1In)
+	resInAD1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD1In), "check_in", "", "", dateD1In)
 	if err != nil {
 		t.Fatalf("scenario 2 check-in on D+1 failed: %v", err)
 	}
@@ -149,7 +154,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 		t.Fatalf("scenario 2 expected status hadir on 2026-11-21, got %+v", resInAD1.Record)
 	}
 	dateD1Out := time.Date(2026, 11, 21, 14, 2, 0, 0, JakartaLoc)
-	resOutAD1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD1Out), "check_out", "", dateD1Out)
+	resOutAD1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD1Out), "check_out", "", "", dateD1Out)
 	if err != nil {
 		t.Fatalf("scenario 2 check-out on D+1 failed: %v", err)
 	}
@@ -169,7 +174,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 
 	// ── SCENARIO 5: Officer B can claim Shift Pagi on date D+2 if that slot is available ──
 	dateD2In := time.Date(2026, 11, 22, 6, 8, 0, 0, JakartaLoc)
-	resInBD2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD2In), "check_in", "", dateD2In)
+	resInBD2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD2In), "check_in", "", "", dateD2In)
 	if err != nil {
 		t.Fatalf("scenario 5 Officer B claim on D+2 failed: %v", err)
 	}
@@ -177,7 +182,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 		t.Fatalf("scenario 5 expected Officer B on 2026-11-22, got %+v", resInBD2.Record)
 	}
 	dateD2Out := time.Date(2026, 11, 22, 14, 1, 0, 0, JakartaLoc)
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD2Out), "check_out", "", dateD2Out)
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD2Out), "check_out", "", "", dateD2Out)
 	if err != nil {
 		t.Fatalf("scenario 5 Officer B check-out on D+2 failed: %v", err)
 	}
@@ -185,11 +190,11 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	// ── SCENARIO 8: Both officers can attend different shifts on the same date ──
 	dateD3Pagi := time.Date(2026, 11, 23, 6, 15, 0, 0, JakartaLoc)
 	dateD3Malam := time.Date(2026, 11, 23, 18, 15, 0, 0, JakartaLoc)
-	resA_D3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD3Pagi), "check_in", "", dateD3Pagi)
+	resA_D3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD3Pagi), "check_in", "", "", dateD3Pagi)
 	if err != nil {
 		t.Fatalf("scenario 8 Officer A Pagi failed: %v", err)
 	}
-	resB_D3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD3Malam), "check_in", "", dateD3Malam)
+	resB_D3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD3Malam), "check_in", "", "", dateD3Malam)
 	if err != nil {
 		t.Fatalf("scenario 8 Officer B Malam failed: %v", err)
 	}
@@ -198,11 +203,11 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	}
 	// Check out both officers from date D3
 	dateD3PagiOut := time.Date(2026, 11, 23, 14, 0, 0, 0, JakartaLoc)
-	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD3PagiOut), "check_out", "", dateD3PagiOut)
+	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD3PagiOut), "check_out", "", "", dateD3PagiOut)
 	dateD3MalamOut := time.Date(2026, 11, 24, 2, 0, 0, 0, JakartaLoc)
-	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD3MalamOut), "check_out", "", dateD3MalamOut)
+	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD3MalamOut), "check_out", "", "", dateD3MalamOut)
 
-	// ── SCENARIO 7: Two concurrent officers attempting the same RT/date/shift result in exactly one winner ──
+	// ── SCENARIO 7: Two concurrent officers attempting the same RT/date/shift both succeed (multi-officer) ──
 	dateD4In := time.Date(2026, 11, 24, 6, 5, 0, 0, JakartaLoc)
 	var wg sync.WaitGroup
 	var successCount, conflictCount int
@@ -211,47 +216,41 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD4In), "check_in", "", dateD4In)
+		_, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD4In), "check_in", "", "", dateD4In)
 		mu.Lock()
 		if err == nil {
 			successCount++
 		} else {
-			var aErr *AppError
-			if errors.As(err, &aErr) && aErr.Status == 409 && aErr.Code == "shift_already_claimed" {
-				conflictCount++
-			}
+			conflictCount++
 		}
 		mu.Unlock()
 	}()
 	go func() {
 		defer wg.Done()
-		_, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD4In), "check_in", "", dateD4In)
+		_, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD4In), "check_in", "", "", dateD4In)
 		mu.Lock()
 		if err == nil {
 			successCount++
 		} else {
-			var aErr *AppError
-			if errors.As(err, &aErr) && aErr.Status == 409 && aErr.Code == "shift_already_claimed" {
-				conflictCount++
-			}
+			conflictCount++
 		}
 		mu.Unlock()
 	}()
 	wg.Wait()
 
-	if successCount != 1 || conflictCount != 1 {
-		t.Fatalf("scenario 7 concurrent claim failed: expected 1 winner and 1 409 conflict, got success=%d conflict=%d", successCount, conflictCount)
+	if successCount != 2 {
+		t.Fatalf("scenario 7 concurrent claim failed: expected both officers to succeed, got success=%d conflict=%d", successCount, conflictCount)
 	}
 
-	// Check out the winner of date D4 so no open session remains
+	// Check out both officers of date D4 so no open session remains
 	dateD4Out := time.Date(2026, 11, 24, 14, 0, 0, 0, JakartaLoc)
-	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD4Out), "check_out", "", dateD4Out)
-	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD4Out), "check_out", "", dateD4Out)
+	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateD4Out), "check_out", "", "", dateD4Out)
+	_, _ = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerB, makeQR(dateD4Out), "check_out", "", "", dateD4Out)
 
 	// ── SCENARIO 9: Officers belonging to another RT cannot claim the shift ──
 	otherRT := uuid.NewString()
 	_, _ = pool.Raw().ExecContext(ctx, `INSERT INTO rts (id, rw, rt, name, is_active) VALUES ($1, 99, '099', 'Other RT', true)`, otherRT)
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, otherRT, officerA, makeQR(dateD), "check_in", "", dateD)
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, otherRT, officerA, makeQR(dateD), "check_in", "", "", dateD)
 	if err == nil {
 		t.Fatalf("scenario 9 failed: cross-RT attendance should be rejected")
 	}
@@ -260,14 +259,14 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	wargaUID := uuid.NewString()
 	_, _ = pool.Raw().ExecContext(ctx, `INSERT INTO users (id, email, password_hash, full_name, is_active) VALUES ($1, 'warga@test.com', 'h', 'Warga Biasa', true)`, wargaUID)
 	_, _ = pool.Raw().ExecContext(ctx, `INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active) VALUES (gen_random_uuid(), $1, $2, 'warga', true)`, wargaUID, rtID)
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, wargaUID, makeQR(dateD), "check_in", "", dateD)
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, wargaUID, makeQR(dateD), "check_in", "", "", dateD)
 	if err == nil {
 		t.Fatalf("scenario 10 failed: warga without schedule cannot perform attendance")
 	}
 
 	// ── SCENARIO 11: A failed attendance transaction leaves no partial attendance record ──
 	dateInvalid := time.Date(2026, 11, 25, 3, 0, 0, 0, JakartaLoc) // Middle of night, no shift active
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateInvalid), "check_in", "", dateInvalid)
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateInvalid), "check_in", "", "", dateInvalid)
 	if err == nil {
 		t.Fatalf("scenario 11 expected failure outside window")
 	}
@@ -281,7 +280,7 @@ func TestShiftAttendance_ReusableDailyShifts_12Scenarios(t *testing.T) {
 	// Officer A failed earlier due to expired/invalid QR or time window
 	// Now Officer A provides a valid QR during allowed window
 	dateValidRetry := time.Date(2026, 11, 25, 6, 10, 0, 0, JakartaLoc)
-	resRetry, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateValidRetry), "check_in", "", dateValidRetry)
+	resRetry, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(dateValidRetry), "check_in", "", "", dateValidRetry)
 	if err != nil {
 		t.Fatalf("scenario 12 retry failed: %v", err)
 	}

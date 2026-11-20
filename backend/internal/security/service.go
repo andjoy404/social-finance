@@ -355,7 +355,7 @@ func (s *Service) ScanQR(ctx context.Context, rtID, userID string, req ScanQRReq
 	if strings.TrimSpace(req.QRToken) == "" {
 		return nil, newAppError(400, "validation_error", "qr_token is required", ErrValidation)
 	}
-	return s.repo.ConsumeQRAndRecordAttendance(ctx, rtID, userID, req.QRToken, req.Action, idemKey, s.NowUTC())
+	return s.repo.ConsumeQRAndRecordAttendance(ctx, rtID, userID, req.QRToken, req.Action, req.ShiftConfigID, idemKey, s.NowUTC())
 }
 
 // ── Attendance Queries & Officer Overview ─────────────────────────────────────
@@ -379,6 +379,19 @@ func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (
 		return nil, err
 	}
 
+	todayZero := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), 0, 0, 0, 0, JakartaLoc)
+	startDateStr := todayZero.AddDate(0, 0, -2).Format("2006-01-02")
+	endDateStr := todayZero.AddDate(0, 0, 3).Format("2006-01-02")
+
+	// Fetch attendance records around current window [-2, +3] for this officer
+	recordsInWindow, _, _ := s.repo.ListAttendance(ctx, rtID, AttendanceFilter{
+		UserID:   userID,
+		DateFrom: startDateStr,
+		DateTo:   endDateStr,
+		Page:     1,
+		PerPage:  50,
+	})
+
 	recent, _, err := s.repo.ListAttendance(ctx, rtID, AttendanceFilter{
 		UserID:  userID,
 		Page:    1,
@@ -393,30 +406,37 @@ func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (
 		Timezone:       "Asia/Jakarta",
 		UpcomingShifts: []SecuritySchedule{},
 		RecentHistory:  recent,
+		Occurrences:    []OfficerShiftOccurrence{},
 	}
 
-	var currentSched *SecuritySchedule
-	var currentRec *AttendanceRecord
+	// Build dynamic occurrences for offsets -1 (kemarin), 0 (hari_ini), 1 (besok), 2 (lusa)
+	offsets := []struct {
+		d       int
+		label   string
+		labelID string
+	}{
+		{-1, "kemarin", "Kemarin"},
+		{0, "hari_ini", "Hari Ini"},
+		{1, "besok", "Besok"},
+		{2, "lusa", "Lusa"},
+	}
 
-	// 1. First priority: Check if officer has an active open session (checked in, not checked out)
-	for i := range recent {
-		r := &recent[i]
-		if r.CheckedInAt != nil && r.CheckedOutAt == nil && (r.Status == StatusHadir || r.Status == StatusTerlambat || r.Status == StatusBelumAbsenPulang) {
-			rCopy := *r
-			currentRec = &rCopy
-			for j := range scheds {
-				if scheds[j].ID == r.ScheduleID || scheds[j].ShiftConfigID == r.ShiftConfigID {
-					sCopy := scheds[j]
-					currentSched = &sCopy
-					break
-				}
-			}
-			break
+	recordMap := make(map[string]*AttendanceRecord)
+	for i := range recordsInWindow {
+		r := &recordsInWindow[i]
+		key := fmt.Sprintf("%s:%s", r.ScheduleID, r.ShiftDate)
+		recordMap[key] = r
+		cfgKey := fmt.Sprintf("%s:%s", r.ShiftConfigID, r.ShiftDate)
+		if _, exists := recordMap[cfgKey]; !exists {
+			recordMap[cfgKey] = r
 		}
 	}
 
-	// 2. Second priority: If no open session, find the active shift assignment matching current wall-clock window
-	if currentSched == nil {
+	var occurrences []OfficerShiftOccurrence
+	for _, off := range offsets {
+		targetDate := todayZero.AddDate(0, 0, off.d)
+		targetDateStr := targetDate.Format("2006-01-02")
+
 		for i := range scheds {
 			sc := &scheds[i]
 			sh, sm, _, err1 := ParseHHMM(sc.StartTime)
@@ -424,29 +444,143 @@ func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (
 			if err1 != nil || err2 != nil {
 				continue
 			}
-			tTodayStart := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), sh, sm, 0, 0, JakartaLoc)
-			tTodayEnd := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), eh, em, 0, 0, JakartaLoc)
-			if sc.CrossesMidnight || !tTodayEnd.After(tTodayStart) {
-				tTodayEnd = tTodayEnd.AddDate(0, 0, 1)
+
+			occStart := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), sh, sm, 0, 0, JakartaLoc)
+			occEnd := time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), eh, em, 0, 0, JakartaLoc)
+			if sc.CrossesMidnight || !occEnd.After(occStart) {
+				occEnd = occEnd.AddDate(0, 0, 1)
 			}
 
-			// Also consider yesterday start for cross-midnight shift (e.g. 22:00 yesterday to 06:00 today)
-			tYestStart := tTodayStart.AddDate(0, 0, -1)
-			tYestEnd := tTodayEnd.AddDate(0, 0, -1)
+			winBefore := sc.CheckInWindowBeforeMinutes
+			if winBefore <= 0 {
+				winBefore = 15
+			}
+			winAfter := sc.CheckInWindowAfterMinutes
+			if winAfter <= 0 {
+				winAfter = 60
+			}
+			missOutMin := sc.MissingCheckoutCutoffMinutes
+			if missOutMin <= 0 {
+				missOutMin = 120
+			}
 
-			inToday := !nowJkt.Before(tTodayStart.Add(-time.Duration(sc.CheckInWindowBeforeMinutes)*time.Minute)) &&
-				!nowJkt.After(tTodayEnd.Add(time.Duration(sc.MissingCheckoutCutoffMinutes)*time.Minute))
-			inYest := sc.CrossesMidnight && !nowJkt.Before(tYestStart.Add(-time.Duration(sc.CheckInWindowBeforeMinutes)*time.Minute)) &&
-				!nowJkt.After(tYestEnd.Add(time.Duration(sc.MissingCheckoutCutoffMinutes)*time.Minute))
+			openAt := occStart.Add(-time.Duration(winBefore) * time.Minute)
+			closeAt := occStart.Add(time.Duration(winAfter) * time.Minute)
+			maxOut := occEnd.Add(time.Duration(missOutMin) * time.Minute)
 
-			if inToday || inYest {
-				sCopy := *sc
-				currentSched = &sCopy
-				// Find matching record today if already checked out or completed
+			// Look up matching record
+			key := fmt.Sprintf("%s:%s", sc.ID, targetDateStr)
+			rec := recordMap[key]
+			if rec == nil {
+				cfgKey := fmt.Sprintf("%s:%s", sc.ShiftConfigID, targetDateStr)
+				rec = recordMap[cfgKey]
+			}
+
+			st := StatusBelumHadir
+			stLabel := "Belum Hadir"
+			var attID string
+			var cin, cout *time.Time
+			if rec != nil {
+				st = rec.Status
+				stLabel = rec.StatusLabel
+				attID = rec.ID
+				cin = rec.CheckedInAt
+				cout = rec.CheckedOutAt
+			} else {
+				// If past occurrence without record, mark as absent
+				if off.d < 0 || (off.d == 0 && nowJkt.After(closeAt)) {
+					st = StatusTidakHadir
+					stLabel = "Tidak Hadir"
+				}
+			}
+
+			canCheckIn := false
+			canCheckOut := false
+			canCorrect := false
+
+			// Check-in condition
+			if cin == nil && (st == StatusBelumHadir || st == StatusTidakHadir) {
+				if !nowJkt.Before(openAt) && !nowJkt.After(closeAt) {
+					canCheckIn = true
+				}
+			}
+
+			// Check-out condition
+			if cin != nil && cout == nil && (st == StatusHadir || st == StatusTerlambat) {
+				if !nowJkt.After(maxOut) {
+					canCheckOut = true
+				}
+			}
+
+			// Correction condition:
+			// Can request correction for past/today shifts once the shift has started.
+			// Future shifts (+1, +2) cannot be corrected before start.
+			if !nowJkt.Before(openAt) {
+				canCorrect = true
+			}
+			if rec != nil && rec.CorrectionLocked {
+				canCorrect = false
+			}
+
+			occurrences = append(occurrences, OfficerShiftOccurrence{
+				DateLabel:       off.label,
+				DateLabelID:     off.labelID,
+				ShiftDate:       targetDateStr,
+				ScheduleID:      sc.ID,
+				ShiftConfigID:   sc.ShiftConfigID,
+				ShiftName:       sc.ShiftName,
+				StartTime:       sc.StartTime,
+				EndTime:         sc.EndTime,
+				CrossesMidnight: sc.CrossesMidnight,
+				Status:          st,
+				StatusLabel:     stLabel,
+				AttendanceID:    attID,
+				CheckedInAt:     cin,
+				CheckedOutAt:    cout,
+				CanCheckIn:      canCheckIn,
+				CanCheckOut:     canCheckOut,
+				CanCorrect:      canCorrect,
+			})
+		}
+	}
+
+	overview.Occurrences = occurrences
+
+	// Determine CurrentSchedule & CurrentRecord
+	var currentSched *SecuritySchedule
+	var currentRec *AttendanceRecord
+
+	// 1. Priority 1: Any occurrence with CanCheckOut (officer is currently on duty)
+	for _, occ := range occurrences {
+		if occ.CanCheckOut {
+			for j := range scheds {
+				if scheds[j].ID == occ.ScheduleID {
+					sCopy := scheds[j]
+					currentSched = &sCopy
+					break
+				}
+			}
+			if occ.AttendanceID != "" {
 				for j := range recent {
-					if recent[j].ShiftConfigID == sc.ShiftConfigID && recent[j].ShiftDate == nowJkt.Format("2006-01-02") {
+					if recent[j].ID == occ.AttendanceID {
 						rCopy := recent[j]
 						currentRec = &rCopy
+						break
+					}
+				}
+			}
+			break
+		}
+	}
+
+	// 2. Priority 2: Any occurrence with CanCheckIn (ready to check in right now)
+	if currentSched == nil {
+		for _, occ := range occurrences {
+			if occ.CanCheckIn {
+				for j := range scheds {
+					if scheds[j].ID == occ.ScheduleID {
+						sCopy := scheds[j]
+						currentSched = &sCopy
 						break
 					}
 				}
@@ -455,7 +589,55 @@ func (s *Service) GetOfficerOverview(ctx context.Context, rtID, userID string) (
 		}
 	}
 
-	// 3. Fallback: If still no current schedule, use the first active assigned shift if available
+	// 3. Priority 3: Today's occurrence that is not yet completed
+	if currentSched == nil {
+		for _, occ := range occurrences {
+			if occ.DateLabel == "hari_ini" && occ.Status != StatusSudahAbsenPulang {
+				for j := range scheds {
+					if scheds[j].ID == occ.ScheduleID {
+						sCopy := scheds[j]
+						currentSched = &sCopy
+						break
+					}
+				}
+				if occ.AttendanceID != "" {
+					for j := range recent {
+						if recent[j].ID == occ.AttendanceID {
+							rCopy := recent[j]
+							currentRec = &rCopy
+							break
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	// 4. Fallback: First today occurrence or first schedule
+	if currentSched == nil && len(occurrences) > 0 {
+		for _, occ := range occurrences {
+			if occ.DateLabel == "hari_ini" {
+				for j := range scheds {
+					if scheds[j].ID == occ.ScheduleID {
+						sCopy := scheds[j]
+						currentSched = &sCopy
+						break
+					}
+				}
+				if occ.AttendanceID != "" {
+					for j := range recent {
+						if recent[j].ID == occ.AttendanceID {
+							rCopy := recent[j]
+							currentRec = &rCopy
+							break
+						}
+					}
+				}
+				break
+			}
+		}
+	}
 	if currentSched == nil && len(scheds) > 0 {
 		sCopy := scheds[0]
 		currentSched = &sCopy
@@ -520,8 +702,19 @@ func (s *Service) ListCorrections(ctx context.Context, rtID, officerFilter, stat
 }
 
 func (s *Service) CreateCorrection(ctx context.Context, rtID, requesterID string, isManager bool, req CreateCorrectionRequest) (*AttendanceCorrection, error) {
-	if _, err := uuid.Parse(req.AttendanceRecordID); err != nil {
-		return nil, newAppError(400, "validation_error", "invalid attendance_record_id", ErrValidation)
+	if strings.TrimSpace(req.AttendanceRecordID) != "" {
+		if _, err := uuid.Parse(req.AttendanceRecordID); err != nil {
+			return nil, newAppError(400, "validation_error", "invalid attendance_record_id", ErrValidation)
+		}
+	} else if strings.TrimSpace(req.ScheduleID) != "" && strings.TrimSpace(req.ShiftDate) != "" {
+		if _, err := uuid.Parse(req.ScheduleID); err != nil {
+			return nil, newAppError(400, "validation_error", "invalid schedule_id", ErrValidation)
+		}
+		if _, err := time.Parse("2006-01-02", strings.TrimSpace(req.ShiftDate)); err != nil {
+			return nil, newAppError(400, "validation_error", "invalid shift_date, must be YYYY-MM-DD", ErrValidation)
+		}
+	} else {
+		return nil, newAppError(400, "validation_error", "attendance_record_id or (schedule_id and shift_date) is required", ErrValidation)
 	}
 	if !ValidAttendanceStatus(req.RequestedStatus) {
 		return nil, newAppError(400, "validation_error", "invalid requested_status", ErrValidation)

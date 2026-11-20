@@ -171,7 +171,7 @@ func TestDateIndependent_CrossMidnightShiftAttendanceSingleRecord(t *testing.T) 
 		t.Fatalf("create qr in failed: %v", err)
 	}
 
-	inRes, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, rawQRIn, "check_in", "", checkInTime)
+	inRes, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, rawQRIn, "check_in", "", "", checkInTime)
 	if err != nil {
 		t.Fatalf("cross-midnight check-in failed: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestDateIndependent_CrossMidnightShiftAttendanceSingleRecord(t *testing.T) 
 		t.Fatalf("create qr out failed: %v", err)
 	}
 
-	outRes, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, rawQROut, "check_out", "", checkOutTime)
+	outRes, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, rawQROut, "check_out", "", "", checkOutTime)
 	if err != nil {
 		t.Fatalf("cross-midnight check-out failed: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestDateIndependent_ScenariosAudit1to10(t *testing.T) {
 
 	// ── Scenario 2: Petugas check-in dan memperoleh timestamp aktual ──
 	day1In := time.Date(2026, 11, 18, 6, 10, 0, 0, JakartaLoc)
-	resIn1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In), "check_in", "", day1In)
+	resIn1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In), "check_in", "", "", day1In)
 	if err != nil {
 		t.Fatalf("scenario 2 check-in failed: %v", err)
 	}
@@ -375,14 +375,14 @@ func TestDateIndependent_ScenariosAudit1to10(t *testing.T) {
 
 	// ── Scenario 5: Petugas tidak dapat memiliki dua sesi absensi terbuka yang tidak valid ──
 	// Attempt check-in again while Day 1 is still open -> rejected with 409
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In.Add(10*time.Minute)), "check_in", "", day1In.Add(10*time.Minute))
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In.Add(10*time.Minute)), "check_in", "", "", day1In.Add(10*time.Minute))
 	if err == nil {
 		t.Fatalf("scenario 5 failed: expected second open check-in to be rejected")
 	}
 
 	// ── Scenario 3: Petugas check-out dan sesi yang sama diperbarui ──
 	day1Out := time.Date(2026, 11, 18, 14, 5, 0, 0, JakartaLoc)
-	resOut1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1Out), "check_out", "", day1Out)
+	resOut1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1Out), "check_out", "", "", day1Out)
 	if err != nil {
 		t.Fatalf("scenario 3 check-out failed: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestDateIndependent_ScenariosAudit1to10(t *testing.T) {
 
 	// ── Scenario 4: Petugas dapat melakukan sesi berikutnya pada shift berikutnya tanpa penugasan baru ──
 	day2In := time.Date(2026, 11, 19, 6, 8, 0, 0, JakartaLoc)
-	resIn2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2In), "check_in", "", day2In)
+	resIn2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2In), "check_in", "", "", day2In)
 	if err != nil {
 		t.Fatalf("scenario 4 next session check-in failed: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestDateIndependent_ScenariosAudit1to10(t *testing.T) {
 		t.Fatalf("scenario 4 failed: both sessions must belong to the exact same continuous schedule %s", schedA.ID)
 	}
 	day2Out := time.Date(2026, 11, 19, 14, 2, 0, 0, JakartaLoc)
-	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2Out), "check_out", "", day2Out)
+	_, err = repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2Out), "check_out", "", "", day2Out)
 	if err != nil {
 		t.Fatalf("scenario 4 next session check-out failed: %v", err)
 	}
@@ -493,12 +493,12 @@ func TestDateIndependent_ScenariosAudit1to10(t *testing.T) {
 		t.Fatalf("create schedule malam failed: %v", err)
 	}
 	midnightIn := time.Date(2026, 11, 20, 22, 15, 0, 0, JakartaLoc)
-	resMidnightIn, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(midnightIn), "check_in", "", midnightIn)
+	resMidnightIn, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(midnightIn), "check_in", "", "", midnightIn)
 	if err != nil {
 		t.Fatalf("midnight checkin failed: %v", err)
 	}
 	midnightOut := time.Date(2026, 11, 21, 6, 5, 0, 0, JakartaLoc)
-	resMidnightOut, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(midnightOut), "check_out", "", midnightOut)
+	resMidnightOut, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(midnightOut), "check_out", "", "", midnightOut)
 	if err != nil {
 		t.Fatalf("midnight checkout failed: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestAutoCloseVsActualCheckout_AuditSectionB(t *testing.T) {
 
 	// ── Requirement B.1: Check-in Day 1 (Actual check-in) ──
 	day1In := time.Date(2026, 11, 25, 7, 55, 0, 0, JakartaLoc)
-	resIn, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day1In), "check_in", "", day1In)
+	resIn, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day1In), "check_in", "", "", day1In)
 	if err != nil {
 		t.Fatalf("day 1 check-in failed: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestAutoCloseVsActualCheckout_AuditSectionB(t *testing.T) {
 	// ── Requirement B.5: Auto-close DOES NOT cause session to stay open forever ──
 	// Day 2: Officer checks in on the continuous schedule without error!
 	day2In := time.Date(2026, 11, 26, 7, 50, 0, 0, JakartaLoc)
-	resDay2In, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day2In), "check_in", "", day2In)
+	resDay2In, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day2In), "check_in", "", "", day2In)
 	if err != nil {
 		t.Fatalf("CRITICAL: Day 2 check-in after auto-closure failed: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestAutoCloseVsActualCheckout_AuditSectionB(t *testing.T) {
 
 	// ── Requirement B.1: Actual QR checkout fills checked_out_at ──
 	day2Out := time.Date(2026, 11, 26, 16, 10, 0, 0, JakartaLoc)
-	resDay2Out, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day2Out), "check_out", "", day2Out)
+	resDay2Out, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerID, makeQR(day2Out), "check_out", "", "", day2Out)
 	if err != nil {
 		t.Fatalf("Day 2 check-out failed: %v", err)
 	}

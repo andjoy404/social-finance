@@ -193,6 +193,68 @@ class AttendanceRecord {
   }
 }
 
+class OfficerShiftOccurrence {
+  final String dateLabel; // "kemarin", "hari_ini", "besok", "lusa"
+  final String dateLabelId; // "Kemarin", "Hari Ini", "Besok", "Lusa"
+  final String shiftDate; // "YYYY-MM-DD"
+  final String scheduleId;
+  final String shiftConfigId;
+  final String shiftName;
+  final String startTime;
+  final String endTime;
+  final bool crossesMidnight;
+  final String status;
+  final String statusLabel;
+  final String? attendanceId;
+  final DateTime? checkedInAt;
+  final DateTime? checkedOutAt;
+  final bool canCheckIn;
+  final bool canCheckOut;
+  final bool canCorrect;
+
+  const OfficerShiftOccurrence({
+    required this.dateLabel,
+    required this.dateLabelId,
+    required this.shiftDate,
+    required this.scheduleId,
+    required this.shiftConfigId,
+    required this.shiftName,
+    required this.startTime,
+    required this.endTime,
+    required this.crossesMidnight,
+    required this.status,
+    required this.statusLabel,
+    this.attendanceId,
+    this.checkedInAt,
+    this.checkedOutAt,
+    required this.canCheckIn,
+    required this.canCheckOut,
+    required this.canCorrect,
+  });
+
+  factory OfficerShiftOccurrence.fromJson(Map<String, dynamic> json) {
+    return OfficerShiftOccurrence(
+      dateLabel: json['date_label']?.toString() ?? '',
+      dateLabelId: json['date_label_id']?.toString() ?? '',
+      shiftDate: json['shift_date']?.toString() ?? '',
+      scheduleId: json['schedule_id']?.toString() ?? '',
+      shiftConfigId: json['shift_config_id']?.toString() ?? '',
+      shiftName: json['shift_name']?.toString() ?? '',
+      startTime: json['start_time']?.toString() ?? '',
+      endTime: json['end_time']?.toString() ?? '',
+      crossesMidnight: json['crosses_midnight'] as bool? ?? false,
+      status: json['status']?.toString() ?? 'belum_hadir',
+      statusLabel: json['status_label']?.toString() ?? 'Belum Hadir',
+      attendanceId: json['attendance_id']?.toString(),
+      checkedInAt: _tryParseDateTime(json['checked_in_at']),
+      checkedOutAt: _tryParseDateTime(json['checked_out_at']),
+      canCheckIn: json['can_check_in'] as bool? ?? false,
+      canCheckOut: json['can_check_out'] as bool? ?? false,
+      canCorrect: json['can_correct'] as bool? ?? false,
+    );
+  }
+}
+
 class OfficerAttendanceOverview {
   final DateTime serverTime;
   final String timezone;
@@ -200,6 +262,7 @@ class OfficerAttendanceOverview {
   final AttendanceRecord? currentRecord;
   final List<SecuritySchedule> upcomingShifts;
   final List<AttendanceRecord> recentHistory;
+  final List<OfficerShiftOccurrence> occurrences;
 
   const OfficerAttendanceOverview({
     required this.serverTime,
@@ -208,6 +271,7 @@ class OfficerAttendanceOverview {
     this.currentRecord,
     required this.upcomingShifts,
     required this.recentHistory,
+    this.occurrences = const [],
   });
 
   factory OfficerAttendanceOverview.fromJson(Map<String, dynamic> json) {
@@ -231,6 +295,10 @@ class OfficerAttendanceOverview {
       recentHistory: (json['recent_history'] as List? ?? [])
           .whereType<Map<String, dynamic>>()
           .map(AttendanceRecord.fromJson)
+          .toList(),
+      occurrences: (json['occurrences'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(OfficerShiftOccurrence.fromJson)
           .toList(),
     );
   }

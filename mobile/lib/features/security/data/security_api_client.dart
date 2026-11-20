@@ -84,13 +84,18 @@ class SecurityApiClient {
   Future<AttendanceScanResult> scanQrAttendance({
     required String qrToken,
     String action = 'auto',
+    String? shiftConfigId,
     String? idempotencyKey,
   }) async {
     final key = idempotencyKey ?? _uuid.v4();
     try {
+      final body = <String, dynamic>{'qr_token': qrToken.trim(), 'action': action};
+      if (shiftConfigId != null && shiftConfigId.isNotEmpty) {
+        body['shift_config_id'] = shiftConfigId;
+      }
       final res = await apiClient.dio.post<Map<String, dynamic>>(
         '${apiClient.baseUrl}/api/v1/security/attendance/scan',
-        data: {'qr_token': qrToken.trim(), 'action': action},
+        data: body,
         options: Options(headers: {'Idempotency-Key': key}),
       );
       return AttendanceScanResult.fromJson(res.data ?? {});
@@ -473,20 +478,31 @@ class SecurityApiClient {
   }
 
   Future<AttendanceCorrection> createCorrection({
-    required String attendanceRecordId,
+    String? attendanceRecordId,
+    String? scheduleId,
+    String? shiftDate,
     required String requestType,
     required String requestedStatus,
     required String reason,
   }) async {
     try {
+      final body = <String, dynamic>{
+        'request_type': requestType,
+        'requested_status': requestedStatus,
+        'reason': reason.trim(),
+      };
+      if (attendanceRecordId != null && attendanceRecordId.isNotEmpty) {
+        body['attendance_record_id'] = attendanceRecordId;
+      }
+      if (scheduleId != null && scheduleId.isNotEmpty) {
+        body['schedule_id'] = scheduleId;
+      }
+      if (shiftDate != null && shiftDate.isNotEmpty) {
+        body['shift_date'] = shiftDate;
+      }
       final res = await apiClient.post(
         '/api/v1/security/corrections',
-        data: {
-          'attendance_record_id': attendanceRecordId,
-          'request_type': requestType,
-          'requested_status': requestedStatus,
-          'reason': reason.trim(),
-        },
+        data: body,
       );
       return AttendanceCorrection.fromJson(res.data ?? {});
     } on DioException catch (e) {

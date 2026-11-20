@@ -10,8 +10,13 @@ import '../providers/security_providers.dart';
 
 class SecurityQrScannerScreen extends ConsumerStatefulWidget {
   final String actionMode;
+  final String? shiftConfigId;
 
-  const SecurityQrScannerScreen({super.key, this.actionMode = 'auto'});
+  const SecurityQrScannerScreen({
+    super.key,
+    this.actionMode = 'auto',
+    this.shiftConfigId,
+  });
 
   @override
   ConsumerState<SecurityQrScannerScreen> createState() =>
@@ -54,6 +59,7 @@ class _SecurityQrScannerScreenState
       final result = await api.scanQrAttendance(
         qrToken: token,
         action: widget.actionMode,
+        shiftConfigId: widget.shiftConfigId,
         idempotencyKey: _pendingIdempotencyKey,
       );
       if (!mounted) return;

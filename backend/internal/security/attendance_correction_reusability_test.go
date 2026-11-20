@@ -54,12 +54,12 @@ func TestAttendanceCorrection_ReusableShifts_All10Scenarios(t *testing.T) {
 
 	// ── Day 1 (2026-11-20): Officer A performs and completes Shift Pagi ──
 	day1In := time.Date(2026, 11, 20, 6, 10, 0, 0, JakartaLoc)
-	resInDay1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In), "check_in", "", day1In)
+	resInDay1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1In), "check_in", "", "", day1In)
 	if err != nil {
 		t.Fatalf("day 1 check-in failed: %v", err)
 	}
 	day1Out := time.Date(2026, 11, 20, 14, 5, 0, 0, JakartaLoc)
-	resOutDay1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1Out), "check_out", "", day1Out)
+	resOutDay1, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day1Out), "check_out", "", "", day1Out)
 	if err != nil {
 		t.Fatalf("day 1 check-out failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestAttendanceCorrection_ReusableShifts_All10Scenarios(t *testing.T) {
 
 	// ── Day 2 (2026-11-21): Officer A performs Shift Pagi, but marked 'terlambat' or forgets check-out ──
 	day2In := time.Date(2026, 11, 21, 6, 35, 0, 0, JakartaLoc) // late check-in
-	resInDay2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2In), "check_in", "", day2In)
+	resInDay2, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day2In), "check_in", "", "", day2In)
 	if err != nil {
 		t.Fatalf("day 2 check-in failed: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestAttendanceCorrection_ReusableShifts_All10Scenarios(t *testing.T) {
 	// ── SCENARIO 5: Correction request does not consume the next day's normal shift slot ──
 	// Day 3 (2026-11-22): Officer A must be able to perform normal attendance on Shift Pagi without being blocked
 	day3In := time.Date(2026, 11, 22, 6, 8, 0, 0, JakartaLoc)
-	resInDay3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day3In), "check_in", "", day3In)
+	resInDay3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day3In), "check_in", "", "", day3In)
 	if err != nil {
 		t.Fatalf("scenario 5 failed: Day 3 normal attendance check-in failed after Day 2 correction: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestAttendanceCorrection_ReusableShifts_All10Scenarios(t *testing.T) {
 
 	// Day 3 Check out
 	day3Out := time.Date(2026, 11, 22, 14, 2, 0, 0, JakartaLoc)
-	resOutDay3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day3Out), "check_out", "", day3Out)
+	resOutDay3, err := repo.ConsumeQRAndRecordAttendance(ctx, rtID, officerA, makeQR(day3Out), "check_out", "", "", day3Out)
 	if err != nil {
 		t.Fatalf("scenario 5 Day 3 check-out failed: %v", err)
 	}

@@ -1609,7 +1609,7 @@ func (r *Repository) CreateQRToken(ctx context.Context, rtID, deviceID, tokenHas
 
 func (r *Repository) ConsumeQRAndRecordAttendance(
 	ctx context.Context,
-	rtID, userID, rawQRToken, action, idemKey string,
+	rtID, userID, rawQRToken, action, shiftConfigID, idemKey string,
 	now time.Time,
 ) (*AttendanceScanResult, error) {
 	tx, err := r.pool.BeginTx(ctx)
@@ -1800,6 +1800,19 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		return nil, newAppError(400, "no_matching_schedule", "you do not have an active scheduled shift right now", ErrNoActiveSchedule)
 	}
 
+	targetShiftConfigID := strings.TrimSpace(shiftConfigID)
+	if targetShiftConfigID != "" {
+		var filtered []candidate
+		for _, c := range candidates {
+			if c.shiftConfigID == targetShiftConfigID || c.scheduleID == targetShiftConfigID {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
+	}
+
 	reqAction := strings.ToLower(strings.TrimSpace(action))
 	if reqAction == "" {
 		reqAction = "auto"
@@ -1854,7 +1867,8 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		if chosen == nil {
 			// Give specific reason if already checked out vs not yet checked in.
 			for i := range candidates {
-				if candidates[i].checkedOut.Valid || (candidates[i].attStatus.Valid && candidates[i].attStatus.String == StatusSudahAbsenPulang) {
+				c := &candidates[i]
+				if c.checkedOut.Valid || (c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang) {
 					return nil, newAppError(409, "already_checked_out", "you have already checked out for this shift", ErrAlreadyCheckedOut)
 				}
 			}
@@ -1865,14 +1879,19 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		if chosen == nil {
 			for i := range candidates {
 				c := &candidates[i]
-				if c.checkedIn.Valid && !c.checkedOut.Valid {
-					return nil, newAppError(409, "already_checked_in", "you have already checked in for this shift", ErrAlreadyCheckedIn)
-				}
-				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
-					return nil, newAppError(409, "already_checked_out", "shift attendance is already completed", ErrAlreadyCheckedOut)
-				}
-				if c.attStatus.Valid && c.attStatus.String == StatusTidakHadir {
-					return nil, newAppError(400, "check_in_window_closed", "shift was already marked absent", ErrWindowClosed)
+				openAt := c.schedStart.Add(-time.Duration(c.winBefore) * time.Minute)
+				closeAt := c.schedStart.Add(time.Duration(c.winAfter) * time.Minute)
+				inWindow := !now.Before(openAt) && !now.After(closeAt)
+				if inWindow {
+					if c.checkedIn.Valid && !c.checkedOut.Valid {
+						return nil, newAppError(409, "already_checked_in", "you have already checked in for this shift", ErrAlreadyCheckedIn)
+					}
+					if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
+						return nil, newAppError(409, "already_checked_out", "shift attendance is already completed", ErrAlreadyCheckedOut)
+					}
+					if c.attStatus.Valid && c.attStatus.String == StatusTidakHadir {
+						return nil, newAppError(400, "check_in_window_closed", "shift was already marked absent", ErrWindowClosed)
+					}
 				}
 			}
 			return nil, newAppError(400, "check_in_window_closed", "current time is outside your shift check-in window", ErrWindowClosed)
@@ -1887,7 +1906,10 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		} else {
 			for i := range candidates {
 				c := &candidates[i]
-				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang && (c.shiftDate == todayStr || c.shiftDate == yestStr) {
+				openAt := c.schedStart.Add(-time.Duration(c.winBefore) * time.Minute)
+				closeAt := c.schedStart.Add(time.Duration(c.winAfter) * time.Minute)
+				inWindow := !now.Before(openAt) && !now.After(closeAt)
+				if inWindow && c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
 					return nil, newAppError(409, "already_checked_out", "you have already completed attendance for this shift", ErrAlreadyCheckedOut)
 				}
 			}
@@ -1895,30 +1917,9 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		}
 	}
 
-	// Serialize concurrent attempts for this RT, shift, and date using transaction advisory lock
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2 || ':' || $3))`, rtID, chosen.shiftConfigID, chosen.shiftDate); err != nil {
+	// Serialize concurrent attempts for this officer's schedule and date using transaction advisory lock
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2 || ':' || $3))`, rtID, chosen.scheduleID, chosen.shiftDate); err != nil {
 		return nil, err
-	}
-
-	// Mutual exclusivity check: only one officer may claim a shift on a specific RT + shift + date for CONTINUOUS shifts.
-	// For explicit date-specific roster assignments (!chosen.isContinuous), multiple officers may attend the same shift simultaneously.
-	if chosen.isContinuous {
-		var claimedUserID, claimedStatus string
-		err = tx.QueryRowContext(ctx, `
-			SELECT user_id, status
-			FROM security_attendance_records
-			WHERE rt_id = $1 AND shift_config_id = $2 AND shift_date = $3::date
-			  AND status IN ('hadir', 'terlambat', 'sudah_absen_pulang', 'belum_absen_pulang')
-			FOR UPDATE
-			LIMIT 1
-		`, rtID, chosen.shiftConfigID, chosen.shiftDate).Scan(&claimedUserID, &claimedStatus)
-		if err == nil {
-			if claimedUserID != userID {
-				return nil, newAppError(409, "shift_already_claimed", "shift ini sudah diambil oleh petugas lain untuk tanggal ini", ErrConflict)
-			}
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
 	}
 
 	// Ensure attendance row exists, then lock it directly via FOR UPDATE and re-verify state under READ COMMITTED.
@@ -2270,29 +2271,91 @@ func (r *Repository) CreateCorrection(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var attRecordID string
 	var scheduleID, officerUserID, origStatus string
 	var origCin, origCout sql.NullTime
-	err = tx.QueryRowContext(ctx, `
-		SELECT schedule_id, user_id, status, checked_in_at, checked_out_at
-		FROM security_attendance_records
-		WHERE id = $1 AND rt_id = $2
-		FOR UPDATE
-	`, req.AttendanceRecordID, rtID).Scan(&scheduleID, &officerUserID, &origStatus, &origCin, &origCout)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, newAppError(404, "not_found", "attendance record not found", ErrNotFound)
+	var shiftDateStr, startTimeStr string
+	var winBefore int
+
+	if strings.TrimSpace(req.AttendanceRecordID) != "" {
+		attRecordID = strings.TrimSpace(req.AttendanceRecordID)
+		err = tx.QueryRowContext(ctx, `
+			SELECT ar.schedule_id, ar.user_id, ar.status, ar.checked_in_at, ar.checked_out_at,
+			       to_char(ar.shift_date, 'YYYY-MM-DD'),
+			       to_char(COALESCE(s.start_time_snapshot, '00:00'::time), 'HH24:MI'),
+			       COALESCE(s.check_in_window_before_minutes, 15)
+			FROM security_attendance_records ar
+			LEFT JOIN security_schedules s ON s.id = ar.schedule_id
+			WHERE ar.id = $1 AND ar.rt_id = $2
+			FOR UPDATE OF ar
+		`, attRecordID, rtID).Scan(&scheduleID, &officerUserID, &origStatus, &origCin, &origCout, &shiftDateStr, &startTimeStr, &winBefore)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, newAppError(404, "not_found", "attendance record not found", ErrNotFound)
+			}
+			return nil, err
 		}
-		return nil, err
+	} else if strings.TrimSpace(req.ScheduleID) != "" && strings.TrimSpace(req.ShiftDate) != "" {
+		scheduleID = strings.TrimSpace(req.ScheduleID)
+		shiftDateStr = strings.TrimSpace(req.ShiftDate)
+		var shiftConfigID string
+		var shiftVersion int
+		err = tx.QueryRowContext(ctx, `
+			SELECT s.user_id, s.shift_config_id, s.shift_version,
+			       to_char(COALESCE(s.start_time_snapshot, '00:00'::time), 'HH24:MI'),
+			       COALESCE(s.check_in_window_before_minutes, 15)
+			FROM security_schedules s
+			WHERE s.id = $1 AND s.rt_id = $2 AND s.is_active = true
+			FOR UPDATE
+		`, scheduleID, rtID).Scan(&officerUserID, &shiftConfigID, &shiftVersion, &startTimeStr, &winBefore)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, newAppError(404, "not_found", "schedule assignment not found", ErrNotFound)
+			}
+			return nil, err
+		}
+
+		// Idempotently ensure the attendance row exists for (schedule_id, shift_date)
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO security_attendance_records (
+				rt_id, schedule_id, user_id, shift_config_id, shift_version, shift_date, status, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6::date, 'belum_hadir', $7, $7)
+			ON CONFLICT (schedule_id, shift_date) DO UPDATE SET updated_at = security_attendance_records.updated_at
+			RETURNING id, status, checked_in_at, checked_out_at
+		`, rtID, scheduleID, officerUserID, shiftConfigID, shiftVersion, shiftDateStr, now).
+			Scan(&attRecordID, &origStatus, &origCin, &origCout)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, newAppError(400, "validation_error", "attendance_record_id or (schedule_id and shift_date) is required", ErrValidation)
 	}
+
 	if !isManager && officerUserID != requesterID {
 		return nil, newAppError(403, "forbidden", "you can only request corrections for your own attendance", ErrForbidden)
+	}
+
+	// Verify occurrence has started (cannot correct future shifts before they start)
+	if !origCin.Valid && shiftDateStr != "" && startTimeStr != "" {
+		sh, sm, _, err1 := ParseHHMM(startTimeStr)
+		if err1 == nil {
+			tShiftDate, err2 := time.Parse("2006-01-02", shiftDateStr)
+			if err2 == nil {
+				occStart := time.Date(tShiftDate.Year(), tShiftDate.Month(), tShiftDate.Day(), sh, sm, 0, 0, JakartaLoc)
+				allowedEarliest := occStart.Add(-time.Duration(winBefore) * time.Minute)
+				nowJkt := now.In(JakartaLoc)
+				if nowJkt.Before(allowedEarliest) {
+					return nil, newAppError(400, "cannot_correct_future_shift", "cannot request correction for a future shift that has not started yet", ErrValidation)
+				}
+			}
+		}
 	}
 
 	var pendingCnt int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM security_attendance_corrections
 		WHERE attendance_record_id = $1 AND status = 'pending'
-	`, req.AttendanceRecordID).Scan(&pendingCnt); err != nil {
+	`, attRecordID).Scan(&pendingCnt); err != nil {
 		return nil, err
 	}
 	if pendingCnt > 0 {
@@ -2308,7 +2371,7 @@ func (r *Repository) CreateCorrection(
 			reason, status, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14, $14)
 		RETURNING id
-	`, rtID, req.AttendanceRecordID, scheduleID, officerUserID, requesterID,
+	`, rtID, attRecordID, scheduleID, officerUserID, requesterID,
 		req.RequestType, origStatus, origCin, origCout,
 		req.RequestedStatus, reqCin, reqCout, strings.TrimSpace(req.Reason), now,
 	).Scan(&corrID)
@@ -2361,6 +2424,16 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		`, correctionID, approverID, now, note)
 		if err != nil {
 			return nil, err
+		}
+		if !origCin.Valid && origStatus == StatusBelumHadir {
+			_, _ = tx.ExecContext(ctx, `
+				UPDATE security_attendance_records
+				SET status = 'tidak_hadir',
+				    marked_absent_at = COALESCE(marked_absent_at, $2),
+				    correction_locked = true,
+				    updated_at = $2
+				WHERE id = $1 AND checked_in_at IS NULL AND status = 'belum_hadir'
+			`, attID, now)
 		}
 		_ = insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_rejected", "security_attendance_correction", correctionID,
 			map[string]any{"status": origStatus, "checked_in_at": origCin.Time},
@@ -3050,8 +3123,8 @@ func (r *Repository) GetOnDutyOfficers(ctx context.Context, rtID string, now tim
 			            AND ar.checked_in_at <= $2
 			            AND $2 < CASE
 			                WHEN s.crosses_midnight_snapshot OR s.end_time_snapshot <= s.start_time_snapshot
-			                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
-			                ELSE (ar.shift_date + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+			                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot + (COALESCE(s.missing_checkout_cutoff_minutes, 60) || ' minutes')::interval) AT TIME ZONE 'Asia/Jakarta'
+			                ELSE (ar.shift_date + s.end_time_snapshot + (COALESCE(s.missing_checkout_cutoff_minutes, 60) || ' minutes')::interval) AT TIME ZONE 'Asia/Jakarta'
 			            END
 			        ))
 			      )
