@@ -210,7 +210,7 @@ type SecurityOfficer struct {
 	ResidentID   *string `json:"resident_id,omitempty"`
 	FullName     string  `json:"full_name"`
 	Email        string  `json:"email"`
-	Phone        *string `json:"phone,omitempty"`
+	Phone        *string `json:"phone_number,omitempty"`
 	IsActive        bool    `json:"is_active"`
 	AvatarPath      *string `json:"avatar_path,omitempty"`
 	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
@@ -454,13 +454,13 @@ type SecurityDashboardSummary struct {
 
 // OnDutyOfficerSummary is used by Beranda HomeDashboard integration without coupling modules.
 type OnDutyOfficerSummary struct {
-	UserID      string
-	FullName    string
-	ShiftName   string
-	ShiftStart  string
-	ShiftEnd    string
-	Status      string
-	PhoneNumber     *string
+	UserID          string  `json:"user_id"`
+	FullName        string  `json:"full_name"`
+	ShiftName       string  `json:"shift_name"`
+	ShiftStart      string  `json:"shift_start"`
+	ShiftEnd        string  `json:"shift_end"`
+	Status          string  `json:"status"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
 	AvatarPath      *string `json:"avatar_path,omitempty"`
 	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
 }
