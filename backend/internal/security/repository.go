@@ -1082,6 +1082,10 @@ func (r *Repository) ListSchedules(ctx context.Context, rtID string, f ScheduleF
 			SELECT status, checked_in_at, checked_out_at
 			FROM security_attendance_records
 			WHERE schedule_id = s.id
+			  AND (
+			        (s.shift_date IS NOT NULL AND shift_date = s.shift_date)
+			        OR (s.shift_date IS NULL AND shift_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+			      )
 			ORDER BY checked_in_at DESC NULLS LAST, created_at DESC
 			LIMIT 1
 		) ar ON true
@@ -1677,10 +1681,13 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	}
 
 	// Find candidate active schedules for this officer near server `now`.
+	nowJkt := now.In(JakartaLoc)
+	todayStr := nowJkt.Format("2006-01-02")
+	yestStr := nowJkt.AddDate(0, 0, -1).Format("2006-01-02")
 	windowStartUpper := now.Add(12 * time.Hour)
 	windowEndLower := now.Add(-14 * time.Hour)
 	rows, err := tx.QueryContext(ctx, `
-		SELECT s.id, s.shift_config_id, s.shift_version, to_char(COALESCE(s.shift_date, ar.shift_date), 'YYYY-MM-DD'),
+		SELECT s.id, s.shift_config_id, s.shift_version, to_char(s.shift_date, 'YYYY-MM-DD'), to_char(ar.shift_date, 'YYYY-MM-DD'),
 		       s.shift_name_snapshot, to_char(s.start_time_snapshot, 'HH24:MI'), to_char(s.end_time_snapshot, 'HH24:MI'),
 		       s.crosses_midnight_snapshot, s.lateness_tolerance_minutes,
 		       s.check_in_window_before_minutes, s.check_in_window_after_minutes,
@@ -1692,6 +1699,10 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 			SELECT id, shift_date, status, checked_in_at, checked_out_at
 			FROM security_attendance_records
 			WHERE schedule_id = s.id
+			  AND (
+			        (s.shift_date IS NOT NULL AND shift_date = s.shift_date)
+			        OR (s.shift_date IS NULL AND shift_date IN ($5::date, $6::date))
+			      )
 			ORDER BY checked_in_at DESC NULLS LAST, created_at DESC
 			LIMIT 1
 		) ar ON true
@@ -1705,7 +1716,7 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		      )
 		ORDER BY s.created_at ASC
 		FOR UPDATE OF s
-	`, rtID, userID, windowStartUpper, windowEndLower)
+	`, rtID, userID, windowStartUpper, windowEndLower, todayStr, yestStr)
 	if err != nil {
 		return nil, err
 	}
@@ -1713,7 +1724,7 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	type candidate struct {
 		scheduleID, shiftConfigID, shiftDate, shiftName, startTime, endTime string
 		shiftVersion, tolMin, winBefore, winAfter, absentMin, missOutMin    int
-		crossesMidnight                                                     bool
+		crossesMidnight, isContinuous                                       bool
 		schedStart, schedEnd                                                time.Time
 		attID, attStatus                                                    sql.NullString
 		checkedIn, checkedOut                                               sql.NullTime
@@ -1721,10 +1732,10 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		var shiftDateNull sql.NullString
+		var schedDateNull, arDateNull sql.NullString
 		var schedStartNull, schedEndNull sql.NullTime
 		if err := rows.Scan(
-			&c.scheduleID, &c.shiftConfigID, &c.shiftVersion, &shiftDateNull,
+			&c.scheduleID, &c.shiftConfigID, &c.shiftVersion, &schedDateNull, &arDateNull,
 			&c.shiftName, &c.startTime, &c.endTime, &c.crossesMidnight,
 			&c.tolMin, &c.winBefore, &c.winAfter, &c.absentMin, &c.missOutMin,
 			&schedStartNull, &schedEndNull,
@@ -1733,8 +1744,11 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 			rows.Close()
 			return nil, err
 		}
-		if shiftDateNull.Valid {
-			c.shiftDate = shiftDateNull.String
+		c.isContinuous = !schedDateNull.Valid
+		if schedDateNull.Valid {
+			c.shiftDate = schedDateNull.String
+		} else if arDateNull.Valid {
+			c.shiftDate = arDateNull.String
 		}
 		if schedStartNull.Valid && schedEndNull.Valid {
 			c.schedStart = schedStartNull.Time
@@ -1772,7 +1786,7 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 
 		// In continuous date-independent shifts, a previous completed/closed session from an earlier calendar date
 		// must not block attendance on a new date.
-		if (c.checkedOut.Valid || (c.attStatus.Valid && (c.attStatus.String == StatusSudahAbsenPulang || c.attStatus.String == StatusBelumAbsenPulang || c.attStatus.String == StatusTidakHadir))) && shiftDateNull.Valid && shiftDateNull.String != c.shiftDate {
+		if c.isContinuous && arDateNull.Valid && arDateNull.String != c.shiftDate {
 			c.attID = sql.NullString{}
 			c.attStatus = sql.NullString{}
 			c.checkedIn = sql.NullTime{}
@@ -1873,11 +1887,37 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		} else {
 			for i := range candidates {
 				c := &candidates[i]
-				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
+				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang && (c.shiftDate == todayStr || c.shiftDate == yestStr) {
 					return nil, newAppError(409, "already_checked_out", "you have already completed attendance for this shift", ErrAlreadyCheckedOut)
 				}
 			}
 			return nil, newAppError(400, "check_in_window_closed", "current time is outside the allowed attendance window", ErrWindowClosed)
+		}
+	}
+
+	// Serialize concurrent attempts for this RT, shift, and date using transaction advisory lock
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2 || ':' || $3))`, rtID, chosen.shiftConfigID, chosen.shiftDate); err != nil {
+		return nil, err
+	}
+
+	// Mutual exclusivity check: only one officer may claim a shift on a specific RT + shift + date for CONTINUOUS shifts.
+	// For explicit date-specific roster assignments (!chosen.isContinuous), multiple officers may attend the same shift simultaneously.
+	if chosen.isContinuous {
+		var claimedUserID, claimedStatus string
+		err = tx.QueryRowContext(ctx, `
+			SELECT user_id, status
+			FROM security_attendance_records
+			WHERE rt_id = $1 AND shift_config_id = $2 AND shift_date = $3::date
+			  AND status IN ('hadir', 'terlambat', 'sudah_absen_pulang', 'belum_absen_pulang')
+			FOR UPDATE
+			LIMIT 1
+		`, rtID, chosen.shiftConfigID, chosen.shiftDate).Scan(&claimedUserID, &claimedStatus)
+		if err == nil {
+			if claimedUserID != userID {
+				return nil, newAppError(409, "shift_already_claimed", "shift ini sudah diambil oleh petugas lain untuk tanggal ini", ErrConflict)
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
 		}
 	}
 
@@ -3637,13 +3677,59 @@ func (r *Repository) ListPaketReports(ctx context.Context, rtID string, limit, o
 		if err == nil {
 			rep.Items = items
 		}
-		rep.OverallStatus = computeOverallPaketStatus(rep.Items)
+		enrichPaketReportAudit(&rep)
 		reports = append(reports, rep)
 	}
 	if reports == nil {
 		reports = []PaketReport{}
 	}
 	return reports, total, nil
+}
+
+func enrichPaketReportAudit(rep *PaketReport) {
+	rep.OverallStatus = computeOverallPaketStatus(rep.Items)
+	rep.TotalItems = len(rep.Items)
+	handedOverCount := 0
+	pendingCount := 0
+	officerMap := make(map[string]string) // userID -> name
+	for _, it := range rep.Items {
+		if it.Status == "sudah_diambil" || it.HandedOverAt != nil {
+			handedOverCount++
+			if it.HandedOverBy != nil && *it.HandedOverBy != "" {
+				officerMap[*it.HandedOverBy] = it.HandedOverByName
+			}
+			if rep.HandedOverAt == nil || (it.HandedOverAt != nil && it.HandedOverAt.After(*rep.HandedOverAt)) {
+				rep.HandedOverAt = it.HandedOverAt
+			}
+		} else {
+			pendingCount++
+		}
+	}
+	rep.HandedOverItemsCount = handedOverCount
+	rep.PendingItemsCount = pendingCount
+
+	if handedOverCount == len(rep.Items) && len(rep.Items) > 0 {
+		if len(officerMap) == 1 {
+			for uid, name := range officerMap {
+				uidCopy := uid
+				rep.HandedOverBy = &uidCopy
+				rep.HandedOverByName = name
+			}
+		} else if len(officerMap) > 1 {
+			rep.HandedOverBy = nil
+			rep.HandedOverByName = "Beberapa Petugas"
+		} else {
+			rep.HandedOverBy = nil
+			rep.HandedOverByName = ""
+		}
+	} else if handedOverCount > 0 {
+		rep.HandedOverBy = nil
+		rep.HandedOverByName = "Sebagian Diserahkan"
+	} else {
+		rep.HandedOverBy = nil
+		rep.HandedOverByName = ""
+		rep.HandedOverAt = nil
+	}
 }
 
 func (r *Repository) GetPaketReport(ctx context.Context, rtID, reportID string) (*PaketReport, error) {
@@ -3679,18 +3765,20 @@ func (r *Repository) GetPaketReport(ctx context.Context, rtID, reportID string) 
 		return nil, err
 	}
 	rep.Items = items
-	rep.OverallStatus = computeOverallPaketStatus(rep.Items)
+	enrichPaketReportAudit(&rep)
 	return &rep, nil
 }
 
 func (r *Repository) getPaketItemsForReport(ctx context.Context, reportID string) ([]PaketItem, error) {
 	rows, err := r.pool.Raw().QueryContext(ctx, `
 		SELECT pi.id, pi.paket_report_id, pi.description, pi.status, pi.status_changed_at, pi.status_changed_by,
-		       COALESCE(u.full_name, ''), pi.created_at, pi.updated_at
+		       COALESCE(u.full_name, ''), pi.created_at, pi.updated_at,
+		       pi.handed_over_at, pi.handed_over_by_user_id, COALESCE(hu.full_name, '')
 		FROM paket_items pi
 		LEFT JOIN users u ON u.id = pi.status_changed_by
+		LEFT JOIN users hu ON hu.id = pi.handed_over_by_user_id
 		WHERE pi.paket_report_id = $1
-		ORDER BY pi.created_at ASC
+		ORDER BY pi.created_at ASC, pi.id ASC
 	`, reportID)
 	if err != nil {
 		return nil, err
@@ -3700,9 +3788,12 @@ func (r *Repository) getPaketItemsForReport(ctx context.Context, reportID string
 	var items []PaketItem
 	for rows.Next() {
 		var it PaketItem
-		var desc, changedBy, changedByName sql.NullString
-		var changedAt sql.NullTime
-		if err := rows.Scan(&it.ID, &it.PaketReportID, &desc, &it.Status, &changedAt, &changedBy, &changedByName, &it.CreatedAt, &it.UpdatedAt); err != nil {
+		var desc, changedBy, changedByName, handedOverBy, handedOverByName sql.NullString
+		var changedAt, handedOverAt sql.NullTime
+		if err := rows.Scan(
+			&it.ID, &it.PaketReportID, &desc, &it.Status, &changedAt, &changedBy, &changedByName, &it.CreatedAt, &it.UpdatedAt,
+			&handedOverAt, &handedOverBy, &handedOverByName,
+		); err != nil {
 			return nil, err
 		}
 		if desc.Valid {
@@ -3716,6 +3807,15 @@ func (r *Repository) getPaketItemsForReport(ctx context.Context, reportID string
 		}
 		if changedByName.Valid {
 			it.ChangedByName = changedByName.String
+		}
+		if handedOverAt.Valid {
+			it.HandedOverAt = &handedOverAt.Time
+		}
+		if handedOverBy.Valid {
+			it.HandedOverBy = &handedOverBy.String
+		}
+		if handedOverByName.Valid {
+			it.HandedOverByName = handedOverByName.String
 		}
 
 		pRows, err := r.pool.Raw().QueryContext(ctx, `
@@ -3812,11 +3912,20 @@ func (r *Repository) UpdatePaketItemStatus(ctx context.Context, rtID, reportID, 
 	}
 
 	now := time.Now()
-	_, err = tx.ExecContext(ctx, `
-		UPDATE paket_items
-		SET status = $1, status_changed_at = $2, status_changed_by = $3, updated_at = $2
-		WHERE id = $4
-	`, newStatus, now, userID, itemID)
+	if newStatus == "sudah_diambil" {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE paket_items
+			SET status = $1, status_changed_at = $2, status_changed_by = $3,
+			    handed_over_at = $2, handed_over_by_user_id = $3, updated_at = $2
+			WHERE id = $4
+		`, newStatus, now, userID, itemID)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE paket_items
+			SET status = $1, status_changed_at = $2, status_changed_by = $3, updated_at = $2
+			WHERE id = $4
+		`, newStatus, now, userID, itemID)
+	}
 	if err != nil {
 		return err
 	}
@@ -3832,20 +3941,99 @@ func (r *Repository) UpdatePaketItemStatus(ctx context.Context, rtID, reportID, 
 	}
 
 	if newStatus == "sudah_diambil" {
-		var receiverUserID sql.NullString
+		var officerName string
 		_ = tx.QueryRowContext(ctx, `
-			SELECT r.user_id
-			FROM residents r
-			JOIN paket_reports pr ON pr.receiver_warga_id = r.id
-			WHERE pr.id = $1 AND pr.rt_id = $2
-		`, reportID, rtID).Scan(&receiverUserID)
+			SELECT COALESCE(full_name, 'Petugas Keamanan') FROM users WHERE id = $1
+		`, userID).Scan(&officerName)
+		if officerName == "" {
+			officerName = "Petugas Keamanan"
+		}
+
+		var receiverUserID sql.NullString
+		var residentName, itemDesc string
+		_ = tx.QueryRowContext(ctx, `
+			SELECT r.user_id, COALESCE(r.full_name, 'Warga'), COALESCE(pi.description, 'Barang titipan')
+			FROM paket_items pi
+			JOIN paket_reports pr ON pr.id = pi.paket_report_id
+			JOIN residents r ON r.id = pr.receiver_warga_id
+			WHERE pi.id = $1 AND pr.rt_id = $2
+		`, itemID, rtID).Scan(&receiverUserID, &residentName, &itemDesc)
+
+		loc, errLoc := time.LoadLocation("Asia/Jakarta")
+		if errLoc != nil {
+			loc = time.FixedZone("WIB", 7*3600)
+		}
+		timeStr := now.In(loc).Format("02 Jan 2006, 15:04 WIB")
+
+		// 1. Notify recipient Warga
 		if receiverUserID.Valid && receiverUserID.String != "" {
 			dedup := fmt.Sprintf("paket_pickup:%s:%s", itemID, receiverUserID.String)
-			_, _ = tx.ExecContext(ctx, `
+			body := fmt.Sprintf("Paket Anda (%s) telah diambil pada %s dengan bukti penyerahan oleh %s.", itemDesc, timeStr, officerName)
+			_, err = tx.ExecContext(ctx, `
 				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
-				VALUES ($1, $2, 'paket_picked_up', $3, 'Paket Telah Diambil', 'Paket Anda di pos keamanan telah diambil dengan bukti penyerahan.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text, 'item_id', $6::text))
-				ON CONFLICT DO NOTHING
-			`, rtID, receiverUserID.String, dedup, now, reportID, itemID)
+				VALUES ($1::uuid, $2::uuid, 'paket_picked_up', $3, 'Paket Telah Diambil', $4, 'SENT', $5, json_build_object(
+					'report_id', $6::text,
+					'paket_id', $6::text,
+					'package_id', $6::text,
+					'item_id', $7::text,
+					'recipient_user_id', $2::text,
+					'handed_over_by', $8::text,
+					'handed_over_at', $5::timestamptz
+				)::jsonb)
+				ON CONFLICT (dedup_key) DO NOTHING
+			`, rtID, receiverUserID.String, dedup, body, now, reportID, itemID, officerName)
+			if err != nil {
+				return fmt.Errorf("failed to insert warga pickup notification: %w", err)
+			}
+		}
+
+		// 2. Notify Ketua RT and all RT staff with notification.manage permission in the same RT
+		var managerUserIDs []string
+		mRows, err := tx.QueryContext(ctx, `
+			SELECT DISTINCT u.id
+			FROM users u
+			JOIN user_rt_memberships urm ON urm.user_id = u.id
+			LEFT JOIN position_permissions pp ON pp.position = urm.jabatan
+			LEFT JOIN permission_types pt ON pt.id = pp.permission_id AND pt.code = 'notification.manage'
+			WHERE urm.rt_id = $1 AND urm.is_active = true
+			  AND (urm.jabatan = 'ketua' OR pt.id IS NOT NULL)
+		`, rtID)
+		if err == nil {
+			for mRows.Next() {
+				var mid string
+				if err := mRows.Scan(&mid); err == nil {
+					if receiverUserID.Valid && receiverUserID.String == mid {
+						continue
+					}
+					managerUserIDs = append(managerUserIDs, mid)
+				}
+			}
+			mRows.Close()
+
+			managerBody := fmt.Sprintf("Paket untuk %s (%s) telah diserahkan pada %s oleh %s.", residentName, itemDesc, timeStr, officerName)
+			for _, mid := range managerUserIDs {
+				mDedup := fmt.Sprintf("paket_diserahkan:%s:%s", itemID, mid)
+				recipientUID := ""
+				if receiverUserID.Valid {
+					recipientUID = receiverUserID.String
+				}
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+					VALUES ($1::uuid, $2::uuid, 'paket_picked_up', $3, 'Paket Telah Diserahkan', $4, 'SENT', $5, json_build_object(
+						'report_id', $6::text,
+						'paket_id', $6::text,
+						'package_id', $6::text,
+						'item_id', $7::text,
+						'recipient_user_id', $8::text,
+						'handed_over_by', $9::text,
+						'handed_over_at', $5::timestamptz
+					)::jsonb)
+					ON CONFLICT (dedup_key) DO NOTHING
+				`, rtID, mid, mDedup, managerBody, now, reportID, itemID, recipientUID, officerName)
+				if err != nil {
+					return fmt.Errorf("failed to insert manager handover notification: %w", err)
+				}
+			}
 		}
 	}
 

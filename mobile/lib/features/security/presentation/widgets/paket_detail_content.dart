@@ -112,13 +112,50 @@ class PaketDetailContent extends StatelessWidget {
                         ? report.createdByName
                         : 'Petugas Keamanan',
                   ),
+                  const SizedBox(height: 8),
+                  _buildDetailRow(
+                    theme,
+                    icon: Icons.how_to_reg,
+                    label: 'Petugas Penyerah',
+                    value: () {
+                      final total = report.totalItems;
+                      final handed = report.handedOverCount;
+                      if (total > 0 && handed == total) {
+                        return report.handedOverByName?.isNotEmpty == true
+                            ? report.handedOverByName!
+                            : 'Data serah terima belum tersedia';
+                      }
+                      if (handed > 0) {
+                        return report.handedOverByName?.isNotEmpty == true
+                            ? report.handedOverByName!
+                            : 'Sebagian diserahkan ($handed dari $total item)';
+                      }
+                      return 'Belum diserahkan';
+                    }(),
+                  ),
+                  if (report.overallStatus == 'sudah_diambil' && report.handedOverAt != null) ...[
+                    const SizedBox(height: 8),
+                    _buildDetailRow(
+                      theme,
+                      icon: Icons.event_available,
+                      label: 'Waktu Diserahkan',
+                      value: DateFormat('dd MMM yyyy, HH:mm').format(report.handedOverAt!),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  _buildDetailRow(
+                    theme,
+                    icon: Icons.format_list_numbered,
+                    label: 'Total Titipan',
+                    value: '${report.totalItems} Barang',
+                  ),
                   if (report.items.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     _buildDetailRow(
                       theme,
-                      icon: Icons.format_list_numbered,
-                      label: 'Total Titipan',
-                      value: '${report.items.length} Barang',
+                      icon: Icons.inventory_2_outlined,
+                      label: 'Status Penyerahan',
+                      value: '${report.handedOverCount} diserahkan, ${report.pendingCount} belum diserahkan',
                     ),
                   ],
                 ],
@@ -329,7 +366,7 @@ class PaketDetailContent extends StatelessWidget {
               ],
             ),
 
-            if (it.status == 'sudah_diambil' && it.statusChangedAt != null) ...[
+            if (it.status == 'sudah_diambil') ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -347,13 +384,43 @@ class PaketDetailContent extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Diambil: ${DateFormat('dd MMM yyyy, HH:mm').format(it.statusChangedAt!)}'
-                        '${it.changedByName?.isNotEmpty == true ? ' · Petugas: ${it.changedByName}' : ''}',
+                        it.handedOverByName?.isNotEmpty == true
+                            ? 'Diserahkan oleh: ${it.handedOverByName!}${it.handedOverAt != null ? ' · ${DateFormat('dd MMM yyyy, HH:mm').format(it.handedOverAt!)}' : ''}'
+                            : (it.statusChangedAt != null
+                                ? 'Diambil: ${DateFormat('dd MMM yyyy, HH:mm').format(it.statusChangedAt!)}${it.changedByName?.isNotEmpty == true ? ' · Petugas: ${it.changedByName}' : ''}'
+                                : 'Data serah terima belum tersedia'),
                         style: const TextStyle(
                           fontSize: 11,
                           color: AppColors.success,
                           fontWeight: FontWeight.w500,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      size: 15,
+                      color: AppColors.warning,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Status: Belum diserahkan',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

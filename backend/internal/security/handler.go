@@ -1454,7 +1454,7 @@ func (h *Handler) ListPaketReports(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance")
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -1489,7 +1489,7 @@ func (h *Handler) GetPaketReport(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 
-	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance")
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -1625,7 +1625,7 @@ func (h *Handler) GetPaketPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	photoID := chi.URLParam(r, "photoId")
 
-	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance")
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
 	if err != nil {
 		writeServiceError(w, err)
 		return

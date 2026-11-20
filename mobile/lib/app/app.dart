@@ -225,7 +225,8 @@ String normalizeNotificationTarget(
       type == 'paket_picked_up' ||
       title.contains('Laporan Paket') ||
       title.contains('Paket Baru Dititipkan') ||
-      title.contains('Paket Telah Diambil')) {
+      title.contains('Paket Telah Diambil') ||
+      title.contains('Paket Telah Diserahkan')) {
     var reportId = cleanString(
       payload?['report_id'] ??
       payload?['paket_id'] ??
@@ -239,13 +240,16 @@ String normalizeNotificationTarget(
       if (parts.length >= 2 &&
           (parts[0] == 'paket_ketua' ||
            parts[0] == 'paket_recv' ||
-           parts[0] == 'paket_pickup')) {
+           parts[0] == 'paket_pickup' ||
+           parts[0] == 'paket_diserahkan')) {
         reportId = parts[1];
       }
     }
     final dedupKey = payload?['dedup_key']?.toString() ?? '';
     final isKetua = title.contains('Laporan Paket Masuk') ||
-        dedupKey.startsWith('paket_ketua');
+        title.contains('Paket Telah Diserahkan') ||
+        dedupKey.startsWith('paket_ketua') ||
+        dedupKey.startsWith('paket_diserahkan');
     final isWarga = title.contains('Paket Baru Dititipkan') ||
         title.contains('Paket Telah Diambil') ||
         dedupKey.startsWith('paket_recv') ||

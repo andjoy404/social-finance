@@ -425,10 +425,14 @@ const knownEventNames: Record<string, string> = {
     }
   }
 
+  const markingReadIdsRef = useRef<Set<string>>(new Set())
+
   const handleMarkAsRead = async (log: ApiNotificationLog) => {
     if (log.is_read) return
+    if (markingReadIdsRef.current.has(log.id)) return
     const token = getSessionPair()?.accessToken
     if (!token) return
+    markingReadIdsRef.current.add(log.id)
     try {
       await apiMarkNotificationAsRead(token, log.id)
       setLogs((prev) =>
@@ -437,6 +441,8 @@ const knownEventNames: Record<string, string> = {
       setUnreadCount((c) => Math.max(0, c - 1))
     } catch {
       // ignore
+    } finally {
+      markingReadIdsRef.current.delete(log.id)
     }
   }
 
@@ -470,7 +476,7 @@ const knownEventNames: Record<string, string> = {
       imageUrl: log.image_url,
       payload: (log as any).payload,
     })
-    if (!isAdmin) handleMarkAsRead(log)
+    if (!isAdmin || activeTab === 'mine') handleMarkAsRead(log)
   }
 
   useEffect(() => {
@@ -1568,7 +1574,7 @@ const knownEventNames: Record<string, string> = {
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul & Pesan</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Kirim</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>
-                          {isAdmin ? 'Hasil Pengiriman' : 'Status Baca'}
+                          {isAdmin && activeTab !== 'mine' ? 'Hasil Pengiriman' : 'Status Baca'}
                         </th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Aksi</th>
                       </tr>
@@ -1576,6 +1582,7 @@ const knownEventNames: Record<string, string> = {
                     <tbody>
                       {logs.map((l) => {
                         const statusDisplay = getDeliveryStatusDisplay(l.status, isAdmin)
+                        const isPersonalUnread = (!isAdmin || activeTab === 'mine') && !l.is_read
                         return (
                           <tr
                             key={l.id}
@@ -1583,7 +1590,7 @@ const knownEventNames: Record<string, string> = {
                             style={{
                               borderBottom: '1px solid var(--sf-border)',
                               cursor: 'pointer',
-                              background: !isAdmin && !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
+                              background: isPersonalUnread ? 'rgba(56, 132, 255, 0.04)' : undefined,
                             }}
                           >
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--sf-text-muted)', fontSize: 12 }}>
@@ -1603,7 +1610,7 @@ const knownEventNames: Record<string, string> = {
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                              {!isAdmin && !l.is_read && (
+                              {isPersonalUnread && (
                                 <span
                                   style={{
                                     width: 8,
@@ -1616,7 +1623,7 @@ const knownEventNames: Record<string, string> = {
                                   title="Belum dibaca"
                                 />
                               )}
-                              <span style={{ fontWeight: !isAdmin && !l.is_read ? 700 : 500, color: 'var(--sf-text)' }}>
+                              <span style={{ fontWeight: isPersonalUnread ? 700 : 500, color: 'var(--sf-text)' }}>
                                 {l.title}
                               </span>
                               {l.activity_relation === 'sent_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Dikirim oleh Saya</span>}
@@ -1631,7 +1638,7 @@ const knownEventNames: Record<string, string> = {
                             <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            {isAdmin ? (
+                            {isAdmin && activeTab !== 'mine' ? (
                               l.delivery_counts_available
                                 ? `${l.sent_count ?? 0} / ${l.recipients_count ?? 0}`
                                 : 'Tidak dicatat'
@@ -2204,10 +2211,16 @@ const knownEventNames: Record<string, string> = {
                   type="button"
                   className="sf-btn sf-btn-outline"
                   style={{ marginRight: 'auto' }}
-                  onClick={() => {
-                    if (previewItem.id) handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
-                    setPreviewItem(null)
-                    navigate(bundleId ? `/patroli?bundleId=${bundleId}` : '/patroli')
+                  onClick={async () => {
+                    const targetUrl = bundleId ? `/patroli?bundleId=${bundleId}` : '/patroli'
+                    try {
+                      navigate(targetUrl)
+                      if (previewItem.id) {
+                        await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                      }
+                    } finally {
+                      setPreviewItem(null)
+                    }
                   }}
                 >
                   Buka Detail Patroli
@@ -2215,9 +2228,13 @@ const knownEventNames: Record<string, string> = {
               )
             })()}
 
-            {(previewItem.eventType === 'paket_received' || previewItem.eventType === 'paket_picked_up') && (() => {
+            {(previewItem.eventType === 'paket_received' ||
+              previewItem.eventType === 'paket_picked_up' ||
+              (previewItem.title && previewItem.title.includes('Paket'))) && (() => {
               const reportId =
                 previewItem.payload?.report_id ||
+                previewItem.payload?.paket_id ||
+                previewItem.payload?.package_id ||
                 (previewItem.dedupKey && previewItem.dedupKey.includes(':')
                   ? previewItem.dedupKey.split(':')[1]
                   : null)
@@ -2226,10 +2243,16 @@ const knownEventNames: Record<string, string> = {
                   type="button"
                   className="sf-btn sf-btn-outline"
                   style={{ marginRight: 'auto' }}
-                  onClick={() => {
-                    if (previewItem.id) handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
-                    setPreviewItem(null)
-                    navigate(reportId ? `/paket?reportId=${reportId}` : '/paket')
+                  onClick={async () => {
+                    const targetUrl = reportId ? `/paket?reportId=${reportId}` : '/paket'
+                    try {
+                      navigate(targetUrl)
+                      if (previewItem.id) {
+                        await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                      }
+                    } finally {
+                      setPreviewItem(null)
+                    }
                   }}
                 >
                   Buka Detail Paket

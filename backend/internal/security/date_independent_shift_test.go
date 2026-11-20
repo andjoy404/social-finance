@@ -24,10 +24,11 @@ func setupDateIndependentTestEnv(t *testing.T) (*database.Pool, *Repository, *Se
 		rwNum = 99
 	}
 
+	rtCode := fmt.Sprintf("007-%s", uuid.NewString()[:6])
 	_, err := pool.Raw().ExecContext(ctx, `
 		INSERT INTO rts (id, rw, rt, name, is_active)
-		VALUES ($1, $2, '007', 'RT 007 Date-Independent Shift Test', true)
-	`, rtID, rwNum)
+		VALUES ($1, $2, $3, 'RT 007 Date-Independent Shift Test', true)
+	`, rtID, rwNum, rtCode)
 	if err != nil {
 		t.Fatalf("create test rt: %v", err)
 	}

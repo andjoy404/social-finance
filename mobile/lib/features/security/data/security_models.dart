@@ -867,6 +867,9 @@ class PaketItem {
   final String status; // 'dititipkan', 'sudah_diambil', 'dibatalkan'
   final DateTime? statusChangedAt;
   final String? changedByName;
+  final DateTime? handedOverAt;
+  final String? handedOverBy;
+  final String? handedOverByName;
   final List<PaketPhoto> photos;
   final DateTime createdAt;
 
@@ -877,6 +880,9 @@ class PaketItem {
     required this.status,
     this.statusChangedAt,
     this.changedByName,
+    this.handedOverAt,
+    this.handedOverBy,
+    this.handedOverByName,
     this.photos = const [],
     required this.createdAt,
   });
@@ -890,6 +896,9 @@ class PaketItem {
       status: json['status']?.toString() ?? 'dititipkan',
       statusChangedAt: _tryParseDateTime(json['status_changed_at']),
       changedByName: json['changed_by_name'] as String?,
+      handedOverAt: _tryParseDateTime(json['handed_over_at']),
+      handedOverBy: json['handed_over_by']?.toString() ?? json['handed_over_by_user_id']?.toString(),
+      handedOverByName: json['handed_over_by_name'] as String?,
       photos: list.whereType<Map<String, dynamic>>().map(PaketPhoto.fromJson).toList(),
       createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
     );
@@ -905,8 +914,20 @@ class PaketReport {
   final String createdBy;
   final String createdByName;
   final String overallStatus;
+  final DateTime? handedOverAt;
+  final String? handedOverBy;
+  final String? handedOverByName;
+  final int? totalItemsCount;
+  final int? handedOverItemsCount;
+  final int? pendingItemsCount;
   final List<PaketItem> items;
   final DateTime createdAt;
+
+  int get totalItems => totalItemsCount ?? items.length;
+  int get handedOverCount =>
+      handedOverItemsCount ?? items.where((it) => it.status == 'sudah_diambil').length;
+  int get pendingCount =>
+      pendingItemsCount ?? items.where((it) => it.status != 'sudah_diambil').length;
 
   const PaketReport({
     required this.id,
@@ -917,6 +938,12 @@ class PaketReport {
     required this.createdBy,
     this.createdByName = '',
     required this.overallStatus,
+    this.handedOverAt,
+    this.handedOverBy,
+    this.handedOverByName,
+    this.totalItemsCount,
+    this.handedOverItemsCount,
+    this.pendingItemsCount,
     this.items = const [],
     required this.createdAt,
   });
@@ -932,6 +959,12 @@ class PaketReport {
       createdBy: json['created_by']?.toString() ?? '',
       createdByName: json['created_by_name']?.toString() ?? '',
       overallStatus: json['overall_status']?.toString() ?? 'dititipkan',
+      handedOverAt: _tryParseDateTime(json['handed_over_at']),
+      handedOverBy: json['handed_over_by']?.toString() ?? json['handed_over_by_user_id']?.toString(),
+      handedOverByName: json['handed_over_by_name'] as String?,
+      totalItemsCount: json['total_items'] as int?,
+      handedOverItemsCount: json['handed_over_items_count'] as int?,
+      pendingItemsCount: json['pending_items_count'] as int?,
       items: list.whereType<Map<String, dynamic>>().map(PaketItem.fromJson).toList(),
       createdAt: _tryParseDateTime(json['created_at']) ?? DateTime.now(),
     );

@@ -105,18 +105,18 @@ func (h *Handler) canManageAnnouncements(ctx context.Context, ac *auth.AuthConte
 	return h.hasPermission(ctx, ac, "announcements.create") || h.hasPermission(ctx, ac, "announcements.update")
 }
 
-// hasContactPermission reports whether the caller may see pengurus phone
-// numbers: only the organization.contact.read permission (super-admin
-// bypass included). There is deliberately no hardcoded jabatan shortcut —
-// the database grant is the single source of truth.
+// hasContactPermission reports whether the caller may see contact data (phone, email):
+// strictly only Ketua RT (jabatan == "ketua").
+// Super Admin, Sekretaris, Bendahara, Keamanan, and regular Warga MUST NOT receive contact data.
 func (h *Handler) hasContactPermission(ctx context.Context, ac *auth.AuthContext) bool {
 	if ac == nil {
 		return false
 	}
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		return true
+		return false
 	}
-	return h.hasPermission(ctx, ac, "organization.contact.read")
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	return j == "ketua"
 }
 
 func (h *Handler) getUserFullName(ctx context.Context, userID string) string {

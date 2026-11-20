@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -286,11 +285,12 @@ func TestOrganizationStructure_HouseNumberDisplayAndContactPrivacy(t *testing.T)
 	// Create test users for different roles
 	wargaUID, wargaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "")
 	sekUID, _ := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanSekretaris)
-	keamUID, _ := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKeamanan)
+	keamUID, keamToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKeamanan)
+	_, ketuaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKetua)
 
 	ctx := context.Background()
-	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0899999999' WHERE id IN (SELECT user_id FROM user_rt_memberships WHERE rt_id = $1)", rtID)
-	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0811111111' WHERE id = $1", wargaUID)
+	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0899999999', email = 'member@test.com' WHERE id IN (SELECT user_id FROM user_rt_memberships WHERE rt_id = $1)", rtID)
+	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0811111111', email = 'warga@test.com' WHERE id = $1", wargaUID)
 	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0822222222', email = 'sekretaris@test.com' WHERE id = $1", sekUID)
 	_, _ = pool.Raw().ExecContext(ctx, "UPDATE users SET phone = '0833333333', email = 'keamanan@test.com' WHERE id = $1", keamUID)
 
@@ -299,6 +299,7 @@ func TestOrganizationStructure_HouseNumberDisplayAndContactPrivacy(t *testing.T)
 		UPDATE physical_houses SET house_number = 'B-12' WHERE rt_id = $1 AND is_active = true
 	`, rtID)
 
+	// 1. Warga caller: all contact fields MUST be nil (including Keamanan)
 	rec := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", wargaToken, nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for organization-structure, got %d: %s", rec.Code, rec.Body.String())
@@ -322,20 +323,71 @@ func TestOrganizationStructure_HouseNumberDisplayAndContactPrivacy(t *testing.T)
 
 	for _, node := range orgResp.Nodes {
 		for _, m := range node.Members {
-			if strings.EqualFold(m.Jabatan, "keamanan") {
-				// Keamanan phone is public
-				if m.Phone == nil || *m.Phone == "" {
-					t.Errorf("Petugas Keamanan phone must be visible to warga")
-				}
-			} else {
-				// Other officers' phone must be nil
-				if m.Phone != nil && *m.Phone != "" {
-					t.Errorf("non-keamanan officer %s phone must NOT be visible to warga", m.FullName)
-				}
+			if m.Phone != nil && *m.Phone != "" {
+				t.Errorf("officer %s (%s) phone must NOT be visible to warga, got %s", m.FullName, m.Jabatan, *m.Phone)
 			}
 			if m.Email != nil && *m.Email != "" {
-				t.Errorf("officer %s email must NOT be visible to warga", m.FullName)
+				t.Errorf("officer %s (%s) email must NOT be visible to warga, got %s", m.FullName, m.Jabatan, *m.Email)
 			}
 		}
+	}
+
+	// 2. Keamanan caller: all contact fields MUST also be nil
+	recKeam := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", keamToken, nil, "")
+	if recKeam.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for keam org structure, got %d: %s", recKeam.Code, recKeam.Body.String())
+	}
+	var orgKeamResp struct {
+		Nodes []struct {
+			Members []struct {
+				FullName string  `json:"full_name"`
+				Jabatan  string  `json:"jabatan"`
+				Phone    *string `json:"phone"`
+				Email    *string `json:"email"`
+			} `json:"members"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(recKeam.Body.Bytes(), &orgKeamResp); err != nil {
+		t.Fatalf("unmarshal keam org structure: %v", err)
+	}
+	for _, node := range orgKeamResp.Nodes {
+		for _, m := range node.Members {
+			if m.Phone != nil && *m.Phone != "" {
+				t.Errorf("officer %s (%s) phone must NOT be visible to keamanan, got %s", m.FullName, m.Jabatan, *m.Phone)
+			}
+			if m.Email != nil && *m.Email != "" {
+				t.Errorf("officer %s (%s) email must NOT be visible to keamanan, got %s", m.FullName, m.Jabatan, *m.Email)
+			}
+		}
+	}
+
+	// 3. Ketua RT caller: contacts ARE visible
+	recKetua := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", ketuaToken, nil, "")
+	if recKetua.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for ketua org structure, got %d: %s", recKetua.Code, recKetua.Body.String())
+	}
+	var orgKetuaResp struct {
+		Nodes []struct {
+			Members []struct {
+				FullName string  `json:"full_name"`
+				Jabatan  string  `json:"jabatan"`
+				Phone    *string `json:"phone"`
+				Email    *string `json:"email"`
+			} `json:"members"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(recKetua.Body.Bytes(), &orgKetuaResp); err != nil {
+		t.Fatalf("unmarshal ketua org structure: %v", err)
+	}
+	foundContact := false
+	for _, node := range orgKetuaResp.Nodes {
+		for _, m := range node.Members {
+			if m.Phone != nil && *m.Phone != "" {
+				foundContact = true
+			}
+		}
+	}
+	if !foundContact {
+		t.Errorf("Ketua RT must be able to view contact details of org members")
 	}
 }

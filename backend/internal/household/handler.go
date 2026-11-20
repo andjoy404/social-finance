@@ -2261,7 +2261,7 @@ func canViewNik(ac *auth.AuthContext, rtID string) bool {
 		return false
 	}
 	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	isKetua := j == "ketua"
 	if !isKetua {
 		return false
 	}
@@ -2295,7 +2295,7 @@ func canViewContact(ac *auth.AuthContext, rtID string) bool {
 		return false
 	}
 	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	isKetua := j == "ketua"
 	if !isKetua {
 		return false
 	}

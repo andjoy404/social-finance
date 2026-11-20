@@ -700,19 +700,55 @@ func TestCommunity_OrganizationContactPrivacy(t *testing.T) {
 	rtID := commRTUrena
 	wargaUID, wargaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "")
 	sekUID, sekretarisToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanSekretaris)
-	keamUID, _ := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKeamanan)
+	bendUID, bendaharaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanBendahara)
+	keamUID, keamToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKeamanan)
+	_, ketuaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKetua)
 
-	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0899999999' WHERE id IN (SELECT user_id FROM user_rt_memberships WHERE rt_id = $1)", rtID)
-	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0811111111' WHERE id = $1", wargaUID)
-	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0822222222', email = 'sekretaris@test.com' WHERE id = $1", sekUID)
-	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0833333333', email = 'keamanan@test.com' WHERE id = $1", keamUID)
+	// Additional matrix roles for strict exact jabatan "ketua" contact privacy verification:
+	_, wakilKetuaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanWakilKetua)
+	_, sosialToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, "sosial")
+	_, operasionalToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, "operasional")
+	_, kebersihanToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, "kebersihan")
+	_, anggotaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "anggota")
+	_, anggotaRTToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, "anggota_rt")
 
-	recWarga := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", wargaToken, nil, "")
-	if recWarga.Code != http.StatusOK {
-		t.Fatalf("warga org structure = %d", recWarga.Code)
+	// Custom claims testing for variants that should NOT be permitted:
+	ketuaRTToken, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  wargaUID,
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: "ketua_rt",
+	})
+	if err != nil {
+		t.Fatalf("generate ketua_rt token: %v", err)
+	}
+	ketuaRTSpaceToken, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  wargaUID,
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: "ketua rt",
+	})
+	if err != nil {
+		t.Fatalf("generate ketua rt token: %v", err)
 	}
 
-	var wargaData struct {
+	// Super Admin token
+	saToken, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  "00000000-0000-0000-0000-000000000001",
+		RTID:    rtID,
+		SysRole: string(auth.SystemRoleSuperAdmin),
+	})
+	if err != nil {
+		t.Fatalf("generate SA token: %v", err)
+	}
+
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0899999999' WHERE id IN (SELECT user_id FROM user_rt_memberships WHERE rt_id = $1)", rtID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0811111111', email = 'warga@test.com' WHERE id = $1", wargaUID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0822222222', email = 'sekretaris@test.com' WHERE id = $1", sekUID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0833333333', email = 'bendahara@test.com' WHERE id = $1", bendUID)
+	_, _ = pool.Raw().ExecContext(context.Background(), "UPDATE users SET phone = '0844444444', email = 'keamanan@test.com' WHERE id = $1", keamUID)
+
+	type orgResp struct {
 		Nodes []struct {
 			Position string `json:"position"`
 			Members  []struct {
@@ -723,59 +759,66 @@ func TestCommunity_OrganizationContactPrivacy(t *testing.T) {
 			} `json:"members"`
 		} `json:"nodes"`
 	}
-	if err := json.Unmarshal(recWarga.Body.Bytes(), &wargaData); err != nil {
-		t.Fatalf("unmarshal warga org structure: %v", err)
-	}
 
-	foundKeamanan := false
-	for _, n := range wargaData.Nodes {
-		for _, m := range n.Members {
-			if strings.EqualFold(m.Jabatan, "keamanan") {
-				foundKeamanan = true
-				if m.Phone == nil || *m.Phone == "" {
-					t.Errorf("warga must be able to view phone of Petugas Keamanan on org structure")
-				}
-			} else {
+	assertNoContacts := func(callerName, token string) {
+		t.Helper()
+		rec := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", token, nil, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s org structure = %d, want 200", callerName, rec.Code)
+		}
+		var data orgResp
+		if err := json.Unmarshal(rec.Body.Bytes(), &data); err != nil {
+			t.Fatalf("unmarshal %s org structure: %v", callerName, err)
+		}
+		for _, n := range data.Nodes {
+			for _, m := range n.Members {
 				if m.Phone != nil && *m.Phone != "" {
-					t.Errorf("warga must NOT see phone of non-keamanan officer %s (%s)", m.FullName, m.Jabatan)
+					t.Errorf("%s must NOT see phone of officer %s (%s), got %s", callerName, m.FullName, m.Jabatan, *m.Phone)
+				}
+				if m.Email != nil && *m.Email != "" {
+					t.Errorf("%s must NOT see email of officer %s (%s), got %s", callerName, m.FullName, m.Jabatan, *m.Email)
 				}
 			}
-			if m.Email != nil && *m.Email != "" {
-				t.Errorf("warga must NOT see email of officer %s", m.FullName)
-			}
+		}
+		if strings.Contains(rec.Body.String(), "nik") {
+			t.Fatalf("%s response leaked NIK", callerName)
 		}
 	}
-	if !foundKeamanan {
-		t.Fatalf("expected Petugas Keamanan in org structure nodes")
-	}
 
-	// NIK should never be leaked
-	if strings.Contains(recWarga.Body.String(), "nik") {
-		t.Fatal("warga response leaked NIK")
-	}
+	// 1. Non-Ketua callers MUST NOT see phone or email across all roles & jabatans:
+	assertNoContacts("warga", wargaToken)
+	assertNoContacts("sekretaris", sekretarisToken)
+	assertNoContacts("bendahara", bendaharaToken)
+	assertNoContacts("keamanan", keamToken)
+	assertNoContacts("wakil_ketua", wakilKetuaToken)
+	assertNoContacts("sosial", sosialToken)
+	assertNoContacts("operasional", operasionalToken)
+	assertNoContacts("kebersihan", kebersihanToken)
+	assertNoContacts("anggota", anggotaToken)
+	assertNoContacts("anggota_rt", anggotaRTToken)
+	assertNoContacts("ketua_rt", ketuaRTToken)
+	assertNoContacts("ketua rt (with space)", ketuaRTSpaceToken)
+	assertNoContacts("super_admin", saToken)
 
-	recSek := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", sekretarisToken, nil, "")
-	if recSek.Code != http.StatusOK {
-		t.Fatalf("sekretaris org structure = %d", recSek.Code)
+	// 2. Ketua RT caller MUST see contact details:
+	recKetua := doReq(t, router, http.MethodGet, "/api/v1/organization-structure", ketuaToken, nil, "")
+	if recKetua.Code != http.StatusOK {
+		t.Fatalf("ketua org structure = %d, want 200", recKetua.Code)
 	}
-
-	var sekData struct {
-		Nodes []struct {
-			Members []struct {
-				Jabatan string  `json:"jabatan"`
-				Phone   *string `json:"phone"`
-			} `json:"members"`
-		} `json:"nodes"`
+	var ketuaData orgResp
+	if err := json.Unmarshal(recKetua.Body.Bytes(), &ketuaData); err != nil {
+		t.Fatalf("unmarshal ketua org structure: %v", err)
 	}
-	if err := json.Unmarshal(recSek.Body.Bytes(), &sekData); err != nil {
-		t.Fatalf("unmarshal sek org structure: %v", err)
-	}
-	for _, n := range sekData.Nodes {
+	foundContact := false
+	for _, n := range ketuaData.Nodes {
 		for _, m := range n.Members {
-			if strings.EqualFold(m.Jabatan, "sekretaris") && (m.Phone == nil || *m.Phone == "") {
-				t.Errorf("sekretaris (with permission) should see phone of sekretaris")
+			if m.Phone != nil && *m.Phone != "" {
+				foundContact = true
 			}
 		}
+	}
+	if !foundContact {
+		t.Fatalf("Ketua RT must be able to view contact details of org members")
 	}
 }
 

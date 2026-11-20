@@ -39,6 +39,7 @@ class _NotificationManagementScreenState
   late final TabController _tabController;
   late final TabController _historyTabController;
   late final TabController _configTabController;
+  final Set<String> _openingLogDetailIds = <String>{};
 
   static const Map<String, String> _knownEventNames = {
     'manual_push': 'Pengumuman Pengurus',
@@ -298,66 +299,86 @@ class _NotificationManagementScreenState
     }
   }
 
-  void _openLogDetail(NotificationLogEntry log) {
-    void doMarkRead() {
-      if (_historyCategory == null && !log.isRead) {
-        ref
-            .read(notificationRepositoryProvider)
-            .markAsRead(log.id)
-            .then((_) {
-              ref.read(notificationUnreadCountProvider.notifier).refresh();
-              if (mounted) {
-                setState(() {
-                  _logs = _logs
-                      .map(
-                        (l) => l.id == log.id
-                            ? l.copyWith(isRead: true, readAt: DateTime.now())
-                            : l,
-                      )
-                      .toList();
-                });
-              }
-            })
-            .catchError((_) {});
-      }
-    }
-
-    final combinedPayload = <String, dynamic>{
-      if (log.payload != null) ...log.payload!,
-      if (log.variables.isNotEmpty) ...log.variables,
-      'type': log.eventType,
-      'title': log.title,
-      'body': log.body,
-      'dedup_key': log.dedupKey,
-      if (log.imageUrl != null) 'image_url': log.imageUrl,
-      if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
-      'notification_id': log.id,
-    };
-
-    final deepLink = log.payload?['deep_link'] as String?;
-    var target = normalizeNotificationTarget(
-      deepLink,
-      payload: combinedPayload,
-    );
-    if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
-      final sep = target.contains('?') ? '&' : '?';
-      target = '$target${sep}from=notifikasi';
-    }
-
-    final router = GoRouter.maybeOf(context);
-    if (router != null) {
-      try {
-        router.push(target);
-        doMarkRead();
-      } catch (_) {
-        // Navigation failed; do not mark as read
-      }
+  Future<void> _openLogDetail(NotificationLogEntry log) async {
+    final logId = log.id.trim();
+    if (logId.isNotEmpty && _openingLogDetailIds.contains(logId)) {
       return;
     }
+    if (logId.isNotEmpty) {
+      _openingLogDetailIds.add(logId);
+    }
+    try {
+      final isPersonalCategory =
+          _historyCategory == null || _historyCategory == 'mine';
 
-    final id = log.id.trim();
-    Navigator.of(context)
-        .push(
+      Future<void> doMarkRead() async {
+        if (!isPersonalCategory || log.isRead) return;
+        try {
+          await ref.read(notificationRepositoryProvider).markAsRead(log.id);
+          if (!mounted) return;
+          setState(() {
+            _logs = _logs
+                .map(
+                  (l) => l.id == log.id
+                      ? l.copyWith(isRead: true, readAt: DateTime.now())
+                      : l,
+                )
+                .toList();
+          });
+          await _loadLogs(category: _historyCategory);
+          await ref.read(notificationUnreadCountProvider.notifier).refresh();
+        } catch (_) {
+          // Jika request markAsRead gagal, jangan menampilkan status read permanen secara palsu
+        }
+      }
+
+      final combinedPayload = <String, dynamic>{
+        if (log.payload != null) ...log.payload!,
+        if (log.variables.isNotEmpty) ...log.variables,
+        'type': log.eventType,
+        'title': log.title,
+        'body': log.body,
+        'dedup_key': log.dedupKey,
+        if (log.imageUrl != null) 'image_url': log.imageUrl,
+        if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
+        'notification_id': log.id,
+      };
+
+      final deepLink = log.payload?['deep_link'] as String?;
+      var target = normalizeNotificationTarget(
+        deepLink,
+        payload: combinedPayload,
+      );
+      if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
+        final sep = target.contains('?') ? '&' : '?';
+        target = '$target${sep}from=notifikasi';
+      }
+
+      final router = GoRouter.maybeOf(context);
+      if (router != null) {
+        try {
+          final uri = Uri.tryParse(target);
+          if (uri == null) {
+            // Navigasi gagal; notifikasi tetap unread
+            return;
+          }
+          final matches = router.configuration.findMatch(uri);
+          if (matches.isEmpty) {
+            // Navigasi gagal; notifikasi tetap unread
+            return;
+          }
+          router.push(target);
+        } catch (_) {
+          // Navigasi gagal; notifikasi tetap unread
+          return;
+        }
+        await doMarkRead();
+        return;
+      }
+
+      try {
+        final id = log.id.trim();
+        await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => NotificationDetailScreen(
               notificationId: id.isNotEmpty ? id : null,
@@ -369,10 +390,17 @@ class _NotificationManagementScreenState
               openedFromNotificationList: true,
             ),
           ),
-        )
-        .then((_) {
-          doMarkRead();
-        });
+        );
+      } catch (_) {
+        // Navigasi gagal; notifikasi tetap unread
+        return;
+      }
+      await doMarkRead();
+    } finally {
+      if (logId.isNotEmpty) {
+        _openingLogDetailIds.remove(logId);
+      }
+    }
   }
 
   void _showPreviewBanner({

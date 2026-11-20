@@ -985,9 +985,76 @@ export function PaketPage() {
                   </div>
                 </div>
 
-                <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 16 }}>
-                  Diterima pada: {formatJakartaDateTime(selectedReport.created_at)} oleh{' '}
-                  <strong>{selectedReport.created_by_name || 'Petugas'}</strong>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: 12,
+                    marginBottom: 16,
+                    padding: 12,
+                    backgroundColor: 'var(--sf-bg-surface-secondary)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 2 }}>
+                      Petugas Penerima Paket:
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {selectedReport.created_by_name || 'Petugas Keamanan'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                      {formatJakartaDateTime(selectedReport.created_at)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 2 }}>
+                      Status & Ringkasan Serah Terima:
+                    </div>
+                    {(() => {
+                      const total = selectedReport.items?.length || selectedReport.total_items || 0
+                      const handedOver =
+                        selectedReport.items?.filter((it) => it.status === 'sudah_diambil').length ??
+                        selectedReport.handed_over_items_count ??
+                        0
+                      const pending = total - handedOver
+
+                      if (total > 0 && handedOver === total) {
+                        return (
+                          <>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {selectedReport.handed_over_by_name || 'Data serah terima belum tersedia'}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                              Semua {total} item sudah diserahkan
+                            </div>
+                          </>
+                        )
+                      }
+                      if (handedOver > 0) {
+                        return (
+                          <>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sf-color-warning, #f59e0b)' }}>
+                              {selectedReport.handed_over_by_name || 'Sebagian Diserahkan'}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                              {handedOver} diserahkan · {pending} belum diserahkan
+                            </div>
+                          </>
+                        )
+                      }
+                      return (
+                        <>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--sf-text-muted)' }}>
+                            Belum diserahkan
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                            {total} item masih dititipkan di pos
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
                 </div>
 
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
@@ -1039,12 +1106,27 @@ export function PaketPage() {
                         </div>
 
                         {/* Status history info if picked up */}
-                        {isPickedUp && item.status_changed_at && (
+                        {isPickedUp ? (
                           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 8 }}>
-                            Diserahkan pada: {formatJakartaDateTime(item.status_changed_at)}
-                            {item.changed_by_name && ` oleh ${item.changed_by_name}`}
+                            {item.handed_over_by_name ? (
+                              <>
+                                Diserahkan oleh <strong>{item.handed_over_by_name}</strong>
+                                {item.handed_over_at && ` pada ${formatJakartaDateTime(item.handed_over_at)}`}
+                              </>
+                            ) : item.status_changed_at ? (
+                              <>
+                                Diserahkan pada {formatJakartaDateTime(item.status_changed_at)}
+                                {item.changed_by_name && ` oleh ${item.changed_by_name}`}
+                              </>
+                            ) : (
+                              'Data serah terima belum tersedia'
+                            )}
                           </div>
-                        )}
+                        ) : isPending ? (
+                          <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 8 }}>
+                            Status: Belum diserahkan
+                          </div>
+                        ) : null}
 
                         {/* Photos gallery */}
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>

@@ -40,7 +40,7 @@ func TestPaket_WargaRecipientDeepLinkAndPhotosRBAC(t *testing.T) {
 			INSERT INTO rts (id, rw, rt, name, is_active)
 			VALUES ($1, $2, $3, $4, true)
 			ON CONFLICT (id) DO NOTHING
-		`, rt.id, baseRW+idx, fmt.Sprintf("%03d", idx+1), rt.name)
+		`, rt.id, baseRW+idx, fmt.Sprintf("%03d-%s", idx+1, uuid.NewString()[:6]), rt.name)
 		if err != nil {
 			t.Fatalf("setup rt: %v", err)
 		}

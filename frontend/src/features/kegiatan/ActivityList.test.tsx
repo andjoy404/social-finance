@@ -142,9 +142,13 @@ describe('ActivityList (Standardized Notification Table Pattern)', () => {
       expect(screen.getByText('Kerja Bakti Pembersihan Saluran Air')).toBeInTheDocument()
     })
 
-    // Row click navigates to detail page
-    fireEvent.click(screen.getByRole('link', { name: 'Detail kegiatan Kerja Bakti Pembersihan Saluran Air' }))
-    expect(mockNavigate).toHaveBeenCalledWith('/kegiatan/act-1')
+    // Clicking "Lihat Detail" opens preview modal
+    const viewButtons = screen.getAllByRole('button', { name: 'Lihat Detail' })
+    fireEvent.click(viewButtons[0])
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Tutup' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Tutup' }))
 
     // Publish action on draft (act-2)
     fireEvent.click(screen.getByRole('button', { name: 'Publikasikan' }))

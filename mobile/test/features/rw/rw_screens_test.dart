@@ -659,8 +659,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Exactly 4 tabs for anggota_rt: Data RW, Warga, Notifikasi, and Profil (no operational RT menus)
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
+      // Fixed bottom nav has 2 tabs (Beranda and Menu), while Menu sheet contains Data RW, Warga, Notifikasi, and Profil
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(2));
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
+      await tester.pumpAndSettle();
+
       expect(find.text('Data RW'), findsWidgets);
       expect(find.text('Warga'), findsWidgets);
       expect(find.text('Notifikasi'), findsWidgets);
@@ -719,7 +722,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(2));
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
+      await tester.pumpAndSettle();
+
       expect(find.text('Data RW'), findsWidgets);
       expect(find.text('Warga'), findsWidgets);
       expect(find.text('Notifikasi'), findsWidgets);

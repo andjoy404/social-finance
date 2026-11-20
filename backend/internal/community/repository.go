@@ -780,7 +780,7 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
 		       ph.house_number,
-		       CASE WHEN ($2 = true OR lower(trim(m.jabatan)) IN ('keamanan', 'ketua', 'ketua_rt')) THEN u.phone ELSE NULL END AS phone,
+		       CASE WHEN $2 = true THEN u.phone ELSE NULL END AS phone,
 		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
 		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m

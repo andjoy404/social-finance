@@ -111,7 +111,7 @@ class _PatrolPaketMockApi extends SecurityApiClient {
   Future<GuestBookPage> listManagerGuestBooks({
     String? search,
     int page = 1,
-    int pageSize = 20,
+    String? status,
   }) async => const GuestBookPage([], 0, 1);
 
   @override

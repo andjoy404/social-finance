@@ -659,11 +659,10 @@ export function Dashboard() {
                         node.members.map((member) => {
                           const posLower = (member.jabatan ?? '').toLowerCase()
                           const isKetua = posLower === 'ketua' || posLower === 'ketua_rt'
-                          const isSecurity = ['keamanan', 'keamanan_rt', 'seksi_keamanan', 'seksi_keamanan_rt'].includes(posLower)
                           const isOperasional = ['operasional', 'operasional_rt'].includes(posLower)
                           const isKebersihan = ['kebersihan', 'kebersihan_rt'].includes(posLower)
                           const dividerBelowName = isOperasional || isKebersihan
-                          const showPhone = isKetua || isSecurity
+                          const showPhone = isKetua
                           return (
                           <div
                             key={member.user_id}

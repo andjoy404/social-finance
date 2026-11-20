@@ -937,7 +937,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final jNorm = jabatan.trim().toLowerCase();
     final isKetua =
         jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
-    final isSecurity = jNorm == 'keamanan' || jNorm == 'seksi_keamanan';
 
     showModalBottomSheet(
       context: context,
@@ -982,8 +981,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final memberPhone =
                           (member.phone ?? warga?.phoneNumber ?? '').trim();
                       final isKetuaPhone = isKetua && memberPhone.isNotEmpty;
-                      final isSecurityPhone =
-                          isSecurity && memberPhone.isNotEmpty;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1074,64 +1071,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                               fontWeight: FontWeight.w700,
                                               fontSize: 11,
                                               color: AppColors.warning,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                    // Petugas Keamanan → tampilkan nomor telepon dengan style monospace
-                                    if (isSecurityPhone) ...[
-                                      const SizedBox(height: 2),
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.phone,
-                                            size: 11,
-                                            color: AppColors.success,
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Expanded(
-                                            child: Text(
-                                              memberPhone,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontFamily: 'monospace',
-                                                letterSpacing: 0.6,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 11,
-                                                color: AppColors.warning,
-                                              ),
-                                            ),
-                                          ),
-                                          GestureDetector(
-                                            onTap: () {
-                                              Clipboard.setData(
-                                                ClipboardData(
-                                                  text: memberPhone,
-                                                ),
-                                              );
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Nomor telepon $name disalin',
-                                                  ),
-                                                  behavior:
-                                                      SnackBarBehavior.floating,
-                                                  duration: const Duration(
-                                                    seconds: 2,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            child: Icon(
-                                              Icons.copy_rounded,
-                                              size: 16,
-                                              color: AppColors.accent,
                                             ),
                                           ),
                                         ],

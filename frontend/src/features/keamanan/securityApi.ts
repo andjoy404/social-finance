@@ -731,6 +731,9 @@ export interface PaketItem {
   status_changed_at?: string | null
   status_changed_by?: string | null
   changed_by_name?: string
+  handed_over_at?: string | null
+  handed_over_by?: string | null
+  handed_over_by_name?: string | null
   photos?: PaketPhoto[]
   created_at: string
   updated_at: string
@@ -744,6 +747,12 @@ export interface PaketReport {
   receiver_house_number?: string
   created_by: string
   created_by_name?: string
+  handed_over_at?: string | null
+  handed_over_by?: string | null
+  handed_over_by_name?: string | null
+  total_items?: number
+  handed_over_items_count?: number
+  pending_items_count?: number
   items?: PaketItem[]
   overall_status: 'dititipkan' | 'sudah_diambil' | 'dibatalkan'
   created_at: string

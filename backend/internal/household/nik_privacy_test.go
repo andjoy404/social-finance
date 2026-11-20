@@ -104,12 +104,24 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 	sekretarisToken := makeTokenWithJabatan("user-sekretaris-nik", "sekretaris", auth.RolePengurus)
 	bendaharaToken := makeTokenWithJabatan("user-bendahara-nik", "bendahara", auth.RolePengurus)
 	keamananToken := makeTokenWithJabatan("user-keamanan-nik", "keamanan", auth.RoleWarga)
+	sosialToken := makeTokenWithJabatan("user-sosial-nik", "sosial", auth.RolePengurus)
+	operasionalToken := makeTokenWithJabatan("user-operasional-nik", "operasional", auth.RoleWarga)
 	kebersihanToken := makeTokenWithJabatan("user-kebersihan-nik", "kebersihan", auth.RoleWarga)
+	anggotaToken := makeTokenWithJabatan("user-anggota-nik", "anggota", auth.RoleWarga)
+	anggotaRTToken := makeTokenWithJabatan("user-anggotart-nik", "anggota_rt", auth.RolePengurus)
+	// ketua_rt claim variant: membership in DB is "anggota_rt", but token claim is "ketua_rt"
+	ketuaRTToken := makeToken(t, auth.TokenClaims{
+		UserID:  toUUID("user-anggotart-nik"),
+		MID:     toUUID("mid-user-anggotart-nik"),
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: "ketua_rt",
+	})
 	wargaToken := makeTokenWithJabatan("user-warga-nik", "", auth.RoleWarga)
 	superAdminTok := makeSuperAdminToken(t)
 
-	// 1. Ketua RT can see NIK in GET /api/v1/residents/:id
-	t.Run("Ketua RT can read NIK", func(t *testing.T) {
+	// 1. Ketua RT can see NIK, phone, and email in GET /api/v1/residents/:id
+	t.Run("Ketua RT can read NIK, phone, and email", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID, nil)
 		req.Header.Set("Authorization", "Bearer "+ketuaToken)
 		rec := httptest.NewRecorder()
@@ -120,59 +132,47 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
 		require.NotNil(t, res.Nik, "Ketua RT must receive NIK")
 		require.Equal(t, secretNik, *res.Nik)
+		require.NotNil(t, res.Phone, "Ketua RT must receive phone")
+		require.Equal(t, secretPhone, *res.Phone)
+		require.NotNil(t, res.Email, "Ketua RT must receive email")
+		require.Equal(t, secretEmail, *res.Email)
 	})
 
-	// 2. Super Admin receives nil NIK (strict Ketua RT-only access, NO Super Admin exception)
-	t.Run("Super Admin receives nil NIK", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID+"?rt_id="+rtID, nil)
-		req.Header.Set("Authorization", "Bearer "+superAdminTok)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
+	// Matrix testing: all non-ketua roles MUST have NIK, phone, and email redacted to nil
+	nonKetuaResidentTokens := map[string]string{
+		"Super Admin": superAdminTok,
+		"Sekretaris":  sekretarisToken,
+		"Bendahara":   bendaharaToken,
+		"Wakil Ketua": wakilKetuaToken,
+		"Keamanan":    keamananToken,
+		"Sosial":      sosialToken,
+		"Operasional": operasionalToken,
+		"Kebersihan":  kebersihanToken,
+		"Anggota":     anggotaToken,
+		"Anggota RT":  anggotaRTToken,
+		"Ketua RT (variant ketua_rt)": ketuaRTToken,
+		"Warga":       wargaToken,
+	}
 
-		var res Resident
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-		require.Nil(t, res.Nik, "Super Admin must have NIK redacted to nil")
-	})
+	for roleName, tok := range nonKetuaResidentTokens {
+		t.Run("Non-ketua receives nil NIK and nil contacts/"+roleName, func(t *testing.T) {
+			targetURL := "/api/v1/residents/" + residentID
+			if roleName == "Super Admin" {
+				targetURL += "?rt_id=" + rtID
+			}
+			req := httptest.NewRequest("GET", targetURL, nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	// 3. Sekretaris cannot see NIK (redacted to nil)
-	t.Run("Sekretaris receives nil NIK", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID, nil)
-		req.Header.Set("Authorization", "Bearer "+sekretarisToken)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var res Resident
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-		require.Nil(t, res.Nik, "Sekretaris must NOT receive NIK")
-	})
-
-	// 4. Bendahara cannot see NIK (redacted to nil)
-	t.Run("Bendahara receives nil NIK", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID, nil)
-		req.Header.Set("Authorization", "Bearer "+bendaharaToken)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var res Resident
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-		require.Nil(t, res.Nik, "Bendahara must NOT receive NIK")
-	})
-
-	// 5. Keamanan cannot see NIK
-	t.Run("Keamanan receives nil NIK", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID, nil)
-		req.Header.Set("Authorization", "Bearer "+keamananToken)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var res Resident
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-		require.Nil(t, res.Nik, "Keamanan must NOT receive NIK")
-	})
+			var res Resident
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
+			require.Nil(t, res.Nik, "%s must NOT receive NIK", roleName)
+			require.Nil(t, res.Phone, "%s must NOT receive phone", roleName)
+			require.Nil(t, res.Email, "%s must NOT receive email", roleName)
+		})
+	}
 
 	// 6. Warga cannot see NIK in list
 	t.Run("Warga receives nil NIK in list", func(t *testing.T) {
@@ -197,7 +197,12 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 		"Sekretaris":  sekretarisToken,
 		"Wakil Ketua": wakilKetuaToken,
 		"Keamanan":    keamananToken,
+		"Sosial":      sosialToken,
+		"Operasional": operasionalToken,
 		"Kebersihan":  kebersihanToken,
+		"Anggota":     anggotaToken,
+		"Anggota RT":  anggotaRTToken,
+		"Ketua RT (variant)": ketuaRTToken,
 		"Warga":       wargaToken,
 		"Super Admin": superAdminTok,
 	}

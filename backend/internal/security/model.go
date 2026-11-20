@@ -647,30 +647,39 @@ type PaketPhoto struct {
 }
 
 type PaketItem struct {
-	ID              string       `json:"id"`
-	PaketReportID   string       `json:"paket_report_id"`
-	Description     *string      `json:"description,omitempty"`
-	Status          string       `json:"status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
-	StatusChangedAt *time.Time   `json:"status_changed_at,omitempty"`
-	StatusChangedBy *string      `json:"status_changed_by,omitempty"`
-	ChangedByName   string       `json:"changed_by_name,omitempty"`
-	Photos          []PaketPhoto `json:"photos,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
-	UpdatedAt       time.Time    `json:"updated_at"`
+	ID               string       `json:"id"`
+	PaketReportID    string       `json:"paket_report_id"`
+	Description      *string      `json:"description,omitempty"`
+	Status           string       `json:"status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
+	StatusChangedAt  *time.Time   `json:"status_changed_at,omitempty"`
+	StatusChangedBy  *string      `json:"status_changed_by,omitempty"`
+	ChangedByName    string       `json:"changed_by_name,omitempty"`
+	HandedOverAt     *time.Time   `json:"handed_over_at,omitempty"`
+	HandedOverBy     *string      `json:"handed_over_by,omitempty"`
+	HandedOverByName string       `json:"handed_over_by_name,omitempty"`
+	Photos           []PaketPhoto `json:"photos,omitempty"`
+	CreatedAt        time.Time    `json:"created_at"`
+	UpdatedAt        time.Time    `json:"updated_at"`
 }
 
 type PaketReport struct {
-	ID                  string      `json:"id"`
-	RTID                string      `json:"rt_id"`
-	ReceiverWargaID     string      `json:"receiver_warga_id"`
-	ReceiverName        string      `json:"receiver_name,omitempty"`
-	ReceiverHouseNumber string      `json:"receiver_house_number,omitempty"`
-	CreatedBy           string      `json:"created_by"`
-	CreatedByName       string      `json:"created_by_name,omitempty"`
-	Items               []PaketItem `json:"items,omitempty"`
-	OverallStatus       string      `json:"overall_status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
-	CreatedAt           time.Time   `json:"created_at"`
-	UpdatedAt           time.Time   `json:"updated_at"`
+	ID                   string      `json:"id"`
+	RTID                 string      `json:"rt_id"`
+	ReceiverWargaID      string      `json:"receiver_warga_id"`
+	ReceiverName         string      `json:"receiver_name,omitempty"`
+	ReceiverHouseNumber  string      `json:"receiver_house_number,omitempty"`
+	CreatedBy            string      `json:"created_by"`
+	CreatedByName        string      `json:"created_by_name,omitempty"`
+	HandedOverAt         *time.Time  `json:"handed_over_at,omitempty"`
+	HandedOverBy         *string     `json:"handed_over_by,omitempty"`
+	HandedOverByName     string      `json:"handed_over_by_name,omitempty"`
+	TotalItems           int         `json:"total_items"`
+	HandedOverItemsCount int         `json:"handed_over_items_count"`
+	PendingItemsCount    int         `json:"pending_items_count"`
+	Items                []PaketItem `json:"items,omitempty"`
+	OverallStatus        string      `json:"overall_status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
+	CreatedAt            time.Time   `json:"created_at"`
+	UpdatedAt            time.Time   `json:"updated_at"`
 }
 
 type CreatePaketItem struct {
