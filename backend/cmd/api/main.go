@@ -912,7 +912,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial, auth.JabatanOperasional, auth.JabatanHumas))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
@@ -926,7 +926,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial, auth.JabatanOperasional, auth.JabatanHumas))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Post("/api/v1/payments", finH.CreatePayment)
 		r.Post("/api/v1/payments/multi-period", finH.CreateMultiPeriodPayment)
@@ -1287,7 +1287,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua, auth.JabatanKeamanan}))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua, auth.JabatanKeamanan, auth.JabatanHumas}))
 
 		r.Get("/api/v1/security/dashboard", securityH.GetDashboard)
 		r.Get("/api/v1/security/officers", securityH.ListOfficers)

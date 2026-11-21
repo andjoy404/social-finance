@@ -905,6 +905,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case 'bendahara':
       case 'bendahara_rt':
         return AppColors.warning;
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
+        return AppColors.warning;
       case 'keamanan':
       case 'keamanan_rt':
       case 'seksi_keamanan':

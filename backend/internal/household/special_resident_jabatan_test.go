@@ -18,15 +18,15 @@ import (
 )
 
 func TestSpecialResidentJabatanValidation(t *testing.T) {
-	// 1. Verify validSpecialJabatans allows keamanan, operasional, kebersihan, anggota_rw
-	expectedSpecial := []string{"keamanan", "operasional", "kebersihan", "anggota_rw"}
+	// 1. Verify validSpecialJabatans allows keamanan, kebersihan, anggota_rw (operasional is now household-based)
+	expectedSpecial := []string{"keamanan", "kebersihan", "anggota_rw"}
 	for _, j := range expectedSpecial {
 		if !validSpecialJabatans[j] {
 			t.Errorf("expected validSpecialJabatans[%q] to be true", j)
 		}
 	}
 
-	rejectedSpecial := []string{"kebersihan_pembangunan", "ketua", "bendahara", "anggota", "unknown", ""}
+	rejectedSpecial := []string{"operasional", "kebersihan_pembangunan", "ketua", "bendahara", "anggota", "unknown", ""}
 	for _, j := range rejectedSpecial {
 		if validSpecialJabatans[j] {
 			t.Errorf("expected validSpecialJabatans[%q] to be false", j)
@@ -83,10 +83,16 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	cleanup()
 	t.Cleanup(func() {
 		cleanup()
-		// Always restore test DB with migration 083 UP applied
-		mig083Path := filepath.Join("..", "..", "migrations", "083_sekretaris_finance_revoke_and_anggota_rt.up.sql")
-		if mig083Up, err := os.ReadFile(mig083Path); err == nil {
-			_, _ = db.ExecContext(context.Background(), string(mig083Up))
+		// Always restore test DB with migrations 083, 091, and 092 UP applied
+		for _, mig := range []string{
+			"083_sekretaris_finance_revoke_and_anggota_rt.up.sql",
+			"091_add_anggota_rw_position.up.sql",
+			"092_add_humas_position.up.sql",
+		} {
+			migPath := filepath.Join("..", "..", "migrations", mig)
+			if migUp, err := os.ReadFile(migPath); err == nil {
+				_, _ = db.ExecContext(context.Background(), string(migUp))
+			}
 		}
 	})
 
@@ -109,10 +115,10 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 		}
 	}
 
-	// Migration 056 up/down re-creates user_rt_memberships_jabatan_check without 'anggota_rt' (added in 083).
-	// Temporarily convert any 'anggota_rt' rows to 'anggota' during this test, restored by t.Cleanup.
-	_, _ = db.ExecContext(ctx, `UPDATE user_rt_memberships SET jabatan = 'anggota' WHERE jabatan = 'anggota_rt'`)
-	_, _ = db.ExecContext(ctx, `UPDATE position_permissions SET position = 'anggota' WHERE position = 'anggota_rt'`)
+	// Migration 056 up/down re-creates user_rt_memberships_jabatan_check without later positions.
+	// Temporarily convert any 'anggota_rt', 'anggota_rw', or 'humas' rows to 'anggota' during this test, restored by t.Cleanup.
+	_, _ = db.ExecContext(ctx, `UPDATE user_rt_memberships SET jabatan = 'anggota' WHERE jabatan IN ('anggota_rt', 'anggota_rw', 'humas')`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM position_permissions WHERE position IN ('anggota_rt', 'anggota_rw', 'humas')`)
 
 	// Ensure migration 056 is first applied, then rolled back so we can test pre-056 data migration
 	if _, err := db.ExecContext(ctx, upSQL); err != nil {
@@ -239,6 +245,9 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE id = $1`, kebersihanMemID); err != nil {
 		t.Fatalf("delete kebersihan membership: %v", err)
 	}
+	_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE jabatan = 'kebersihan'`)
+	_, _ = db.ExecContext(ctx, `UPDATE user_rt_memberships SET jabatan = 'anggota' WHERE jabatan IN ('anggota_rt', 'anggota_rw', 'humas')`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM position_permissions WHERE position IN ('anggota_rt', 'anggota_rw', 'humas')`)
 	if _, err := db.ExecContext(ctx, downSQL); err != nil {
 		t.Fatalf("expected migration 056 down to succeed after removing 'kebersihan' membership, got: %v", err)
 	}
@@ -251,9 +260,19 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 		t.Fatalf("expected DOWN migration to restore 'operasional' back to 'kebersihan_pembangunan', got %q", restoredJabatan)
 	}
 
-	// Re-apply UP so test DB stays at migration 056
+	// Re-apply UP so test DB stays at migration 056, then restore migrations 083, 091, and 092
 	if _, err := db.ExecContext(ctx, upSQL); err != nil {
 		t.Fatalf("re-apply migration 056 up: %v", err)
+	}
+	for _, mig := range []string{
+		"083_sekretaris_finance_revoke_and_anggota_rt.up.sql",
+		"091_add_anggota_rw_position.up.sql",
+		"092_add_humas_position.up.sql",
+	} {
+		migPath := filepath.Join("..", "..", "migrations", mig)
+		if migUp, err := os.ReadFile(migPath); err == nil {
+			_, _ = db.ExecContext(ctx, string(migUp))
+		}
 	}
 
 	// 6. Verify SpecialResidentCreate and UpdateSpecialResident HTTP handlers
@@ -306,8 +325,8 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 		}
 	}
 
-	// UpdateSpecialResident accepts switching between operasional, kebersihan, and keamanan, and rejects kebersihan_pembangunan
-	for _, validJab := range []string{"operasional", "kebersihan", "keamanan"} {
+	// UpdateSpecialResident accepts switching between kebersihan, keamanan, and anggota_rw, and rejects operasional / kebersihan_pembangunan
+	for _, validJab := range []string{"kebersihan", "keamanan", "anggota_rw"} {
 		body := fmt.Sprintf(`{"jabatan":"%s"}`, validJab)
 		req := httptest.NewRequest(http.MethodPatch, "/api/v1/residents/special/"+createdID, bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -319,12 +338,14 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 		}
 	}
 
-	rejectUpdateReq := httptest.NewRequest(http.MethodPatch, "/api/v1/residents/special/"+createdID, bytes.NewBufferString(`{"jabatan":"kebersihan_pembangunan"}`))
-	rejectUpdateReq.Header.Set("Content-Type", "application/json")
-	rejectUpdateReq.Header.Set("Authorization", "Bearer "+pengurusToken)
-	rejectUpdateRec := httptest.NewRecorder()
-	r.ServeHTTP(rejectUpdateRec, rejectUpdateReq)
-	if rejectUpdateRec.Code != http.StatusBadRequest {
-		t.Fatalf("UpdateSpecialResident(kebersihan_pembangunan) expected 400, got %d: %s", rejectUpdateRec.Code, rejectUpdateRec.Body.String())
+	for _, invalidJab := range []string{"operasional", "kebersihan_pembangunan", "humas"} {
+		rejectUpdateReq := httptest.NewRequest(http.MethodPatch, "/api/v1/residents/special/"+createdID, bytes.NewBufferString(fmt.Sprintf(`{"jabatan":%q}`, invalidJab)))
+		rejectUpdateReq.Header.Set("Content-Type", "application/json")
+		rejectUpdateReq.Header.Set("Authorization", "Bearer "+pengurusToken)
+		rejectUpdateRec := httptest.NewRecorder()
+		r.ServeHTTP(rejectUpdateRec, rejectUpdateReq)
+		if rejectUpdateRec.Code != http.StatusBadRequest {
+			t.Fatalf("UpdateSpecialResident(%s) expected 400, got %d: %s", invalidJab, rejectUpdateRec.Code, rejectUpdateRec.Body.String())
+		}
 	}
 }

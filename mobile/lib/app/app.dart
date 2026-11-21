@@ -445,6 +445,18 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     return canUserAccessNotificationMenu(user);
   }
 
+  String _getEffectiveRwIdFromUser(Map<String, dynamic>? user) {
+    if (user == null) return '';
+    final rawList = user['rw_memberships'];
+    if (rawList is List && rawList.isNotEmpty) {
+      final first = rawList.first;
+      if (first is Map && first['rw_id'] != null) {
+        return first['rw_id'].toString();
+      }
+    }
+    return (user['rw_id'] ?? '').toString().trim();
+  }
+
   String _resolveAuthorizedTarget(String target, Map<String, dynamic>? user) {
     final uri = Uri.tryParse(target);
     final loc = uri?.path ?? target;
@@ -467,11 +479,20 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     }
 
     final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
-    if (jab == 'operasional' &&
-        (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
-      return '/home';
+    if (jab == 'humas') {
+      if (loc == '/home/keuangan') {
+        final rwId = _getEffectiveRwIdFromUser(user);
+        return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
+      }
+      if (loc.startsWith('/home/kas')) {
+        final rwId = _getEffectiveRwIdFromUser(user);
+        return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=kas' : '/home';
+      }
+      if (loc.startsWith('/home/lokasi-dana')) {
+        return '/home';
+      }
     }
-    if (jab == 'sosial' &&
+    if ((jab == 'operasional' || jab == 'sosial') &&
         (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
       return '/home';
     }
@@ -1040,11 +1061,20 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
-          if (jabatan == 'operasional' &&
-              (loc.startsWith('/home/kas') || loc.startsWith('/home/iuran'))) {
-            return '/home';
+          if (jabatan == 'humas') {
+            if (loc == '/home/keuangan') {
+              final rwId = _getEffectiveRwIdFromUser(user);
+              return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
+            }
+            if (loc.startsWith('/home/kas')) {
+              final rwId = _getEffectiveRwIdFromUser(user);
+              return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=kas' : '/home';
+            }
+            if (loc.startsWith('/home/lokasi-dana')) {
+              return '/home';
+            }
           }
-          if (jabatan == 'sosial' &&
+          if ((jabatan == 'operasional' || jabatan == 'sosial') &&
               (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
             return '/home';
           }

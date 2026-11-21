@@ -397,11 +397,11 @@ func TestRWRBAC_FinalMatrix_AllPersonasAllFeatures(t *testing.T) {
 				rec := sendReq("GET", locationsPath, token, nil)
 				switch name {
 				case "1. Ketua RW A", "2. Bendahara RW A", "3. Wakil Ketua RW A",
-					"4. Sekretaris RW A", "5. Pengurus RW A (Anggota)", "10. Super Admin":
+					"4. Sekretaris RW A", "10. Super Admin":
 					require.Equal(t, http.StatusOK, rec.Code, "explicit RW managers and SA should have read access to Lokasi Dana")
-				case "6. RT Warga under RW A", "7. Pengurus RT (Inferred)",
+				case "5. Pengurus RW A (Anggota)", "6. RT Warga under RW A", "7. Pengurus RT (Inferred)",
 					"8. User Without RW/RT", "9. Ketua RW B (Cross-RW)":
-					require.Equal(t, http.StatusForbidden, rec.Code, "Pengurus RT and unauthorized users must be forbidden from Lokasi Dana")
+					require.Equal(t, http.StatusForbidden, rec.Code, "Pengurus RW Anggota, Pengurus RT and unauthorized users must be forbidden from Lokasi Dana")
 				}
 			})
 		}

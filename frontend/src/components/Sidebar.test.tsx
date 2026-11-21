@@ -392,6 +392,62 @@ describe('Sidebar — navigation items', () => {
     expect(screen.queryByText(/Kas/i)).not.toBeInTheDocument()
   })
 
+  it('shows Keuangan, Kas, Data RW, Notifikasi, Keamanan and Iuran for humas, but hides Lokasi Dana and Buku Tamu', () => {
+    const mockHumasUser: AuthUser = {
+      id: 'user-humas-002',
+      name: 'Position Humas RT 002',
+      email: 'humas-002@local.com',
+      systemRole: null,
+      role: 'pengurus',
+      jabatan: 'humas',
+      rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+      rtCode: '002',
+      rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      rwId: 'rw-002',
+    }
+    renderSidebar(mockHumasUser)
+    expect(screen.getByText('Keuangan')).toBeInTheDocument()
+    expect(screen.getByText('Kas')).toBeInTheDocument()
+    expect(screen.getByText('Data RW')).toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Iuran')).toBeInTheDocument()
+    expect(document.querySelector('a[href="/lokasi-dana"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('Buku Tamu')).not.toBeInTheDocument()
+  })
+
+  it('shows Warga menus and Data RW for operasional, but hides Keuangan, Kas RT, Lokasi Dana, Keamanan, and Buku Tamu', () => {
+    const mockOperasionalUser: AuthUser = {
+      id: 'user-operasional-002',
+      name: 'Position Operasional RT 002',
+      email: 'operasional-002@local.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: 'operasional',
+      rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+      rtCode: '002',
+      rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      rwId: 'rw-002',
+    }
+    renderSidebar(mockOperasionalUser)
+    // Standard Warga items
+    expect(screen.getByText('Beranda')).toBeInTheDocument()
+    expect(screen.getByText('Iuran')).toBeInTheDocument()
+    expect(screen.getByText('Warga')).toBeInTheDocument()
+    expect(screen.getByText('Pengumuman')).toBeInTheDocument()
+    expect(screen.getByText('Kegiatan')).toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    // Read-only Data RW is granted
+    expect(screen.getByText('Data RW')).toBeInTheDocument()
+    // Officer / write / RT-finance items are strictly hidden
+    expect(screen.queryByText('Keuangan')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href="/lokasi-dana"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Buku Tamu')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
+  })
+
   it('contains nav entry for /iuran (active route)', () => {
     renderSidebar()
     expect(screen.getByText(/Iuran/i)).toBeInTheDocument()

@@ -8,8 +8,9 @@ import 'package:social_finance/features/warga/presentation/screens/warga_screen.
 
 void main() {
   group('Special Resident Positions (Keamanan, Operasional, Kebersihan)', () {
-    test('kPetugasKhususJabatan contains keamanan, operasional, kebersihan, anggota_rw and excludes kebersihan_pembangunan', () {
-      expect(kPetugasKhususJabatan, equals({'keamanan', 'operasional', 'kebersihan', 'anggota_rw'}));
+    test('kPetugasKhususJabatan contains keamanan, kebersihan, anggota_rw and excludes operasional and kebersihan_pembangunan', () {
+      expect(kPetugasKhususJabatan, equals({'keamanan', 'kebersihan', 'anggota_rw'}));
+      expect(kPetugasKhususJabatan.contains('operasional'), isFalse);
       expect(kPetugasKhususJabatan.contains('kebersihan_pembangunan'), isFalse);
     });
 

@@ -32,7 +32,6 @@ class WargaScreen extends ConsumerStatefulWidget {
 /// Jabatan yang hanya muncul dengan tombol edit petugas, bukan edit warga biasa.
 const Set<String> kPetugasKhususJabatan = {
   'keamanan',
-  'operasional',
   'kebersihan',
   'anggota_rw',
 };

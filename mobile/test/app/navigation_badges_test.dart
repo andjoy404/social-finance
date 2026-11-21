@@ -407,7 +407,7 @@ void main() {
     expect(find.byKey(const Key('menu-aggregate-unread-dot')), findsNothing);
   });
 
-  testWidgets('operasional hides Kas and Iuran, while sosial sees Iuran but hides Kas', (
+  testWidgets('operasional and sosial see Iuran but hide Kas', (
     tester,
   ) async {
     for (final roleJabatan in ['sosial', 'operasional']) {
@@ -456,19 +456,11 @@ void main() {
         findsNothing,
         reason: '$roleJabatan should not see KAS RT',
       );
-      if (roleJabatan == 'sosial') {
-        expect(
-          find.text('Iuran'),
-          findsOneWidget,
-          reason: 'sosial should see Iuran',
-        );
-      } else {
-        expect(
-          find.text('Iuran'),
-          findsNothing,
-          reason: '$roleJabatan should not see Iuran',
-        );
-      }
+      expect(
+        find.text('Iuran'),
+        findsOneWidget,
+        reason: '$roleJabatan should see Iuran',
+      );
     }
   });
 

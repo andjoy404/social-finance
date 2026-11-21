@@ -157,6 +157,12 @@ void main() {
               path: '/home/profile',
               builder: (context, state) => const Text('Screen Profil'),
             ),
+            GoRoute(
+              path: '/rw/:rwId/keuangan',
+              builder: (context, state) => Text(
+                'Screen RW Keuangan ${state.uri.queryParameters['tab'] ?? ''}',
+              ),
+            ),
           ],
         ),
       ],
@@ -285,6 +291,136 @@ void main() {
           find.descendant(of: bottomBar, matching: find.byType(Expanded)),
           findsNWidgets(3),
         );
+      },
+    );
+
+    testWidgets(
+      'Humas has exactly 4 bottom nav items (Beranda, Keuangan, Iuran, Menu), Keamanan and Kas in menu grid without Lokasi Dana',
+      (tester) async {
+        final humasUser = {
+          'id': 'usr-humas-1',
+          'name': 'Pengurus Humas',
+          'role': 'pengurus',
+          'jabatan': 'humas',
+          'rt_id': 'rt-01',
+          'rw_id': rwId,
+          'rw_memberships': [
+            {
+              'rw_id': rwId,
+              'rw_number': 5,
+              'rw_name': 'RW 05',
+              'jabatan': 'humas',
+            },
+          ],
+          'effective_permissions': [
+            'rw.dashboard.read',
+            'rw.kas.read',
+            'rw.notification.read',
+            'security.schedule.read',
+            'security.schedule.write',
+            'security.correction',
+            'security.device.manage',
+          ],
+        };
+        final router = createTestRouter();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(humasUser),
+              ),
+              securityAlertsProvider.overrideWith((ref) async => false),
+              notificationUnreadCountProvider.overrideWith(
+                (ref) => _MockUnreadNotifier(0),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Exactly 4 items in bottom bar: Beranda, Keuangan, Iuran, Menu
+        expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-keuangan')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-iuran')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+
+        // Tap Menu button to verify Keamanan and Kas are present, Buku Tamu and Lokasi Dana are absent
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('grid-item-keamanan')), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-kas')), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-buku-tamu')), findsNothing);
+        expect(find.byKey(const Key('grid-item-lokasi-dana')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Operasional has exactly 3 bottom nav items (Beranda, Iuran, Menu), Warga and Data RW in menu grid, and no officer write/finance items',
+      (tester) async {
+        final operasionalUser = {
+          'id': 'usr-operasional-1',
+          'name': 'Warga Operasional',
+          'role': 'warga',
+          'jabatan': 'operasional',
+          'rt_id': 'rt-01',
+          'rw_id': rwId,
+          'rw_memberships': [
+            {
+              'rw_id': rwId,
+              'rw_number': 5,
+              'rw_name': 'RW 05',
+              'jabatan': 'operasional',
+            },
+          ],
+          'effective_permissions': <String>[
+            'rw.dashboard.read',
+            'rw.kas.read',
+          ],
+        };
+        final router = createTestRouter();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(operasionalUser),
+              ),
+              securityAlertsProvider.overrideWith((ref) async => false),
+              notificationUnreadCountProvider.overrideWith(
+                (ref) => _MockUnreadNotifier(0),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Exactly 3 items in bottom bar: Beranda, Iuran, Menu (Keuangan omitted)
+        expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-keuangan')), findsNothing);
+        expect(find.byKey(const Key('nav-item-iuran')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+
+        // Tap Menu button to verify items
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+
+        // Warga items present
+        expect(find.byKey(const Key('grid-item-warga')), findsOneWidget);
+        expect(find.text('Data RW'), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-pengumuman')), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-kegiatan')), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-notifikasi')), findsOneWidget);
+        expect(find.byKey(const Key('grid-item-profil')), findsOneWidget);
+
+        // Officer / RT-finance items strictly absent
+        expect(find.byKey(const Key('grid-item-keamanan')), findsNothing);
+        expect(find.byKey(const Key('grid-item-kas')), findsNothing);
+        expect(find.byKey(const Key('grid-item-lokasi-dana')), findsNothing);
+        expect(find.byKey(const Key('grid-item-buku-tamu')), findsNothing);
+        expect(find.byKey(const Key('grid-item-patroli')), findsNothing);
+        expect(find.byKey(const Key('grid-item-paket')), findsNothing);
       },
     );
   });
@@ -712,6 +848,71 @@ void main() {
         expect(find.byIcon(Icons.home), findsOneWidget);
         expect(find.byIcon(Icons.grid_view_outlined), findsOneWidget);
         expect(find.byIcon(Icons.grid_view), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Humas tapping Keuangan navigates to RW Beranda, and tapping Kas in Menu navigates to RW Kas',
+      (tester) async {
+        final humasUser = {
+          'id': 'usr-humas-1',
+          'name': 'Humas 01',
+          'role': 'warga',
+          'jabatan': 'humas',
+          'rt_id': 'rt-01',
+          'rw_id': rwId,
+          'rw_memberships': [
+            {
+              'rw_id': rwId,
+              'rw_number': 5,
+              'rw_name': 'RW 05',
+              'jabatan': 'humas',
+            },
+          ],
+          'effective_permissions': [
+            'rw.dashboard.read',
+            'rw.kas.read',
+            'rw.notification.read',
+            'security.schedule.read',
+            'security.schedule.write',
+            'security.correction',
+            'security.device.manage',
+          ],
+        };
+        final router = createTestRouter(initialLocation: '/home');
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _MockAuthRepo(humasUser),
+              ),
+              securityAlertsProvider.overrideWith((ref) async => false),
+              notificationUnreadCountProvider.overrideWith(
+                (ref) => _MockUnreadNotifier(0),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. Tap Keuangan in bottom nav -> routes to RW Keuangan (tab=beranda)
+        await tester.tap(find.byKey(const Key('nav-item-keuangan')));
+        await tester.pumpAndSettle();
+        expect(find.text('Screen RW Keuangan beranda'), findsOneWidget);
+        // Keuangan item is active
+        expect(find.byIcon(Icons.analytics), findsOneWidget);
+
+        // 2. Open Menu grid and tap Kas -> routes to RW Keuangan (tab=kas)
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('grid-item-kas')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('grid-item-kas')));
+        await tester.pumpAndSettle();
+        expect(find.text('Screen RW Keuangan kas'), findsOneWidget);
+        // Menu item is active because Kas is in the collapsed menu sheet
+        expect(find.byIcon(Icons.grid_view), findsOneWidget);
       },
     );
   });

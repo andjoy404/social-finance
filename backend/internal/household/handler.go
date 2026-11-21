@@ -1186,25 +1186,11 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 			resident, err := svc.GetResidentByID(ctx, tx, id, targetRT)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
-					// SuperAdmin without explicit rt_id: try all scoped RTs
-					if ac.RTID != "" {
-						resident, err = svc.GetAllResidentByID(ctx, tx, id)
-						if err != nil {
-							if errors.Is(err, ErrNotFound) {
-								httpx.WriteNotFound(w, "resident not found")
-								return
-							}
-							httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
-							return
-						}
-					} else {
-						httpx.WriteNotFound(w, "resident not found")
-						return
-					}
-				} else {
-					httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+					httpx.WriteNotFound(w, "resident not found")
 					return
 				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+				return
 			} else if err := tx.Commit(); err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
 				return
@@ -1504,10 +1490,9 @@ func (h *Handler) DeactivateResident(w http.ResponseWriter, r *http.Request) {
 
 // validSpecialJabatans is the allowed set of jabatan for special residents.
 var validSpecialJabatans = map[string]bool{
-	"keamanan":    true,
-	"operasional": true,
-	"kebersihan":  true,
-	"anggota_rw":  true,
+	"keamanan":   true,
+	"kebersihan": true,
+	"anggota_rw": true,
 }
 
 // SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
@@ -1800,7 +1785,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	// Validate jabatan if provided
 	if req.Jabatan != nil {
 		if !validSpecialJabatans[*req.Jabatan] {
-			httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
+			httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'kebersihan', or 'anggota_rw'", nil)
 			return
 		}
 	}

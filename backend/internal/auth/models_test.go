@@ -17,3 +17,19 @@ func TestJabatanCatalogIncludesAnggota(t *testing.T) {
 		t.Fatal("anggota must be present in AllJabatans")
 	}
 }
+
+func TestJabatanCatalogIncludesHumas(t *testing.T) {
+	if !ValidJabatans[JabatanHumas] {
+		t.Fatal("humas must be a valid jabatan")
+	}
+	found := false
+	for _, jabatan := range AllJabatans {
+		if jabatan == JabatanHumas {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("humas must be present in AllJabatans")
+	}
+}

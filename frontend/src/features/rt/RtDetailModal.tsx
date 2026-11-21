@@ -20,7 +20,7 @@ import { RtFormFields, type RtFormState } from './RtCreate'
 
 const positions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
-  ['sosial', 'Sosial'], ['operasional', 'Operasional'],
+  ['humas', 'Humas'], ['sosial', 'Sosial'], ['operasional', 'Operasional'],
 ]
 const label = rtPositionLabel
 const emptyRtForm: RtFormState = { name: '', rw_id: '', rw: '', rt: '', address: '', head_name: '' }

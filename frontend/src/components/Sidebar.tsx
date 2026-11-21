@@ -25,8 +25,14 @@ import {
 
 function isActive(route: string, pathname: string, itemId?: string): boolean {
   if (route === '/') return pathname === '/'
+  if (itemId === 'kas') {
+    return pathname === route || pathname.startsWith(route + '/') || (pathname.includes('/kas') && !pathname.includes('lokasi'))
+  }
+  if (itemId === 'keuangan') {
+    return pathname === route || (pathname === '/keuangan' || pathname.startsWith('/keuangan/'))
+  }
   if (itemId === 'rw-data') {
-    return pathname.startsWith('/rw-view')
+    return pathname.startsWith('/rw-view') && !pathname.includes('/kas')
   }
   return pathname === route || pathname.startsWith(route + '/')
 }
@@ -74,6 +80,27 @@ export function Sidebar() {
   const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
   const isAnggota = jabatan === 'anggota' || jabatan === 'anggota_rt' || jabatan === 'anggota_rw'
+
+  const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
+  // Include anggota, anggota_rt, anggota_rw, operasional, humas, and sosial in RW membership filter so they can access RW Dashboard and RW Kas READ.
+  const rwMemberships = rawRwMemberships.filter(
+    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial'].includes(m.jabatan.toLowerCase()))
+  )
+
+  const isReadOnlyRW = isAnggota || jabatan === 'operasional' || jabatan === 'humas' || jabatan === 'sosial'
+  const effectiveRwMemberships = rwMemberships.length > 0
+    ? rwMemberships
+    : (isReadOnlyRW && user?.rwId
+        ? [{
+            rw_id: user.rwId,
+            rw_name: user.rwName ?? undefined,
+            rw_number: user.rwNumber ?? undefined,
+            jabatan: user.jabatan ?? (jabatan === 'anggota_rw' ? 'anggota_rw' : (jabatan === 'operasional' ? 'operasional' : (jabatan === 'humas' ? 'humas' : (jabatan === 'sosial' ? 'sosial' : 'anggota_rt')))),
+            source: 'rt_inferred' as const,
+          }]
+        : [])
+  const userRwId = effectiveRwMemberships[0]?.rw_id || user?.rwId || ''
+
   const items: NavItem[] = isSecurityOfficer || isCleaningOfficer || isAnggota
     ? []
     : [{ to: '/', label: 'Beranda', icon: <HomeOutlined />, id: 'dashboard' }]
@@ -101,25 +128,33 @@ export function Sidebar() {
     // Anggota RT & Anggota RW: simplified sidebar — only Data RW and Notifikasi.
     // Kas RT, Iuran, Keamanan, and other RT features are hidden.
   } else if (allowedRT) {
-    if (jabatan !== 'sosial' && jabatan !== 'operasional') {
-      items.push(
-        { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
-      )
+    const isRestrictedFinance = jabatan === 'sosial' || jabatan === 'operasional'
+    const isHumas = jabatan === 'humas'
+    if (!isRestrictedFinance) {
+      items.push({
+        to: isHumas && userRwId ? `/rw-view/${userRwId}/dashboard` : '/keuangan',
+        label: 'Keuangan',
+        icon: <DashboardOutlined />,
+        id: 'keuangan',
+      })
     }
-    const isSosialOrOperasional = jabatan === 'sosial' || jabatan === 'operasional'
     const canAccessLokasiDana =
-        (user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== '') && !isSosialOrOperasional
+        (user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== '') &&
+        !isRestrictedFinance &&
+        !isHumas
     // Sekretaris RT can access Kas (transactions) AND Iuran personal view (own bills/payments).
     // Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
-    // Sosial can access Iuran (own bills/payments) but NOT Kas. Operasional cannot access Kas or Iuran.
-    if (!isSosialOrOperasional) {
-      items.push(
-        { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
-      )
+    // Sosial and Operasional can access Iuran (own bills/payments) but NOT Kas.
+    // Humas accesses Kas RW (read-only) via /rw-view/${userRwId}/kas.
+    if (!isRestrictedFinance) {
+      items.push({
+        to: isHumas && userRwId ? `/rw-view/${userRwId}/kas` : '/kas',
+        label: 'Kas',
+        icon: <DollarOutlined />,
+        id: 'kas',
+      })
     }
-    if (jabatan === 'sosial' || !isSosialOrOperasional) {
-      items.push({ to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' })
-    }
+    items.push({ to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' })
     if (canAccessLokasiDana) {
         items.push({
             to: '/lokasi-dana',
@@ -142,6 +177,7 @@ export function Sidebar() {
     const canManageSecurity =
       isSuperAdmin ||
       jabatan === 'ketua' ||
+      jabatan === 'humas' ||
       hasPermission(user, 'security.schedule.write') ||
       hasPermission(user, 'security.device.manage')
     if (canManageSecurity) {
@@ -153,11 +189,10 @@ export function Sidebar() {
       })
     }
     const canAccessGuestBook =
-      isSuperAdmin ||
+      jabatan !== 'humas' &&
+      (isSuperAdmin ||
       jabatan === 'ketua' ||
-      hasPermission(user, 'security.guest_book') ||
-      hasPermission(user, 'security.device.manage') ||
-      hasPermission(user, 'security.schedule.write')
+      hasPermission(user, 'security.guest_book'))
     if (canAccessGuestBook) {
       items.push({
         to: '/buku-tamu',
@@ -188,24 +223,6 @@ export function Sidebar() {
     }
   }
 
-  const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
-  // Include anggota, anggota_rt, and anggota_rw in RW membership filter so Anggota RT and Anggota RW can access RW Dashboard and RW Kas READ.
-  const rwMemberships = rawRwMemberships.filter(
-    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota', 'anggota_rt', 'anggota_rw'].includes(m.jabatan.toLowerCase()))
-  )
-
-  const effectiveRwMemberships = rwMemberships.length > 0
-    ? rwMemberships
-    : (isAnggota && user?.rwId
-        ? [{
-            rw_id: user.rwId,
-            rw_name: user.rwName ?? undefined,
-            rw_number: user.rwNumber ?? undefined,
-            jabatan: user.jabatan ?? (jabatan === 'anggota_rw' ? 'anggota_rw' : 'anggota_rt'),
-            source: 'rt_inferred' as const,
-          }]
-        : [])
-
   // Add RW data view link(s)
   if (!isSecurityOfficer && !isCleaningOfficer && effectiveRwMemberships.length > 0) {
     const rwIdForData = effectiveRwMemberships[0].rw_id
@@ -232,7 +249,7 @@ export function Sidebar() {
 
   const canAccessNotifikasi =
     !isCleaningOfficer &&
-    (isSecurityOfficer || isResident || isPengurus || isAnggota || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
+    (isSecurityOfficer || isResident || isPengurus || isAnggota || jabatan === 'humas' || jabatan === 'operasional' || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
 
   // Place Pengumuman, Kegiatan, Notifikasi as the three bottom-most menu items
   // in that exact order.
@@ -325,7 +342,7 @@ export function Sidebar() {
 
             return (
               <Link
-                key={item.to}
+                key={item.id}
                 to={item.to}
                 className={`nav-item${active ? ' nav-item-active' : ''}`}
               >

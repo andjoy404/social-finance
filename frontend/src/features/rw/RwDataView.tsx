@@ -43,13 +43,14 @@ export function RwDataView({ rwId }: { rwId?: string }) {
       (user?.jabatan ?? '').trim().toLowerCase() === 'anggota') &&
     user?.role === 'pengurus'
   const isAnggotaRW = (user?.jabatan ?? '').trim().toLowerCase() === 'anggota_rw'
-  const isReadOnlyRW = isAnggotaRT || isAnggotaRW
-  // Include anggota, anggota_rt, and anggota_rw so Anggota RT and Anggota RW can access RW Dashboard and RW Kas READ.
+  const cleanUserJabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  const isReadOnlyRW = isAnggotaRT || isAnggotaRW || ['operasional', 'humas', 'sosial'].includes(cleanUserJabatan)
+  // Include anggota, anggota_rt, anggota_rw, operasional, humas, and sosial so they can access RW Dashboard and RW Kas READ.
   const filteredRwMemberships = rawRwMemberships.filter((m) => {
     if (isSuperAdmin) return true
     if (!m.jabatan) return false
     const j = m.jabatan.toLowerCase()
-    if (['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota_rt', 'anggota_rw'].includes(j)) {
+    if (['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial'].includes(j)) {
       return true
     }
     if (j === 'anggota') {
@@ -64,7 +65,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
             rw_id: user.rwId,
             rw_name: user.rwName ?? undefined,
             rw_number: user.rwNumber ?? undefined,
-            jabatan: isAnggotaRW ? 'anggota_rw' : 'anggota_rt',
+            jabatan: isAnggotaRW ? 'anggota_rw' : (cleanUserJabatan || 'anggota_rt'),
             source: 'rt_inferred' as const,
           }]
         : [])
@@ -92,11 +93,11 @@ export function RwDataView({ rwId }: { rwId?: string }) {
     if (!user || !selectedRwId) return false
     if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
     const cleanJabatan = (user.jabatan || '').trim().toLowerCase()
-    if (['anggota', 'anggota_rt', 'anggota_rw'].includes(cleanJabatan)) return false
+    if (['anggota', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial', 'keamanan', 'kebersihan'].includes(cleanJabatan)) return false
     const membership = (user.rwMemberships ?? []).find((m) => m.rw_id === selectedRwId)
     if (!membership || membership.source !== 'explicit') return false
     const rwJabatan = (membership.jabatan || '').trim().toLowerCase()
-    if (['anggota', 'anggota_rt', 'anggota_rw'].includes(rwJabatan)) return false
+    if (['anggota', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial', 'keamanan', 'kebersihan'].includes(rwJabatan)) return false
     return true
   })()
 

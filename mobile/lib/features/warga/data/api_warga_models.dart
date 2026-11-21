@@ -462,6 +462,11 @@ class MappedResident {
       case 'bendahara':
       case 'bendahara_rt':
         return 'Bendahara';
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
+        return 'Humas';
       case 'keamanan':
       case 'keamanan_rt':
       case 'seksi_keamanan':
@@ -506,6 +511,11 @@ class MappedResident {
         return AppColors.success;
       case 'bendahara':
       case 'bendahara_rt':
+        return AppColors.warning;
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
         return AppColors.warning;
       case 'keamanan':
       case 'keamanan_rt':

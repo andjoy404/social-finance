@@ -783,7 +783,7 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
 		       ph.house_number,
-		       CASE WHEN m.jabatan IN ('ketua', 'keamanan') THEN u.phone ELSE NULL END AS phone,
+		       CASE WHEN $2 = true THEN u.phone ELSE NULL END AS phone,
 		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
 		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m
@@ -866,6 +866,7 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 		{Position: "wakil_ketua", PositionLabel: "Wakil Ketua", Level: 2, Parent: "ketua"},
 		{Position: "sekretaris", PositionLabel: "Sekretaris", Level: 2, Parent: "ketua"},
 		{Position: "bendahara", PositionLabel: "Bendahara", Level: 3, Parent: "sekretaris"},
+		{Position: "humas", PositionLabel: "Humas", Level: 3, Parent: "sekretaris"},
 		{Position: "keamanan", PositionLabel: "Keamanan", Level: 4, Parent: "ketua"},
 		{Position: "kebersihan", PositionLabel: "Kebersihan", Level: 4, Parent: "ketua"},
 		{Position: "sosial", PositionLabel: "Seksi Sosial", Level: 4, Parent: "ketua"},

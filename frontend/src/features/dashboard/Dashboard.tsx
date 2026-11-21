@@ -97,6 +97,10 @@ export function Dashboard() {
       case 'sekretaris_rt': return 'green'
       case 'bendahara':
       case 'bendahara_rt': return 'amber'
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt': return 'amber'
       case 'keamanan':
       case 'keamanan_rt':
       case 'seksi_keamanan':

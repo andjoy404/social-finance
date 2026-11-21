@@ -189,7 +189,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (user == null) return false;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     if (jabatan == 'sekretaris' || jabatan == 'keamanan') return false;
-    if (isSuperAdminUser(user) || isKetuaRTUser(user)) return true;
+    if (isSuperAdminUser(user) || isKetuaRTUser(user) || jabatan == 'humas') return true;
     return userHasPermission(user, 'security.schedule.read') ||
         userHasPermission(user, 'security.schedule.write') ||
         userHasPermission(user, 'security.device.manage') ||
@@ -202,6 +202,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
     if (systemRole == 'super_admin') return true;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'humas') return true;
     if (jabatan == 'keamanan' ||
         jabatan == 'kebersihan' ||
         jabatan == 'sosial' ||
@@ -236,6 +237,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (jabatan == 'sekretaris' ||
         jabatan == 'sosial' ||
         jabatan == 'operasional' ||
+        jabatan == 'humas' ||
         jabatan == 'anggota' ||
         jabatan == 'anggota_rt' ||
         jabatan == 'anggota_rw') {
@@ -265,7 +267,6 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (user == null) return false;
     if (!isAllowedRT(user)) return false;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
-    if (jabatan == 'operasional') return false;
     if (jabatan == 'keamanan' || jabatan == 'kebersihan') return false;
     final role = (user['role'] ?? '')
         .toString()
@@ -311,6 +312,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                     'anggota',
                     'anggota_rt',
                     'anggota_rw',
+                    'operasional',
+                    'humas',
+                    'sosial',
                   ].contains(m.jabatan!.toLowerCase())),
         )
         .toList();
@@ -328,6 +332,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           'bendahara',
           'anggota_rt',
           'anggota_rw',
+          'operasional',
+          'humas',
+          'sosial',
         ].contains(jab) ||
         (jab == 'anggota' && role == 'pengurus');
     if (rwId.isNotEmpty && isEligible) {
@@ -409,9 +416,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final canPaket = _canAccessPaket(user);
     final canNotifikasi = _canAccessNotifikasi(user);
     final rwMemberships = _getValidRWMemberships(user);
-    final isSosialOrOperasional =
+    final isRestrictedFinance =
         jabatan == 'sosial' || jabatan == 'operasional';
-    final canKas = !isSosialOrOperasional;
+    final canKas = !isRestrictedFinance;
 
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
@@ -485,16 +492,40 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     return _getAllAccessibleTabs(user);
   }
 
-  int _resolveCollapsedMatch(List<_NavRoute> collapsedTabs, String location) {
+  String _getEffectiveRwId(Map<String, dynamic>? user) {
+    if (user == null) return '';
+    final rwMemberships = _getValidRWMemberships(user);
+    if (rwMemberships.isNotEmpty) {
+      return rwMemberships.first.rwId;
+    }
+    return (user['rw_id'] ?? '').toString().trim();
+  }
+
+  int _resolveCollapsedMatch(
+    List<_NavRoute> collapsedTabs,
+    String location, [
+    Map<String, dynamic>? user,
+  ]) {
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    final cleanLocation = location.split('?').first;
     var bestMatch = -1;
     for (var i = 0; i < collapsedTabs.length; i++) {
       final tabPath = collapsedTabs[i].path;
       final cleanTabPath = tabPath.split('?').first;
-      if (cleanTabPath == '/home/rw-data' &&
-          (location.startsWith('/rw/') || location == '/home/rw-data')) {
+      if (cleanTabPath == '/home/kas' &&
+          jabatan == 'humas' &&
+          location.startsWith('/rw/') &&
+          location.contains('tab=kas')) {
         return i;
       }
-      if (location == cleanTabPath || location.startsWith('$cleanTabPath/')) {
+      if (cleanTabPath == '/home/rw-data' &&
+          (location.startsWith('/rw/') || cleanLocation == '/home/rw-data')) {
+        if (jabatan == 'humas' && (location.contains('tab=beranda') || !location.contains('tab='))) {
+          continue;
+        }
+        return i;
+      }
+      if (cleanLocation == cleanTabPath || cleanLocation.startsWith('$cleanTabPath/')) {
         if (bestMatch == -1 ||
             cleanTabPath.length >
                 collapsedTabs[bestMatch].path.split('?').first.length) {
@@ -508,9 +539,20 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   int _resolveBottomNavMatch(
     List<_NavRoute> bottomTabs,
     List<_NavRoute> collapsedTabs,
-    String location,
-  ) {
-    final collapsedMatch = _resolveCollapsedMatch(collapsedTabs, location);
+    String location, [
+    Map<String, dynamic>? user,
+  ]) {
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    final cleanLocation = location.split('?').first;
+    if (jabatan == 'humas') {
+      final keuanganIdx = bottomTabs.indexWhere((t) => t.path == '/home/keuangan');
+      if (keuanganIdx >= 0 &&
+          location.startsWith('/rw/') &&
+          (location.contains('tab=beranda') || !location.contains('tab='))) {
+        return keuanganIdx;
+      }
+    }
+    final collapsedMatch = _resolveCollapsedMatch(collapsedTabs, location, user);
     if (collapsedMatch != -1) {
       final menuIdx = bottomTabs.indexOf(_menuTab);
       if (menuIdx >= 0) return menuIdx;
@@ -519,8 +561,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final rwDataIdx = bottomTabs.indexWhere((t) => t.path == '/home/rw-data');
     if (rwDataIdx >= 0 &&
         (location.startsWith('/rw/') ||
-            location == '/home/rw-data' ||
-            location.startsWith('/home/rw-data/'))) {
+            cleanLocation == '/home/rw-data' ||
+            cleanLocation.startsWith('/home/rw-data/'))) {
       return rwDataIdx;
     }
     var bestMatch = -1;
@@ -528,7 +570,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       final tab = bottomTabs[i];
       if (tab == _menuTab) continue;
       final cleanPath = tab.path.split('?').first;
-      if (location == cleanPath || location.startsWith('$cleanPath/')) {
+      if (cleanLocation == cleanPath || cleanLocation.startsWith('$cleanPath/')) {
         if (bestMatch == -1 ||
             cleanPath.length >
                 bottomTabs[bestMatch].path.split('?').first.length) {
@@ -542,12 +584,13 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   }
 
   int _resolveCurrentMatch(List<_NavRoute> tabs, String location) {
+    final cleanLocation = location.split('?').first;
     var bestMatch = 0;
     var found = false;
     for (var i = 0; i < tabs.length; i++) {
       final tabPath = tabs[i].path;
       final cleanPath = tabPath.split('?').first;
-      if (location == cleanPath || location.startsWith('$cleanPath/')) {
+      if (cleanLocation == cleanPath || cleanLocation.startsWith('$cleanPath/')) {
         if (!found ||
             cleanPath.length > tabs[bestMatch].path.split('?').first.length) {
           bestMatch = i;
@@ -564,10 +607,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         final rwDataPreferred = tabs[rwDataIndex].path;
         final isRWScope =
             location.startsWith('/rw/') ||
-            (location == rwDataPreferred ||
-                location.startsWith('/home/rw-data/'));
+            (cleanLocation == rwDataPreferred ||
+                cleanLocation.startsWith('/home/rw-data/'));
         // Only pick RW data if we're not already on a /home/* tab.
-        if (isRWScope && !location.startsWith('/home')) {
+        if (isRWScope && !cleanLocation.startsWith('/home')) {
           return rwDataIndex;
         }
       }
@@ -576,7 +619,11 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   }
 
   String _currentLocation(BuildContext context) {
-    return GoRouter.of(context).routeInformationProvider.value.uri.path;
+    final uri = GoRouter.of(context).routeInformationProvider.value.uri;
+    if (uri.hasQuery) {
+      return uri.toString();
+    }
+    return uri.path;
   }
 
   /// Used by DoubleBackExitScope to determine whether system back should
@@ -611,6 +658,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       bottomTabs,
       collapsedTabs,
       location,
+      user,
     );
     if (bestMatch != _currentIndex) {
       setState(() {
@@ -658,12 +706,17 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final drawerTabs = _getDrawerTabs();
     final location = _currentLocation(context);
 
-    final collapsedMatch = _resolveCollapsedMatch(collapsedTabs, location);
+    final collapsedMatch = _resolveCollapsedMatch(
+      collapsedTabs,
+      location,
+      user,
+    );
     final isCollapsedActive = collapsedMatch != -1;
     final bottomMatch = _resolveBottomNavMatch(
       bottomNavTabs,
       collapsedTabs,
       location,
+      user,
     );
     final drawerMatch = _resolveCurrentMatch(drawerTabs, location);
 
@@ -856,10 +909,28 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (index >= 0 && index < tabs.length) {
       final tab = tabs[index];
       final currentLocation = _currentLocation(tapContext);
+      final authState = ref.read(authRepositoryProvider);
+      final user = authState?.valueOrNull;
+      final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+
+      // Humas redirects Keuangan and Kas to RW views
+      if (tab.path == '/home/keuangan' && jabatan == 'humas') {
+        final rwId = _getEffectiveRwId(user);
+        final destination =
+            rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
+        await _confirmAndGo(tapContext, currentLocation, destination);
+        return;
+      }
+      if (tab.path == '/home/kas' && jabatan == 'humas') {
+        final rwId = _getEffectiveRwId(user);
+        final destination =
+            rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=kas' : '/home';
+        await _confirmAndGo(tapContext, currentLocation, destination);
+        return;
+      }
+
       // Special handling for RW data tab
       if (tab.path == '/home/rw-data') {
-        final authState = ref.read(authRepositoryProvider);
-        final user = authState?.valueOrNull;
         final rwMemberships = _getValidRWMemberships(user);
         final currentRwId = rwMemberships.isNotEmpty
             ? rwMemberships.first.rwId

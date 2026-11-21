@@ -64,17 +64,12 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
 }
 
 // Iuran access route — all authenticated RT users can access Iuran personal view.
-// Sekretaris RT and Sosial RT can view their own bills and payments.
+// Sekretaris RT, Sosial RT, Operasional, and Humas can view their own bills and payments.
 // Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
-// Operasional cannot access Kas or Iuran; Sosial cannot access Kas.
 function IuranAccessRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
-  }
-  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
-  if (jabatan === 'operasional') {
-    return <Navigate to="/" replace />
   }
   if (!isAllowedRT(user)) {
     return <Navigate to="/" replace />
@@ -88,6 +83,12 @@ function KasAccessRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  if (jabatan === 'humas') {
+    const rwId = (user?.rwMemberships && user.rwMemberships.length > 0)
+      ? user.rwMemberships[0].rw_id
+      : (user?.rwId ?? '')
+    return <Navigate to={rwId ? `/rw-view/${rwId}/kas` : '/'} replace />
+  }
   if (jabatan === 'sosial' || jabatan === 'operasional') {
     return <Navigate to="/" replace />
   }
@@ -103,13 +104,14 @@ function GuestBookRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  if (jabatan === 'humas') {
+    return <Navigate to="/" replace />
+  }
   const isSuperAdmin = user?.role === 'super_admin'
   const canAccess =
     isSuperAdmin ||
     jabatan === 'ketua' ||
-    hasPermission(user, 'security.guest_book') ||
-    hasPermission(user, 'security.device.manage') ||
-    hasPermission(user, 'security.schedule.write')
+    hasPermission(user, 'security.guest_book')
   if (!canAccess) {
     return <Navigate to="/" replace />
   }
@@ -124,9 +126,22 @@ export function getOfficerRouteDestination(
 ): string | null {
   const normalized = (jabatan ?? '').trim().toLowerCase()
 
-  // Operasional: hide/block Kas and Iuran
+  // Humas: redirect Kas to Kas RW, Keuangan to RW Dashboard
+  if (normalized === 'humas') {
+    const rwId = (rwMemberships && rwMemberships.length > 0)
+      ? rwMemberships[0].rw_id
+      : (userRwId ?? '')
+    if (pathname.startsWith('/kas')) {
+      return rwId ? `/rw-view/${rwId}/kas` : '/'
+    }
+    if (pathname === '/keuangan' || pathname.startsWith('/keuangan/')) {
+      return rwId ? `/rw-view/${rwId}/dashboard` : '/'
+    }
+  }
+
+  // Operasional: hide/block Kas, allow Iuran (personal household bills)
   if (normalized === 'operasional') {
-    if (pathname.startsWith('/kas') || pathname.startsWith('/iuran')) {
+    if (pathname.startsWith('/kas')) {
       return '/'
     }
   }

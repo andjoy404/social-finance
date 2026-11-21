@@ -364,7 +364,7 @@ func (h *Handler) writeAdministrationError(w http.ResponseWriter, err error) {
 		httpx.WriteNotFound(w, err.Error())
 	case errors.Is(err, ErrDuplicateJabatan):
 		httpx.WriteConflict(w, err.Error())
-	case errors.Is(err, ErrInvalidJabatan):
+	case errors.Is(err, ErrInvalidJabatan), errors.Is(err, ErrUserHasNoHousehold):
 		httpx.WriteValidationError(w, err.Error(), nil)
 	default:
 		httpx.WriteInternalServerError(w, "failed to update jabatan")

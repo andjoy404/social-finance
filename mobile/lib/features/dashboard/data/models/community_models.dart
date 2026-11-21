@@ -263,12 +263,12 @@ class BannerTemplate {
 /// Canonical tier structure for Struktur Organisasi RT diagram (top-to-bottom):
 /// Tier 1: Ketua
 /// Tier 2: Wakil Ketua
-/// Tier 3: Bendahara = Sekretaris (horizontal)
+/// Tier 3: Bendahara = Sekretaris = Humas (horizontal)
 /// Tier 4: Keamanan = Kebersihan = Sosial = Operasional (horizontal)
 const List<List<String>> kCanonicalOrgChartTiers = [
   ['ketua'],
   ['wakil_ketua'],
-  ['bendahara', 'sekretaris'],
+  ['bendahara', 'sekretaris', 'humas'],
   ['keamanan', 'kebersihan', 'sosial', 'operasional'],
 ];
 
@@ -290,6 +290,11 @@ String normalizeOrgPosition(String position, [String label = '']) {
       case 'bendahara':
       case 'bendahara_rt':
         return 'bendahara';
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
+        return 'humas';
       case 'sekretaris':
       case 'sekretaris_rt':
         return 'sekretaris';

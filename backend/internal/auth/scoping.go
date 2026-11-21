@@ -309,6 +309,9 @@ var rwPermissionMapReadOnly = map[string][]string{
 	"anggota":     {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"anggota_rt":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"anggota_rw":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"operasional": {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"humas":       {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"sosial":      {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"pengurus":    {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"perangkat":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 }

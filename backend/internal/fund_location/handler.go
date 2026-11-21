@@ -68,11 +68,30 @@ func (h *Handler) resolveRTID(r *http.Request, ac *auth.AuthContext) string {
 	return ac.RTID
 }
 
+func isRestrictedFundLocationJabatan(j auth.Jabatan) bool {
+	switch j {
+	case auth.JabatanSosial, auth.JabatanOperasional, auth.JabatanHumas, auth.JabatanKeamanan, auth.JabatanKebersihan, auth.JabatanAnggotaRW, auth.JabatanAnggota, auth.JabatanAnggotaRT:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) checkReadAccess(ac *auth.AuthContext) error {
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return nil
+	}
+	if (ac.TenantRole == auth.RoleWarga && ac.Jabatan == "") || isRestrictedFundLocationJabatan(ac.Jabatan) {
+		return ErrWargaBlocked
+	}
+	return nil
+}
+
 func (h *Handler) checkWriteAccess(ac *auth.AuthContext) error {
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		return nil
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
+	if (ac.TenantRole == auth.RoleWarga && ac.Jabatan == "") || isRestrictedFundLocationJabatan(ac.Jabatan) {
 		return ErrWargaBlocked
 	}
 	return nil
@@ -174,8 +193,8 @@ func (h *Handler) ListLocations(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund locations")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)
@@ -244,8 +263,8 @@ func (h *Handler) GetLocation(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund locations")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)
@@ -316,8 +335,8 @@ func (h *Handler) GetLocationHistory(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund locations")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)
@@ -407,8 +426,8 @@ func (h *Handler) ListTransfers(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund transfers")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)
@@ -442,8 +461,8 @@ func (h *Handler) GetTransfer(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund transfers")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)
@@ -489,8 +508,8 @@ func (h *Handler) GetReconciliationReport(w http.ResponseWriter, r *http.Request
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
-	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
-		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "warga cannot access fund reconciliation")
+	if err := h.checkReadAccess(ac); err != nil {
+		h.handleError(w, err)
 		return
 	}
 	rtID := h.resolveRTID(r, ac)

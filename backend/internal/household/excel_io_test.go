@@ -1638,6 +1638,7 @@ var expectedJabatanOptions = []string{
 	"Operasional",
 	"Kebersihan",
 	"Anggota",
+	"Humas",
 }
 
 // countDataValidations returns the number of data validations on the given sheet.

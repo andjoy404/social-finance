@@ -69,6 +69,7 @@ const (
 	JabatanAnggota     Jabatan = "anggota"
 	JabatanAnggotaRT   Jabatan = "anggota_rt"
 	JabatanAnggotaRW   Jabatan = "anggota_rw"
+	JabatanHumas       Jabatan = "humas"
 )
 
 // ValidJabatans maps recognized RT positions.
@@ -84,6 +85,7 @@ var ValidJabatans = map[Jabatan]bool{
 	JabatanAnggota:     true,
 	JabatanAnggotaRT:   true,
 	JabatanAnggotaRW:   true,
+	JabatanHumas:       true,
 }
 
 // AllJabatans returns all valid jabatan values in a stable order.
@@ -99,6 +101,7 @@ var AllJabatans = []Jabatan{
 	JabatanAnggota,
 	JabatanAnggotaRT,
 	JabatanAnggotaRW,
+	JabatanHumas,
 }
 
 // AuthContext is attached to the request context after successful

@@ -774,6 +774,7 @@ var jabatanDropdownOptions = []string{
 	"Operasional",
 	"Kebersihan",
 	"Anggota",
+	"Humas",
 }
 
 // addJabatanValidation adds an Excel data-validation dropdown to column J (jabatan)

@@ -15,6 +15,7 @@ var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrInvalidJabatan     = errors.New("invalid jabatan")
 	ErrDuplicateJabatan   = errors.New("jabatan ketua is already assigned in RT")
+	ErrUserHasNoHousehold = errors.New("pengguna harus merupakan Warga yang memiliki rumah tangga (household) valid")
 )
 
 type RTMembership struct {
@@ -91,6 +92,24 @@ func SetJabatan(ctx context.Context, tx *sql.Tx, rtID, userID string, jabatan au
 	if old != nil && *old == string(jabatan) {
 		item.Jabatan = old
 		return &item, old, nil
+	}
+
+	if jabatan == auth.JabatanHumas || jabatan == auth.JabatanOperasional {
+		var hasHousehold bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM residents r
+				JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+				JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id AND ho.end_date IS NULL
+				WHERE r.user_id = $1 AND r.rt_id = $2 AND r.is_active = true
+			)
+		`, userID, rtID).Scan(&hasHousehold)
+		if err != nil {
+			return nil, nil, fmt.Errorf("check household: %w", err)
+		}
+		if !hasHousehold {
+			return nil, nil, ErrUserHasNoHousehold
+		}
 	}
 
 	if jabatan == auth.JabatanKetua || jabatan == auth.JabatanWakilKetua {

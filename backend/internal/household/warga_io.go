@@ -1879,6 +1879,7 @@ var validRTJabatans = map[string]bool{
 	"operasional": true,
 	"kebersihan":  true,
 	"anggota":     true,
+	"humas":       true,
 }
 
 // canonicalJabatan maps display aliases to the canonical lower-case jabatan value.
@@ -1897,6 +1898,7 @@ var canonicalJabatan = map[string]string{
 	"operasional":    "operasional",
 	"kebersihan":     "kebersihan",
 	"anggota":        "anggota",
+	"humas":          "humas",
 }
 
 // validateJabatan checks that the jabatan string is valid.
@@ -1905,7 +1907,7 @@ func validateJabatan(jabatan string) error {
 	if !validRTJabatans[normed] {
 		validList := []string{
 			"ketua", "wakil_ketua", "sekretaris", "bendahara",
-			"keamanan", "sosial", "operasional", "kebersihan", "anggota",
+			"keamanan", "sosial", "operasional", "kebersihan", "anggota", "humas",
 		}
 		return fmt.Errorf(
 			"jabatan %q is not valid; must be one of: %s",
