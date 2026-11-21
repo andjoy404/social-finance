@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -150,6 +151,21 @@ class _SecurityGuestBookScreenState
                   padding: const EdgeInsets.only(bottom: 8),
                   child: GuestVisitStatusBadge(checkedOutAt: g.checkedOutAt),
                 ),
+                if (g.photoKey != null && g.photoKey!.isNotEmpty) ...[
+                  GestureDetector(
+                    onTap: () => _showGuestBookPhotoPreview(context, g.photoKey!),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: double.infinity,
+                        height: 160,
+                        color: Colors.grey[200],
+                        child: _buildGuestBookImage(g.photoKey!),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 _line('Tujuan', g.destinationLabel),
                 _line('Keperluan', g.purpose),
                 _line(
@@ -172,7 +188,8 @@ class _SecurityGuestBookScreenState
                 ),
                 _line('Telepon', g.phoneMasked ?? '-'),
                 _line('Perangkat', g.deviceName),
-                _line('Catatan', g.notes ?? '-'),
+                if (g.notes != null && g.notes!.isNotEmpty)
+                  _line('Catatan', g.notes!),
               ],
             ),
           ),
@@ -180,6 +197,81 @@ class _SecurityGuestBookScreenState
             TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Tutup'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuestBookImage(String photoKey) {
+    final apiClient = ref.read(securityApiClientProvider);
+    return FutureBuilder<Uint8List?>(
+      future: apiClient.fetchGuestBookPhoto(photoKey),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator.adaptive());
+        }
+        if (snapshot.hasError || snapshot.data == null || snapshot.data!.isEmpty) {
+          return Center(
+            child: Icon(Icons.broken_image, size: 40, color: Colors.grey[600]),
+          );
+        }
+        return Image.memory(
+          snapshot.data!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Center(
+              child: Icon(Icons.broken_image, size: 40, color: Colors.grey[600]),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showGuestBookPhotoPreview(BuildContext context, String photoKey) {
+    final apiClient = ref.read(securityApiClientProvider);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Center(
+              child: InteractiveViewer(
+                child: FutureBuilder<Uint8List?>(
+                  future: apiClient.fetchGuestBookPhoto(photoKey),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator.adaptive(
+                          backgroundColor: Colors.white,
+                        ),
+                      );
+                    }
+                    if (snapshot.hasError || snapshot.data == null || snapshot.data!.isEmpty) {
+                      return Center(
+                        child: Icon(
+                          Icons.broken_image,
+                          size: 60,
+                          color: Colors.white70,
+                        ),
+                      );
+                    }
+                    return Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.contain,
+                    );
+                  },
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: () => Navigator.of(ctx).pop(),
             ),
           ],
         ),
@@ -479,9 +571,25 @@ class _SecurityGuestBookScreenState
 
     final combinedNotes = capturedPhoto != null
         ? (notesCtrl.text.trim().isNotEmpty
-              ? '${notesCtrl.text.trim()}\n[Foto: ${capturedPhoto!.name}]'
-              : '[Foto: ${capturedPhoto!.name}]')
+              ? notesCtrl.text.trim()
+              : null)
         : (notesCtrl.text.trim().isNotEmpty ? notesCtrl.text.trim() : null);
+
+    String? photoKey;
+    if (capturedPhoto != null) {
+      try {
+        final photoBytes = await capturedPhoto!.readAsBytes();
+        photoKey = await ref
+            .read(securityApiClientProvider)
+            .uploadGuestBookPhoto(photoBytes, capturedPhoto!.name);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengunggah foto: $e')),
+        );
+        return;
+      }
+    }
 
     try {
       await ref
@@ -494,6 +602,7 @@ class _SecurityGuestBookScreenState
             destinationLabel: destinationCtrl.text,
             vehiclePlate: plateCtrl.text,
             notes: combinedNotes,
+            photoKey: photoKey,
           );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

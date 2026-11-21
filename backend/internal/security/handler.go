@@ -1127,6 +1127,80 @@ func (h *Handler) PosCheckoutGuestBook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (h *Handler) UploadGuestBookPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.guest_book", "security.attendance", "security.schedule.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "file exceeds maximum allowed size (5MB)", nil)
+		return
+	}
+	file, fileHeader, err := r.FormFile("photo")
+	if err != nil {
+		httpx.WriteValidationError(w, "missing photo form field", nil)
+		return
+	}
+	defer file.Close()
+
+	meta, err := h.store.UploadCommunityImage(r.Context(), rtID, "guest-book", fileHeader.Filename, file, fileHeader.Size)
+	if err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"image_key": meta.Key,
+	})
+}
+
+func (h *Handler) GetGuestBookPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, _, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.guest_book", "security.attendance", "security.schedule.read", "notification.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		httpx.WriteValidationError(w, "missing image key", nil)
+		return
+	}
+
+	reader, err := h.store.GetCommunityImage(r.Context(), key)
+	if err != nil {
+		httpx.WriteNotFound(w, "image not found")
+		return
+	}
+	defer reader.Body.Close()
+
+	if reader.ContentType != "" {
+		w.Header().Set("Content-Type", reader.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = io.Copy(w, reader.Body)
+}
+
 func (h *Handler) PosListHouseholds(w http.ResponseWriter, r *http.Request) {
 	dc := GetDeviceContext(r)
 	if dc == nil {

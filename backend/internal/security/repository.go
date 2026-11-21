@@ -2716,11 +2716,11 @@ func (r *Repository) CreateGuestBook(ctx context.Context, rtID, deviceID string,
 	err := r.pool.Raw().QueryRowContext(ctx, `
 		INSERT INTO security_guest_books (
 			rt_id, device_id, guest_name, phone, purpose, host_household_id,
-			destination_label, vehicle_plate, notes, checked_in_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $10)
+			destination_label, vehicle_plate, notes, photo_key, checked_in_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11)
 		RETURNING id
 	`, rtID, deviceID, strings.TrimSpace(req.GuestName), req.Phone, strings.TrimSpace(req.Purpose),
-		req.HostHouseholdID, strings.TrimSpace(req.DestinationLabel), req.VehiclePlate, req.Notes, now).Scan(&id)
+		req.HostHouseholdID, strings.TrimSpace(req.DestinationLabel), req.VehiclePlate, req.Notes, req.PhotoKey, now).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -2836,7 +2836,7 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 
 	q := fmt.Sprintf(`
 		SELECT g.id, g.rt_id, g.device_id, d.device_name, g.guest_name, g.phone,
-		       g.purpose, g.host_household_id, g.destination_label, g.vehicle_plate, g.notes,
+		       g.purpose, g.host_household_id, g.destination_label, g.vehicle_plate, g.notes, g.photo_key,
 		       g.checked_in_at, g.checked_out_at, g.checkout_device_id, g.created_at, g.updated_at
 		FROM security_guest_books g
 		JOIN security_devices d ON d.id = g.device_id
@@ -2854,11 +2854,11 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 	var list []GuestBookEntry
 	for rows.Next() {
 		var g GuestBookEntry
-		var phone, hostID, plate, notes, outDev sql.NullString
+		var phone, hostID, plate, notes, photoKey, outDev sql.NullString
 		var cout sql.NullTime
 		if err := rows.Scan(
 			&g.ID, &g.RTID, &g.DeviceID, &g.DeviceName, &g.GuestName, &phone,
-			&g.Purpose, &hostID, &g.DestinationLabel, &plate, &notes,
+			&g.Purpose, &hostID, &g.DestinationLabel, &plate, &notes, &photoKey,
 			&g.CheckedInAt, &cout, &outDev, &g.CreatedAt, &g.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
@@ -2877,9 +2877,13 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 			v := plate.String
 			g.VehiclePlate = &v
 		}
-		if notes.Valid {
+ 	if notes.Valid {
 			v := notes.String
 			g.Notes = &v
+		}
+		if photoKey.Valid {
+			v := photoKey.String
+			g.PhotoKey = &v
 		}
 		if outDev.Valid {
 			v := outDev.String

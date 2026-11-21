@@ -1331,6 +1331,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Post("/api/v1/security/devices/{id}/revoke", securityH.RevokeDevice)
 
 		r.Get("/api/v1/security/guest-books", securityH.ListGuestBooksAdmin)
+		r.Post("/api/v1/security/guest-books/photos", securityH.UploadGuestBookPhoto)
 
 		// Patrol endpoints
 		r.Get("/api/v1/security/patrol/templates", securityH.ListPatrolTemplates)
@@ -1365,6 +1366,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Get("/api/v1/security/paket/reports/{id}", securityH.GetPaketReport)
 		r.Get("/api/v1/security/paket/photos/{photoId}", securityH.GetPaketPhoto)
+		r.Get("/api/v1/security/guest-books/photos/{key}", securityH.GetGuestBookPhoto)
 	})
 
 	// Authenticated Security Pos Device endpoints (scoped to bound RT only, non-user identity).

@@ -617,6 +617,7 @@ class GuestBookEntry {
   final String destinationLabel;
   final String? vehiclePlate;
   final String? notes;
+  final String? photoKey;
   final DateTime checkedInAt;
   final DateTime? checkedOutAt;
 
@@ -633,6 +634,7 @@ class GuestBookEntry {
     required this.destinationLabel,
     this.vehiclePlate,
     this.notes,
+    this.photoKey,
     required this.checkedInAt,
     this.checkedOutAt,
   });
@@ -651,6 +653,7 @@ class GuestBookEntry {
       destinationLabel: json['destination_label']?.toString() ?? '',
       vehiclePlate: json['vehicle_plate']?.toString(),
       notes: json['notes']?.toString(),
+      photoKey: json['photo_key']?.toString(),
       checkedInAt: _tryParseDateTime(json['checked_in_at']) ?? DateTime.now(),
       checkedOutAt: _tryParseDateTime(json['checked_out_at']),
     );

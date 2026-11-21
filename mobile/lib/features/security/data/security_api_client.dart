@@ -927,6 +927,7 @@ class SecurityApiClient {
     String? hostHouseholdId,
     String? vehiclePlate,
     String? notes,
+    String? photoKey,
   }) async {
     try {
       final res = await _deviceDio.post<Map<String, dynamic>>(
@@ -941,12 +942,48 @@ class SecurityApiClient {
           if (vehiclePlate != null && vehiclePlate.trim().isNotEmpty)
             'vehicle_plate': vehiclePlate.trim(),
           if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+          if (photoKey != null && photoKey.trim().isNotEmpty) 'photo_key': photoKey.trim(),
         },
         options: _deviceOptions(session),
       );
       return GuestBookEntry.fromJson(res.data ?? {});
     } on DioException catch (e) {
       throw _extractDioError(e, 'Gagal mencatat tamu masuk');
+    }
+  }
+
+  /// Upload a guest book photo and return the image key.
+  Future<String> uploadGuestBookPhoto(Uint8List bytes, String filename) async {
+    try {
+      final formData = FormData.fromMap({
+        'photo': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final res = await apiClient.dio.post(
+        '/api/v1/security/guest-books/photos',
+        data: formData,
+      );
+      final data = res.data;
+      if (data is Map && data['image_key'] != null) {
+        return data['image_key'].toString();
+      }
+      return '';
+    } on DioException catch (e) {
+      throw _extractDioError(e, 'Gagal mengunggah foto tamu');
+    }
+  }
+
+  /// Fetch a guest book photo as raw bytes through the authenticated endpoint.
+  Future<Uint8List?> fetchGuestBookPhoto(String photoKey) async {
+    try {
+      final res = await apiClient.dio.get<List<int>>(
+        '/api/v1/security/guest-books/photos/$photoKey',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = res.data;
+      if (data == null || data.isEmpty) return null;
+      return Uint8List.fromList(data);
+    } on DioException {
+      return null;
     }
   }
 

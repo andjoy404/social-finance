@@ -400,6 +400,7 @@ type GuestBookEntry struct {
 	DestinationLabel string     `json:"destination_label"`
 	VehiclePlate     *string    `json:"vehicle_plate,omitempty"`
 	Notes            *string    `json:"notes,omitempty"`
+	PhotoKey         *string    `json:"photo_key,omitempty"`
 	CheckedInAt      time.Time  `json:"checked_in_at"`
 	CheckedOutAt     *time.Time `json:"checked_out_at,omitempty"`
 	CheckoutDeviceID *string    `json:"checkout_device_id,omitempty"`
@@ -555,6 +556,7 @@ type CreateGuestBookRequest struct {
 	DestinationLabel string  `json:"destination_label"`
 	VehiclePlate     *string `json:"vehicle_plate,omitempty"`
 	Notes            *string `json:"notes,omitempty"`
+	PhotoKey         *string `json:"photo_key,omitempty"`
 }
 
 // MaskPhone protects PII by masking middle digits of phone numbers.
