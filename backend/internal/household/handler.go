@@ -103,6 +103,12 @@ func getRTID(r *http.Request) (string, bool) {
 // For tenant users: returns authenticated RT from JWT claims.
 // For system super_admin without RTID: resolves from the given resource lookup.
 // For unauthenticated or insufficiently-privileged users: writes error and returns ("", false).
+// resolveRTID resolves the target RT for existing-resource mutations.
+// For tenant users: returns authenticated RT from JWT claims.
+// For system super admin with JWT-pinned RTID: searches all RTs to find the resource,
+// allowing mutations on resources in any RT without requiring logout.
+// For system super admin without RTID: resolves from the given resource lookup.
+// For unauthenticated or insufficiently-privileged users: writes error and returns ("", false).
 func (h *Handler) resolveRTID(w http.ResponseWriter, r *http.Request,
 	getResourceRT func(context.Context, *sql.Tx) (string, error),
 ) (string, bool) {
@@ -113,11 +119,11 @@ func (h *Handler) resolveRTID(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Tenant user with authenticated RT
-	if ac.RTID != "" {
+	if ac.RTID != "" && ac.SystemRole != auth.SystemRoleSuperAdmin {
 		return ac.RTID, true
 	}
 
-	// System super admin without tenant RT: resolve from resource
+	// System super admin with or without tenant RT: resolve from resource by searching all RTs
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
@@ -143,6 +149,7 @@ func (h *Handler) resolveRTID(w http.ResponseWriter, r *http.Request,
 	httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
 	return "", false
 }
+
 
 func requireRTID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	ac := auth.GetAuthContext(r)
@@ -500,14 +507,26 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 			household, err := svc.GetHouseholdByID(ctx, tx, id, targetRT)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
-					httpx.WriteNotFound(w, "household not found")
+					// SuperAdmin with JWT-pinned RTID: try all RTs as fallback
+					if ac.RTID != "" {
+						household, err = svc.GetAllHouseholdByID(ctx, tx, id)
+						if err != nil {
+							if errors.Is(err, ErrNotFound) {
+								httpx.WriteNotFound(w, "household not found")
+								return
+							}
+							httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
+							return
+						}
+					} else {
+						httpx.WriteNotFound(w, "household not found")
+						return
+					}
+				} else {
+					httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
 					return
 				}
-				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
-				return
-			}
-
-			if err := tx.Commit(); err != nil {
+			} else if err := tx.Commit(); err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
 				return
 			}
