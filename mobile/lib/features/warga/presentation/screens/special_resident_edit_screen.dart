@@ -437,6 +437,10 @@ class _SpecialResidentEditScreenState
                           value: 'kebersihan',
                           child: Text('Kebersihan'),
                         ),
+                        DropdownMenuItem(
+                          value: 'anggota_rw',
+                          child: Text('Anggota RW'),
+                        ),
                       ],
                       hint: const Text('Pilih jabatan'),
                       onChanged: (value) {

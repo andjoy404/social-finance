@@ -217,7 +217,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final isPengurus = user['role'] == AppRole.pengurus || role == 'pengurus';
     final isAnggotaRT =
         jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
-    if (isAnggotaRT) return false;
+    final isAnggotaRW = jabatan == 'anggota_rw';
+    if (isAnggotaRT || isAnggotaRW) return false;
     final perms = user['effective_permissions'];
     if (perms is List) {
       return perms.contains('finance.read');
@@ -234,7 +235,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     if (jabatan == 'sekretaris' ||
         jabatan == 'sosial' ||
-        jabatan == 'operasional') {
+        jabatan == 'operasional' ||
+        jabatan == 'anggota' ||
+        jabatan == 'anggota_rt' ||
+        jabatan == 'anggota_rw') {
       return false;
     }
     final roleVal = user['role'];
@@ -272,7 +276,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final isPengurus = user['role'] == AppRole.pengurus || role == 'pengurus';
     final isAnggotaRT =
         jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
-    if (isAnggotaRT) return false;
+    final isAnggotaRW = jabatan == 'anggota_rw';
+    if (isAnggotaRT || isAnggotaRW) return false;
     // Sekretaris RT can access Iuran personal view (own bills/payments).
     // Admin Iuran operations are blocked by backend authorization.
     return true;
@@ -292,7 +297,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
             .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
             .toList() ??
         <RWMembership>[];
-    // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
+    // Include anggota, anggota_rt, and anggota_rw so Anggota RT and Anggota RW can access RW Dashboard and RW Kas READ.
     final filtered = rawList
         .where(
           (m) =>
@@ -305,6 +310,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                     'bendahara',
                     'anggota',
                     'anggota_rt',
+                    'anggota_rw',
                   ].contains(m.jabatan!.toLowerCase())),
         )
         .toList();
@@ -321,6 +327,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           'sekretaris',
           'bendahara',
           'anggota_rt',
+          'anggota_rw',
         ].contains(jab) ||
         (jab == 'anggota' && role == 'pengurus');
     if (rwId.isNotEmpty && isEligible) {
@@ -342,6 +349,11 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   }
 
   List<_NavRoute> _getBottomNavTabs(Map<String, dynamic>? user) {
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'anggota_rw') {
+      return [_rwDataTab, _notifikasiTab, _profileTab];
+    }
+
     final canKeuangan = _canAccessKeuangan(user);
     final canIuran = _canAccessIuran(user);
 
@@ -356,6 +368,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   List<_NavRoute> _getCollapsedTabs(Map<String, dynamic>? user) {
     if (user == null) return [];
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'anggota_rw') {
+      return [];
+    }
     final role = (user['role'] ?? '')
         .toString()
         .split('.')
@@ -500,6 +515,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       final menuIdx = bottomTabs.indexOf(_menuTab);
       if (menuIdx >= 0) return menuIdx;
     }
+    // If Data RW is in bottomTabs and location is an RW route, match Data RW tab.
+    final rwDataIdx = bottomTabs.indexWhere((t) => t.path == '/home/rw-data');
+    if (rwDataIdx >= 0 &&
+        (location.startsWith('/rw/') ||
+            location == '/home/rw-data' ||
+            location.startsWith('/home/rw-data/'))) {
+      return rwDataIdx;
+    }
     var bestMatch = -1;
     for (var i = 0; i < bottomTabs.length; i++) {
       final tab = bottomTabs[i];
@@ -514,6 +537,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       }
     }
     if (bestMatch != -1) return bestMatch;
+    if (location.startsWith('/rw/')) return -1;
     return 0;
   }
 
@@ -847,14 +871,15 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (rwMemberships.isEmpty) {
           final rwId = (user?['rw_id'] ?? '').toString().trim();
           if (rwId.isNotEmpty) {
-            final destination = '/rw/$rwId/dashboard';
+            final destination = '/rw/$rwId/keuangan?tab=beranda';
             await _confirmAndGo(tapContext, currentLocation, destination);
           }
           return;
         }
 
         if (rwMemberships.length == 1) {
-          final destination = '/rw/${rwMemberships.first.rwId}/dashboard';
+          final destination =
+              '/rw/${rwMemberships.first.rwId}/keuangan?tab=beranda';
           await _confirmAndGo(tapContext, currentLocation, destination);
         } else {
           // Multiple memberships: select the exact target before asking for
@@ -886,7 +911,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
               !tapContext.mounted) {
             return;
           }
-          final destination = '/rw/$selectedRwId/dashboard';
+          final destination = '/rw/$selectedRwId/keuangan?tab=beranda';
           await _confirmAndGo(tapContext, currentLocation, destination);
         }
         return;

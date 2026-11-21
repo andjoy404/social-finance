@@ -138,8 +138,8 @@ export function getOfficerRouteDestination(
     }
   }
 
-  // Anggota RT: redirect to RW Dashboard, not Beranda.
-  if (normalized === 'anggota' || normalized === 'anggota_rt') {
+  // Anggota RT / Anggota RW: redirect to RW Dashboard, not Beranda.
+  if (normalized === 'anggota' || normalized === 'anggota_rt' || normalized === 'anggota_rw') {
     const rwId = (rwMemberships && rwMemberships.length > 0)
       ? rwMemberships[0].rw_id
       : (userRwId ?? '')

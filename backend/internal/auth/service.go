@@ -19,17 +19,18 @@ var validRTJabatans = map[string]struct{}{
 	"bendahara":   {},
 	"anggota":     {},
 	"anggota_rt":  {},
+	"anggota_rw":  {},
 }
 
 // IsEligibleRTJabatan checks whether an RT membership qualifies for inferred RW access.
 // Eligible RT positions:
-//   - ketua, wakil_ketua, sekretaris, bendahara, anggota_rt (always eligible RT committee roles)
+//   - ketua, wakil_ketua, sekretaris, bendahara, anggota_rt, anggota_rw (always eligible RT committee roles)
 //   - anggota (eligible when role is 'pengurus'; ineligible when role is 'warga' / plain resident)
 func IsEligibleRTJabatan(role string, jabatan string) bool {
 	cleanJabatan := strings.ToLower(strings.TrimSpace(jabatan))
 	cleanRole := strings.ToLower(strings.TrimSpace(role))
 	switch cleanJabatan {
-	case "ketua", "wakil_ketua", "sekretaris", "bendahara", "anggota_rt":
+	case "ketua", "wakil_ketua", "sekretaris", "bendahara", "anggota_rt", "anggota_rw":
 		return true
 	case "anggota":
 		return cleanRole == "pengurus"

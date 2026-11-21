@@ -2,6 +2,8 @@ package notification_test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -45,17 +47,18 @@ func TestGetRWAndRTPengurusUserIDs_JabatanAllowlist(t *testing.T) {
 		{strPtr("bendahara"), "warga", true, "bendahara_jabatan"},
 		{strPtr("sekretaris"), "warga", true, "sekretaris"},
 		{strPtr("anggota_rt"), "warga", true, "anggota_rt"},
+		{strPtr("anggota_rw"), "warga", true, "anggota_rw"},
+		{strPtr("operasional"), "warga", true, "operasional_warga"},
+		{strPtr("operasional"), "pengurus", true, "operasional_pengurus"},
 
 		// Denied jabatan-based users — CRITICAL: these must NOT receive
 		{strPtr("keamanan"), "warga", false, "keamanan_warga"},
 		{strPtr("sosial"), "warga", false, "sosial_warga"},
-		{strPtr("operasional"), "warga", false, "operasional_warga"},
 		{strPtr("kebersihan"), "warga", false, "kebersihan_warga"},
 
 		// CRITICAL: role='pengurus' with denied jabatan must NOT receive
 		{strPtr("keamanan"), "pengurus", false, "keamanan_pengurus"},
 		{strPtr("sosial"), "pengurus", false, "sosial_pengurus"},
-		{strPtr("operasional"), "pengurus", false, "operasional_pengurus"},
 		{strPtr("kebersihan"), "pengurus", false, "kebersihan_pengurus"},
 
 		// CRITICAL: role='bendahara' with denied jabatan must NOT receive
@@ -447,5 +450,117 @@ func TestListManagementHistory_CombinedRTAndRW(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestAnggotaRW_NotificationFlow_EndToEnd(t *testing.T) {
+	pool := notifTestPool(t)
+	ctx := context.Background()
+	n := atomic.AddInt64(&dbRTCounter, 1)
+
+	rwID := createTestRW(t, pool, fmt.Sprintf("RW-AnggotaRW-%d", n))
+	rtID := createTestRTInRW(t, pool, rwID, fmt.Sprintf("RT-AnggotaRW-%d", n))
+
+	repo := notification.NewRepository(pool)
+
+	// 1. Create Anggota RW, Keamanan, and Other users in this RT
+	anggotaRWUser := notifTestUser(t, pool, fmt.Sprintf("%d-anggotarw", n), true)
+	notifTestMembership(t, pool, anggotaRWUser, rtID, "warga", strPtr("anggota_rw"), true)
+
+	keamananUser := notifTestUser(t, pool, fmt.Sprintf("%d-keamanan", n), true)
+	notifTestMembership(t, pool, keamananUser, rtID, "warga", strPtr("keamanan"), true)
+
+	otherUser := notifTestUser(t, pool, fmt.Sprintf("%d-other", n), true)
+	notifTestMembership(t, pool, otherUser, rtID, "warga", nil, true)
+
+	// 2. Test GetRWAndRTPengurusUserIDs: anggota_rw MUST be included, keamanan MUST NOT be included
+	recipients, err := repo.GetRWAndRTPengurusUserIDs(ctx, rwID)
+	if err != nil {
+		t.Fatalf("GetRWAndRTPengurusUserIDs: %v", err)
+	}
+	recipMap := make(map[string]bool)
+	for _, id := range recipients {
+		recipMap[id] = true
+	}
+	if !recipMap[anggotaRWUser] {
+		t.Errorf("expected anggota_rw (%s) to be in recipient list, got %v", anggotaRWUser, recipients)
+	}
+	if recipMap[keamananUser] {
+		t.Errorf("keamanan (%s) must NOT be in RW recipient list", keamananUser)
+	}
+
+	// 3. Send RW broadcast notification to anggota_rw
+	senderID := notifTestUser(t, pool, fmt.Sprintf("%d-rw-broadcaster", n), true)
+	dedupKey := fmt.Sprintf("rw_manual:%s:%d:%s", rwID, n, anggotaRWUser)
+	ok, err := repo.RecordRWDedupWithStatus(ctx, rwID, anggotaRWUser, "manual_push", dedupKey, "Pengumuman RW Spesial", "Pesan dari Ketua RW", "SENT", map[string]string{"type": "manual_push"}, &senderID)
+	if err != nil || !ok {
+		t.Fatalf("RecordRWDedupWithStatus: ok=%v, err=%v", ok, err)
+	}
+
+	// 4. anggota_rw queries Riwayat Saya (ListLogs)
+	logs, total, err := repo.ListLogs(ctx, rtID, anggotaRWUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for anggota_rw: %v", err)
+	}
+	if total < 1 || len(logs) < 1 {
+		t.Fatalf("expected at least 1 log in Riwayat Saya for anggota_rw, got total=%d, len=%d", total, len(logs))
+	}
+
+	var targetLogID string
+	for _, l := range logs {
+		if l.Title == "Pengumuman RW Spesial" {
+			targetLogID = l.ID
+			if l.IsRead {
+				t.Errorf("expected is_read=false initially")
+			}
+		}
+	}
+	if targetLogID == "" {
+		t.Fatalf("did not find target notification in anggota_rw logs")
+	}
+
+	// 5. Another user cannot mark anggota_rw's notification as read
+	otherErr := repo.MarkAsRead(ctx, rtID, otherUser, targetLogID, false)
+	if !errors.Is(otherErr, notification.ErrForbidden) && !errors.Is(otherErr, sql.ErrNoRows) {
+		t.Errorf("expected ErrForbidden or ErrNoRows when other user marks notification, got %v", otherErr)
+	}
+
+	// 6. anggota_rw marks it as read
+	if err := repo.MarkAsRead(ctx, rtID, anggotaRWUser, targetLogID, false); err != nil {
+		t.Fatalf("MarkAsRead by anggota_rw: %v", err)
+	}
+
+	// 7. Verify status updated to is_read=true
+	logsAfter, _, err := repo.ListLogs(ctx, rtID, anggotaRWUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs after read: %v", err)
+	}
+	for _, l := range logsAfter {
+		if l.ID == targetLogID {
+			if !l.IsRead {
+				t.Errorf("expected is_read=true after MarkAsRead, got false")
+			}
+			if l.ReadAt == nil {
+				t.Errorf("expected read_at timestamp to be non-nil")
+			}
+		}
+	}
+
+	// 8. Verify Keamanan receives their own special notification normally
+	keamananDedup := fmt.Sprintf("patrol_alert:%s:%d", keamananUser, n)
+	_, err = pool.Raw().ExecContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, $2, 'patrol_alert', $3, 'Laporan Keamanan Baru', 'Patroli selesai', 'SENT', NOW())
+	`, rtID, keamananUser, keamananDedup)
+	if err != nil {
+		t.Fatalf("insert security notification: %v", err)
+	}
+
+	keamananLogs, kTotal, err := repo.ListLogs(ctx, rtID, keamananUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for keamanan: %v", err)
+	}
+	if kTotal < 1 || len(keamananLogs) < 1 {
+		t.Errorf("keamanan must still receive their own notifications, got total=%d", kTotal)
 	}
 }

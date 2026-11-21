@@ -32,7 +32,7 @@ func TestSpecialResidentCreationWithoutHousehold(t *testing.T) {
 	pengurusToken := makeTenantToken(t, "test-pengurus-special-nh", "test-pengurus-mem-special-nh", rtID, auth.RolePengurus)
 	runID := time.Now().UnixNano()
 
-	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
+	for idx, jab := range []string{"keamanan", "kebersihan", "anggota_rw"} {
 		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"31730000000000%02d","phone":"0812%04d%02d","email":"petugas.%s.%d.nh@test.com","jabatan":"%s"}`, jab, idx, runID%10000, idx, jab, runID, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")

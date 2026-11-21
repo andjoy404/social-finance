@@ -838,6 +838,9 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
       );
     }
 
+    final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final canAccessLokasi = rwMembershipHasFeatureAccess(user, widget.rwId);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
@@ -850,7 +853,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         ),
         Expanded(
           child: _buildStatItem(context, (_data?.totalLocations ?? 0).toString(), 'Lokasi Dana', AppColors.success,
-              onTap: () => context.push('/rw/${widget.rwId}/keuangan?tab=lokasi')),
+              onTap: canAccessLokasi ? () => context.push('/rw/${widget.rwId}/keuangan?tab=lokasi') : null),
         ),
       ],
     );

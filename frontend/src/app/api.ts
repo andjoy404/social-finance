@@ -1007,7 +1007,7 @@ export async function moveResident(token: string, id: string, body: ApiMoveResid
 
 export interface ApiSpecialResidentCreateBody {
   rt_id: string
-  jabatan: 'keamanan' | 'operasional' | 'kebersihan'
+  jabatan: 'keamanan' | 'operasional' | 'kebersihan' | 'anggota_rw'
   full_name: string
   nik: string
   phone: string
@@ -1021,7 +1021,7 @@ export interface ApiSpecialResidentUpdateBody {
   nik?: string
   phone?: string
   email?: string
-  jabatan?: 'keamanan' | 'operasional' | 'kebersihan'
+  jabatan?: 'keamanan' | 'operasional' | 'kebersihan' | 'anggota_rw'
   is_active?: boolean
   password?: string
 }

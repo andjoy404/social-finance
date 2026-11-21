@@ -18,8 +18,8 @@ import (
 )
 
 func TestSpecialResidentJabatanValidation(t *testing.T) {
-	// 1. Verify validSpecialJabatans allows only keamanan, operasional, kebersihan
-	expectedSpecial := []string{"keamanan", "operasional", "kebersihan"}
+	// 1. Verify validSpecialJabatans allows keamanan, operasional, kebersihan, anggota_rw
+	expectedSpecial := []string{"keamanan", "operasional", "kebersihan", "anggota_rw"}
 	for _, j := range expectedSpecial {
 		if !validSpecialJabatans[j] {
 			t.Errorf("expected validSpecialJabatans[%q] to be true", j)
@@ -267,7 +267,7 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 
 	var createdID string
 	runID := time.Now().UnixNano()
-	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
+	for idx, jab := range []string{"keamanan", "kebersihan", "anggota_rw"} {
 		phone := fmt.Sprintf("08%010d", (runID/1000+int64(idx))%10000000000)
 		nik := fmt.Sprintf("3173%012d", (runID/100+int64(idx))%1000000000000)
 		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"%s","phone":"%s","email":"petugas.%s.056.%d.%d@test.com","jabatan":"%s"}`, jab, nik, phone, jab, runID, idx, jab)
@@ -293,8 +293,8 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 		})
 	}
 
-	// Reject obsolete 'kebersihan_pembangunan' and unknown jabatans on CreateSpecialResident
-	for _, invalidJab := range []string{"kebersihan_pembangunan", "ketua", "unknown"} {
+	// Reject obsolete 'kebersihan_pembangunan', 'operasional', and unknown jabatans on CreateSpecialResident
+	for _, invalidJab := range []string{"operasional", "kebersihan_pembangunan", "ketua", "unknown"} {
 		body := fmt.Sprintf(`{"full_name":"Invalid Petugas","nik":"3173000000000099","phone":"08129999009","email":"invalid.%s@test.com","jabatan":"%s"}`, invalidJab, invalidJab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")

@@ -84,7 +84,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return DoubleBackExitScope(
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: false,
+          automaticallyImplyLeading: Navigator.of(context).canPop(),
+          leading: (user?['jabatan'] == 'anggota_rw' && !Navigator.of(context).canPop())
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    final memberships = (user?['rw_memberships'] as List?)?.whereType<Map<String, dynamic>>().toList();
+                    final rwId = (memberships != null && memberships.isNotEmpty)
+                        ? (memberships.first['rw_id'] as String? ?? (user?['rw_id'] ?? '').toString())
+                        : (user?['rw_id'] ?? '').toString();
+                    context.go('/rw/$rwId/keuangan?tab=beranda');
+                  },
+                )
+              : null,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Profil'),
         ),

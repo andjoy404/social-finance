@@ -1507,6 +1507,7 @@ var validSpecialJabatans = map[string]bool{
 	"keamanan":    true,
 	"operasional": true,
 	"kebersihan":  true,
+	"anggota_rw":  true,
 }
 
 // SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
@@ -1540,8 +1541,8 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteValidationError(w, "jabatan is required", nil)
 		return
 	}
-	if !validSpecialJabatans[req.Jabatan] {
-		httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
+	if req.Jabatan != "keamanan" && req.Jabatan != "kebersihan" && req.Jabatan != "anggota_rw" {
+		httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'kebersihan', or 'anggota_rw'", nil)
 		return
 	}
 	if req.FullName == "" {

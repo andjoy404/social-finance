@@ -45,6 +45,12 @@ func TestAdministrationJabatanLifecycleAndAudit(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		return rec
 	}
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"keamanan"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign keamanan should be rejected: got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"kebersihan"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign kebersihan should be rejected: got %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"anggota"}`); rec.Code != http.StatusOK {
 		t.Fatalf("assign anggota: got %d %s", rec.Code, rec.Body.String())
 	}

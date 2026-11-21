@@ -133,6 +133,10 @@ func (h *Handler) SetJabatan(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, "jabatan is invalid", nil)
 		return
 	}
+	if jabatan == auth.JabatanKeamanan || jabatan == auth.JabatanKebersihan {
+		httpx.WriteValidationError(w, "jabatan 'keamanan' and 'kebersihan' must be managed through Tambah Petugas", nil)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	tx, err := h.p.BeginTx(ctx)

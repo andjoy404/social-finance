@@ -532,6 +532,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         'bendahara',
         'anggota',
         'anggota_rt',
+        'anggota_rw',
       ].contains(jabatan);
     }).toList();
 
@@ -927,6 +928,41 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (securityLanding != null) return securityLanding;
           final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
           if (cleaningLanding != null) return cleaningLanding;
+          // Anggota RW: redirect to RW Dashboard directly, never to RT Beranda or Warga.
+          final isAnggotaRW = jabatan == 'anggota_rw';
+          if (isAnggotaRW) {
+            final rwMemberships =
+                (user?['rw_memberships'] as List?)
+                    ?.whereType<Map<String, dynamic>>()
+                    .toList() ??
+                <Map<String, dynamic>>[];
+            String rwId = '';
+            if (rwMemberships.isNotEmpty) {
+              final firstRw = rwMemberships.first;
+              rwId = firstRw['rw_id'] as String? ?? '';
+            }
+            if (rwId.isEmpty) {
+              rwId = (user?['rw_id'] ?? '').toString().trim();
+            }
+            if (rwId.isNotEmpty) {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/rw/$rwId/keuangan?tab=beranda';
+              }
+              // Allow staying on rw paths, rw-data, notifikasi, and profile (NOT warga)
+              if (loc.startsWith('/rw/') ||
+                  loc == '/home/rw-data' ||
+                  loc.startsWith('/home/rw-data/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/rw/$rwId/keuangan?tab=beranda';
+            }
+          }
+
           // Anggota RT: redirect to RW Dashboard, not Beranda.
           final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
           final isPengurus = user?['role'] == AppRole.pengurus || role == 'pengurus';

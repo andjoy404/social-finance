@@ -281,6 +281,11 @@ bool rwMembershipHasFeatureAccess(
   if (user == null) return false;
   if (user['role'] == 'super_admin' || user['system_role'] == 'super_admin') return true;
 
+  final jab = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+  if (jab == 'anggota' || jab == 'anggota_rt' || jab == 'anggota_rw') {
+    return false;
+  }
+
   final memberships = rwMemberships ??
       ((user['rw_memberships'] as List?)
           ?.whereType<Map<String, dynamic>>()
@@ -292,5 +297,9 @@ bool rwMembershipHasFeatureAccess(
 
   if (currentMembership == null) return false;
   final source = currentMembership['source'] as String?;
-  return source == 'explicit' || source == 'rt_inferred';
+  final memJab = (currentMembership['jabatan'] ?? '').toString().trim().toLowerCase();
+  if (memJab == 'anggota' || memJab == 'anggota_rt' || memJab == 'anggota_rw') {
+    return false;
+  }
+  return source == 'explicit';
 }

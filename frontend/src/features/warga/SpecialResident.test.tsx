@@ -76,8 +76,8 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     const options = Array.from(select.options).map((o) => ({ value: o.value, label: o.text }))
     expect(options).toEqual([
       { value: 'keamanan', label: 'Keamanan' },
-      { value: 'operasional', label: 'Operasional' },
       { value: 'kebersihan', label: 'Kebersihan' },
+      { value: 'anggota_rw', label: 'Anggota RW' },
     ])
 
     fireEvent.change(select, { target: { value: 'kebersihan' } })
@@ -149,8 +149,9 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     const options = Array.from(select.options).map((o) => ({ value: o.value, label: o.text }))
     expect(options).toEqual([
       { value: 'keamanan', label: 'Keamanan' },
-      { value: 'operasional', label: 'Operasional' },
       { value: 'kebersihan', label: 'Kebersihan' },
+      { value: 'anggota_rw', label: 'Anggota RW' },
+      { value: 'operasional', label: 'Operasional' },
     ])
 
     fireEvent.change(select, { target: { value: 'kebersihan' } })

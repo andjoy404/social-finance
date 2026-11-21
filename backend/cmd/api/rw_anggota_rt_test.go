@@ -60,6 +60,11 @@ func TestRWRBAC_AnggotaRT_AllEndpoints(t *testing.T) {
 			role:    auth.RolePengurus,
 			jabatan: "anggota_rt",
 		},
+		{
+			name:    "Petugas with jabatan anggota_rw",
+			role:    auth.RoleWarga,
+			jabatan: "anggota_rw",
+		},
 	}
 
 	for _, tc := range testCases {

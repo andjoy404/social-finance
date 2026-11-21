@@ -34,6 +34,7 @@ const Set<String> kPetugasKhususJabatan = {
   'keamanan',
   'operasional',
   'kebersihan',
+  'anggota_rw',
 };
 
 /// Jabatan pengurus RT yang memiliki akses tulis warga (position_permissions).

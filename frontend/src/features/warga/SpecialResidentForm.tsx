@@ -18,12 +18,19 @@ import {
   LockOutlined,
 } from '@ant-design/icons'
 
-export type JabatanValue = 'keamanan' | 'operasional' | 'kebersihan'
+export type JabatanValue = 'keamanan' | 'kebersihan' | 'anggota_rw' | 'operasional'
 
-const jabatanOptions: { value: JabatanValue; label: string }[] = [
+const createJabatanOptions: { value: JabatanValue; label: string }[] = [
   { value: 'keamanan', label: 'Keamanan' },
-  { value: 'operasional', label: 'Operasional' },
   { value: 'kebersihan', label: 'Kebersihan' },
+  { value: 'anggota_rw', label: 'Anggota RW' },
+]
+
+const allJabatanOptions: { value: JabatanValue; label: string }[] = [
+  { value: 'keamanan', label: 'Keamanan' },
+  { value: 'kebersihan', label: 'Kebersihan' },
+  { value: 'anggota_rw', label: 'Anggota RW' },
+  { value: 'operasional', label: 'Operasional' },
 ]
 
 export interface SpecialResidentFormValues {
@@ -265,7 +272,7 @@ export function SpecialResidentForm({
               onChange={(e) => handleChange('jabatan', e.target.value)}
               disabled={busy || readOnly}
             >
-              {jabatanOptions.map((opt) => (
+              {(mode === 'create' ? createJabatanOptions : allJabatanOptions).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

@@ -73,7 +73,8 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
       final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
       final isAnggotaRT =
           jab == 'anggota_rt' || (jab == 'anggota' && role == 'pengurus');
-      if (userRwId.isNotEmpty && (isAnggotaRT || jab.isNotEmpty)) {
+      final isAnggotaRW = jab == 'anggota_rw';
+      if (userRwId.isNotEmpty && (isAnggotaRT || isAnggotaRW || jab.isNotEmpty)) {
         rwMemberships = [
           RWMembership(
             rwId: userRwId,
@@ -81,7 +82,7 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
             rwNumber: user?['rt_rw'] is num
                 ? (user!['rt_rw'] as num).toInt()
                 : int.tryParse(user?['rw']?.toString() ?? ''),
-            jabatan: jab.isNotEmpty ? jab : 'anggota_rt',
+            jabatan: jab.isNotEmpty ? jab : (isAnggotaRW ? 'anggota_rw' : 'anggota_rt'),
             source: 'rt_inferred',
           ),
         ];

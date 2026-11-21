@@ -308,6 +308,7 @@ var rwPermissionMapReadOnly = map[string][]string{
 	"bendahara":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"anggota":     {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"anggota_rt":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota_rw":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"pengurus":    {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 	"perangkat":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 }
@@ -379,7 +380,6 @@ var rwPermissionMap = map[string][]string{
 	"anggota": {
 		PermissionRWDashboardRead,
 		PermissionRWKasRead,
-		PermissionRWLocationRead,
 		PermissionRWNotificationRead,
 		// Domain/legacy aliases (READ ONLY)
 		"finance.read",
@@ -388,7 +388,14 @@ var rwPermissionMap = map[string][]string{
 	"anggota_rt": {
 		PermissionRWDashboardRead,
 		PermissionRWKasRead,
-		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"anggota_rw": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
 		PermissionRWNotificationRead,
 		// Domain/legacy aliases (READ ONLY)
 		"finance.read",

@@ -2863,9 +2863,11 @@ func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID strin
 			JOIN rts r ON r.id = urm.rt_id
 			WHERE r.rw_id = $1 AND r.is_active = true AND urm.is_active = true
 			  AND (
-			    -- Jabatan-based: strictly enforce the 6 allowed positions.
+			    -- Jabatan-based: strictly enforce the allowed positions.
 			    -- 'anggota_rt' added alongside 'anggota' per migration 083.
-			    urm.jabatan IN ('ketua', 'wakil_ketua', 'bendahara', 'sekretaris', 'anggota', 'anggota_rt')
+			    -- 'anggota_rw' and 'operasional' included per RW broadcast distribution rules.
+			    -- 'keamanan' and 'kebersihan' are strictly excluded.
+			    urm.jabatan IN ('ketua', 'wakil_ketua', 'bendahara', 'sekretaris', 'anggota', 'anggota_rt', 'anggota_rw', 'operasional')
 			    -- Legacy role-based fallback: only when jabatan is NULL.
 			    -- This prevents users with role='pengurus' AND jabatan='keamanan' from receiving.
 			    OR (urm.jabatan IS NULL AND urm.role IN ('pengurus', 'bendahara'))

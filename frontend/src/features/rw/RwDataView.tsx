@@ -42,12 +42,14 @@ export function RwDataView({ rwId }: { rwId?: string }) {
     ((user?.jabatan ?? '').trim().toLowerCase() === 'anggota_rt' ||
       (user?.jabatan ?? '').trim().toLowerCase() === 'anggota') &&
     user?.role === 'pengurus'
-  // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
+  const isAnggotaRW = (user?.jabatan ?? '').trim().toLowerCase() === 'anggota_rw'
+  const isReadOnlyRW = isAnggotaRT || isAnggotaRW
+  // Include anggota, anggota_rt, and anggota_rw so Anggota RT and Anggota RW can access RW Dashboard and RW Kas READ.
   const filteredRwMemberships = rawRwMemberships.filter((m) => {
     if (isSuperAdmin) return true
     if (!m.jabatan) return false
     const j = m.jabatan.toLowerCase()
-    if (['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota_rt'].includes(j)) {
+    if (['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota_rt', 'anggota_rw'].includes(j)) {
       return true
     }
     if (j === 'anggota') {
@@ -57,12 +59,12 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   })
   const rwMemberships = filteredRwMemberships.length > 0
     ? filteredRwMemberships
-    : (isAnggotaRT && user?.rwId
+    : (isReadOnlyRW && user?.rwId
         ? [{
             rw_id: user.rwId,
             rw_name: user.rwName ?? undefined,
             rw_number: user.rwNumber ?? undefined,
-            jabatan: 'anggota_rt',
+            jabatan: isAnggotaRW ? 'anggota_rw' : 'anggota_rt',
             source: 'rt_inferred' as const,
           }]
         : [])
@@ -84,14 +86,35 @@ export function RwDataView({ rwId }: { rwId?: string }) {
     return membership?.source === 'explicit'
   })()
 
+  // Check if user has access to Lokasi Dana.
+  // Read-only RW users (Anggota RT, Anggota RW, or inferred) must NEVER access Lokasi Dana.
+  const canAccessLokasiDana = (() => {
+    if (!user || !selectedRwId) return false
+    if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
+    const cleanJabatan = (user.jabatan || '').trim().toLowerCase()
+    if (['anggota', 'anggota_rt', 'anggota_rw'].includes(cleanJabatan)) return false
+    const membership = (user.rwMemberships ?? []).find((m) => m.rw_id === selectedRwId)
+    if (!membership || membership.source !== 'explicit') return false
+    const rwJabatan = (membership.jabatan || '').trim().toLowerCase()
+    if (['anggota', 'anggota_rt', 'anggota_rw'].includes(rwJabatan)) return false
+    return true
+  })()
+
   // Sync tab with URL wildcard
   useEffect(() => {
     const rawSub = (params['*'] || '').split('/')[0]
     if (rawSub === 'kas') {
       setActiveTab('kas')
-    } else if (rawSub === 'lokasi-dana' || rawSub === 'notification') {
+    } else if (rawSub === 'lokasi-dana') {
+      if (canAccessLokasiDana) {
+        setActiveTab('lokasi-dana')
+      } else if (selectedRwId) {
+        setActiveTab('dashboard')
+        navigate(`/rw-view/${selectedRwId}/dashboard`, { replace: true })
+      }
+    } else if (rawSub === 'notification') {
       if (hasExplicitRwMembership) {
-        setActiveTab(rawSub as RwViewTab)
+        setActiveTab('notification')
       } else if (selectedRwId) {
         setActiveTab('dashboard')
         navigate(`/rw-view/${selectedRwId}/dashboard`, { replace: true })
@@ -99,7 +122,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
     } else if (rawSub === 'dashboard' || !rawSub) {
       setActiveTab('dashboard')
     }
-  }, [params, hasExplicitRwMembership, selectedRwId, navigate])
+  }, [params, hasExplicitRwMembership, canAccessLokasiDana, selectedRwId, navigate])
 
   const visibleTabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => {
     const base: { key: RwViewTab; label: string; icon: React.ReactNode }[] = [
@@ -117,13 +140,16 @@ export function RwDataView({ rwId }: { rwId?: string }) {
         icon: <WalletOutlined />,
       })
     }
-    // Lokasi Dana and Notifikasi: only for explicit RW members.
-    if (hasExplicitRwMembership) {
+    // Lokasi Dana: only for authorized non-read-only explicit members
+    if (canAccessLokasiDana) {
       base.push({
         key: 'lokasi-dana',
         label: 'Lokasi Dana',
         icon: <BankOutlined />,
       })
+    }
+    // Notifikasi: only for explicit RW members.
+    if (hasExplicitRwMembership) {
       base.push({
         key: 'notification',
         label: canWriteForSelected ? 'Notifikasi Kelola' : 'Notifikasi',
@@ -131,7 +157,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
       })
     }
     return base
-  }, [canAccessFeatures, canWriteForSelected, hasExplicitRwMembership])
+  }, [canAccessFeatures, canWriteForSelected, hasExplicitRwMembership, canAccessLokasiDana])
   const tabs = visibleTabs
 
   // Initialize selected RW from URL param or auto-select single membership
@@ -382,7 +408,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
           )
         )}
         {activeTab === 'lokasi-dana' && (
-          canAccessFeatures ? (
+          canAccessLokasiDana ? (
             <RwFundLocationList rwId={selectedRwId} rwName={displayName || undefined} />
           ) : (
             <div style={{ padding: 32, textAlign: 'center' }}>

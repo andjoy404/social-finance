@@ -477,6 +477,11 @@ class MappedResident {
       case 'kebersihan':
       case 'kebersihan_rt':
         return 'Kebersihan';
+      case 'anggota':
+      case 'anggota_rt':
+        return 'Anggota RT';
+      case 'anggota_rw':
+        return 'Anggota RW';
       default:
         return jabatan;
     }
@@ -513,6 +518,11 @@ class MappedResident {
       case 'kebersihan':
       case 'kebersihan_rt':
         return AppColors.chartreuse;
+      case 'anggota':
+      case 'anggota_rt':
+        return AppColors.accent;
+      case 'anggota_rw':
+        return AppColors.info;
       case 'sosial':
       case 'sosial_rt':
       case 'seksi_sosial':

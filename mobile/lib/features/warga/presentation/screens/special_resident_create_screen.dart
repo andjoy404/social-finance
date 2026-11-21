@@ -361,12 +361,12 @@ class _SpecialResidentCreateScreenState
                         child: Text('Keamanan'),
                       ),
                       DropdownMenuItem(
-                        value: 'operasional',
-                        child: Text('Operasional'),
-                      ),
-                      DropdownMenuItem(
                         value: 'kebersihan',
                         child: Text('Kebersihan'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'anggota_rw',
+                        child: Text('Anggota RW'),
                       ),
                     ],
                     onChanged: widget.isSuperAdmin

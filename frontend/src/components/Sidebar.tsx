@@ -73,8 +73,8 @@ export function Sidebar() {
     user?.role.trim().toLowerCase() === 'warga' && !jabatan && allowedRT
   const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
-  const isAnggotaRT = jabatan === 'anggota' || jabatan === 'anggota_rt'
-  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer || isAnggotaRT
+  const isAnggota = jabatan === 'anggota' || jabatan === 'anggota_rt' || jabatan === 'anggota_rw'
+  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer || isAnggota
     ? []
     : [{ to: '/', label: 'Beranda', icon: <HomeOutlined />, id: 'dashboard' }]
 
@@ -97,8 +97,8 @@ export function Sidebar() {
       icon: <ScheduleOutlined />,
       id: 'monitoring',
     })
-  } else if (jabatan === 'anggota' || jabatan === 'anggota_rt') {
-    // Anggota RT: simplified sidebar — only Data RW and Notifikasi.
+  } else if (isAnggota) {
+    // Anggota RT & Anggota RW: simplified sidebar — only Data RW and Notifikasi.
     // Kas RT, Iuran, Keamanan, and other RT features are hidden.
   } else if (allowedRT) {
     if (jabatan !== 'sosial' && jabatan !== 'operasional') {
@@ -189,19 +189,19 @@ export function Sidebar() {
   }
 
   const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
-  // Include anggota and anggota_rt in RW membership filter so Anggota RT can access RW Dashboard and RW Kas READ.
+  // Include anggota, anggota_rt, and anggota_rw in RW membership filter so Anggota RT and Anggota RW can access RW Dashboard and RW Kas READ.
   const rwMemberships = rawRwMemberships.filter(
-    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota', 'anggota_rt'].includes(m.jabatan.toLowerCase()))
+    (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'anggota', 'anggota_rt', 'anggota_rw'].includes(m.jabatan.toLowerCase()))
   )
 
   const effectiveRwMemberships = rwMemberships.length > 0
     ? rwMemberships
-    : (isAnggotaRT && user?.rwId
+    : (isAnggota && user?.rwId
         ? [{
             rw_id: user.rwId,
             rw_name: user.rwName ?? undefined,
             rw_number: user.rwNumber ?? undefined,
-            jabatan: user.jabatan ?? 'anggota_rt',
+            jabatan: user.jabatan ?? (jabatan === 'anggota_rw' ? 'anggota_rw' : 'anggota_rt'),
             source: 'rt_inferred' as const,
           }]
         : [])
@@ -232,13 +232,13 @@ export function Sidebar() {
 
   const canAccessNotifikasi =
     !isCleaningOfficer &&
-    (isSecurityOfficer || isResident || isPengurus || isAnggotaRT || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
+    (isSecurityOfficer || isResident || isPengurus || isAnggota || user?.role?.trim().toLowerCase() === 'bendahara' || canAccessNotificationAdmin(user))
 
   // Place Pengumuman, Kegiatan, Notifikasi as the three bottom-most menu items
   // in that exact order.
   // Non-allowed/non-officer views only have Beranda; do not append the
   // community pair there (preserves prior restricted visibility).
-  const showCommunityNav = !isSecurityOfficer && !isCleaningOfficer && !isAnggotaRT && allowedRT
+  const showCommunityNav = !isSecurityOfficer && !isCleaningOfficer && !isAnggota && allowedRT
   if (showCommunityNav) {
     items.push(
       { to: '/pengumuman', label: 'Pengumuman', icon: <NotificationOutlined />, id: 'pengumuman' },
