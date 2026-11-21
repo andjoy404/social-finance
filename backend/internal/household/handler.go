@@ -1154,26 +1154,39 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		targetRT := ac.RTID
-		if targetRT == "" {
-			rtQueryPtr := parseStringQuery(r, "rt_id")
-			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
-				targetRT = strings.TrimSpace(*rtQueryPtr)
-			}
+		targetRT := ""
+		rtQueryPtr := parseStringQuery(r, "rt_id")
+		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+			targetRT = strings.TrimSpace(*rtQueryPtr)
+		}
+		if targetRT == "" && ac.RTID != "" {
+			targetRT = ac.RTID
 		}
 
 		if targetRT != "" {
 			resident, err := svc.GetResidentByID(ctx, tx, id, targetRT)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
-					httpx.WriteNotFound(w, "resident not found")
+					// SuperAdmin without explicit rt_id: try all scoped RTs
+					if ac.RTID != "" {
+						resident, err = svc.GetAllResidentByID(ctx, tx, id)
+						if err != nil {
+							if errors.Is(err, ErrNotFound) {
+								httpx.WriteNotFound(w, "resident not found")
+								return
+							}
+							httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+							return
+						}
+					} else {
+						httpx.WriteNotFound(w, "resident not found")
+						return
+					}
+				} else {
+					httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
 					return
 				}
-				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
-				return
-			}
-
-			if err := tx.Commit(); err != nil {
+			} else if err := tx.Commit(); err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
 				return
 			}
