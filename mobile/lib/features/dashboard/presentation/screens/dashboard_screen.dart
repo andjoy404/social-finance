@@ -185,6 +185,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   data.organization,
                   theme,
                   isDark,
+                  rawJabatan,
                 ),
                 loading: () =>
                     const Center(child: CircularProgressIndicator.adaptive()),
@@ -735,6 +736,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     OrganizationStructure organization,
     ThemeData theme,
     bool isDark,
+    String callerJabatan,
   ) {
     final wargaAsync = ref.watch(wargaListProvider);
     final wargaResidents = switch (wargaAsync) {
@@ -871,6 +873,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           theme: theme,
                           isDark: isDark,
                           wargaResidents: wargaResidents,
+                          callerJabatan: callerJabatan,
                         ),
                       ),
                     );
@@ -930,13 +933,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required Color color,
     required bool isDark,
     required List<MappedResident> wargaResidents,
+    required String callerJabatan,
   }) {
     final activeMembers = members.where((m) => m.isActiveMember).toList();
     if (activeMembers.isEmpty) return;
 
-    final jNorm = jabatan.trim().toLowerCase();
-    final isKetua =
-        jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
+    final callerJabatanNorm = callerJabatan.trim().toLowerCase();
+    final callerIsKetua =
+        callerJabatanNorm == 'ketua' ||
+        callerJabatanNorm == 'ketua rt' ||
+        callerJabatanNorm == 'ketua_rt';
 
     showModalBottomSheet(
       context: context,
@@ -980,7 +986,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final warga = memberWargaMap[member.userId];
                       final memberPhone =
                           (member.phone ?? warga?.phoneNumber ?? '').trim();
-                      final isKetuaPhone = isKetua && memberPhone.isNotEmpty;
+                      // Backend sends phone for Ketua RT and Keamanan positions to all RT members
+                      final jabatanNorm = jabatan.trim().toLowerCase();
+                      final isKetuaPos =
+                          jabatanNorm == 'ketua' ||
+                          jabatanNorm == 'ketua rt' ||
+                          jabatanNorm == 'ketua_rt';
+                      final isKeamananPos =
+                          jabatanNorm == 'keamanan' ||
+                          jabatanNorm == 'keamanan_rt' ||
+                          jabatanNorm == 'seksi_keamanan' ||
+                          jabatanNorm == 'seksi_keamanan_rt';
+                      final showPhone =
+                          (isKetuaPos || isKeamananPos) && memberPhone.isNotEmpty;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1048,8 +1066,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                     ],
-                                    // Ketua RT → tampilkan nomor telepon
-                                    if (isKetuaPhone) ...[
+                                    // Ketua RT dan Keamanan → tampilkan nomor telepon
+                                    if (showPhone) ...[
                                       const SizedBox(height: 2),
                                       Row(
                                         crossAxisAlignment:
@@ -1099,6 +1117,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required ThemeData theme,
     required bool isDark,
     required List<MappedResident> wargaResidents,
+    required String callerJabatan,
   }) {
     final jabatan = node.positionLabel;
     final color = _getJabatanColor(jabatan);
@@ -1114,6 +1133,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           color: color,
           isDark: isDark,
           wargaResidents: wargaResidents,
+          callerJabatan: callerJabatan,
         ),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

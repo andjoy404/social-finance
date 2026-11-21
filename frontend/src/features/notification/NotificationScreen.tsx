@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BellOutlined,
   PlusOutlined,
@@ -17,7 +17,7 @@ import {
   EyeOutlined,
   ScheduleOutlined,
 } from '@ant-design/icons'
-import { useAuth, isSuperAdminUser, canAccessNotificationAdmin } from '@/app/AuthContext'
+import { useAuth, isSuperAdminUser, isKetuaRTUser, canAccessNotificationAdmin } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
@@ -31,6 +31,7 @@ import {
   apiGetNotificationLogs,
   apiGetNotificationManagementHistory,
   apiUploadNotificationImage,
+  apiGetNotificationImageBlob,
   apiTriggerManualPush,
   apiTestPush,
   apiMarkNotificationAsRead,
@@ -50,6 +51,10 @@ import {
   apiListActivities,
 } from '@/app/api'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { PaketDetailModal } from '@/features/keamanan/PaketDetailModal'
+import { CorrectionDetailModal } from '@/features/keamanan/CorrectionDetailModal'
+import { apiGetSecurityCorrectionById } from '@/features/keamanan/securityApi'
+import type { AttendanceCorrection } from '@/features/keamanan/securityApi'
 import { renderNotificationBody } from './notificationUrl'
 import {
   isBySystemTriggerEvent,
@@ -92,8 +97,24 @@ function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = f
 export function NotificationScreen() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
+
+  // Deep link support: ?openPaket={reportId} opens PaketDetailModal automatically
+  useEffect(() => {
+    const openPaket = searchParams.get('openPaket')
+    if (openPaket) {
+      setPaketDetailReportId(openPaket)
+      setShowPaketDetailModal(true)
+      // Clear the URL param so closing the modal doesn't reopen it
+      searchParams.delete('openPaket')
+      const newUrl = searchParams.toString()
+        ? `${window.location.pathname}?${searchParams.toString()}`
+        : window.location.pathname
+      navigate(newUrl, { replace: true })
+    }
+  }, [searchParams, navigate])
 
   const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'mine' | 'schedules'>(isAdmin ? 'system' : 'logs')
 
@@ -186,6 +207,63 @@ export function NotificationScreen() {
 
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [fullImagePreview, setFullImagePreview] = useState<string | null>(null)
+  const [fullImageLoading, setFullImageLoading] = useState(false)
+
+  // Paket detail modal state
+  const [paketDetailReportId, setPaketDetailReportId] = useState<string | null>(null)
+  const [showPaketDetailModal, setShowPaketDetailModal] = useState(false)
+
+  // Correction detail modal state
+  const [correctionDetailId, setCorrectionDetailId] = useState<string | null>(null)
+  const [showCorrectionDetailModal, setShowCorrectionDetailModal] = useState(false)
+  const [correctionDetailData, setCorrectionDetailData] = useState<AttendanceCorrection | null>(null)
+  const [, setCorrectionDetailLoading] = useState(false)
+
+  // Load correction detail when modal opens
+  useEffect(() => {
+    if (showCorrectionDetailModal && correctionDetailId && !correctionDetailData) {
+      setCorrectionDetailLoading(true)
+      apiGetSecurityCorrectionById(correctionDetailId)
+        .then(setCorrectionDetailData)
+        .catch(() => setCorrectionDetailData(null))
+        .finally(() => setCorrectionDetailLoading(false))
+    }
+  }, [showCorrectionDetailModal, correctionDetailId, correctionDetailData])
+
+  // Cleanup Blob URL when full image preview closes
+  useEffect(() => {
+    return () => {
+      if (fullImagePreview) {
+        URL.revokeObjectURL(fullImagePreview)
+      }
+    }
+  }, [fullImagePreview])
+
+  const openFullImagePreview = async (imageUrl: string) => {
+    if (fullImagePreview) {
+      URL.revokeObjectURL(fullImagePreview)
+    }
+    setFullImageLoading(true)
+    try {
+      const blob = await apiGetNotificationImageBlob(imageUrl)
+      const blobUrl = URL.createObjectURL(blob)
+      setFullImagePreview(blobUrl)
+    } catch {
+      // If authenticated fetch fails, show error state
+      setFullImagePreview(null)
+    } finally {
+      setFullImageLoading(false)
+    }
+  }
+
+  const closeFullImagePreview = () => {
+    if (fullImagePreview) {
+      URL.revokeObjectURL(fullImagePreview)
+      setFullImagePreview(null)
+    }
+    setFullImageLoading(false)
+  }
 
   // Convert ISO 8601 datetime to a local "YYYY-MM-DDTHH:mm" string usable by <input type="datetime-local" />.
 function toLocalDateTimeInput(d?: string | null): string {
@@ -208,6 +286,7 @@ const knownEventNames: Record<string, string> = {
     patrol_bundle_submitted: 'Laporan Patroli Wilayah',
     paket_received: 'Titipan Paket Masuk',
     paket_picked_up: 'Paket Telah Diambil',
+    correction_submitted: 'Pengajuan Koreksi Absensi',
   }
 
   const customizableSystemTypes = useMemo(
@@ -2192,7 +2271,19 @@ const knownEventNames: Record<string, string> = {
                     <img
                       src={previewItem.imageUrl}
                       alt="Banner Notifikasi"
-                      style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8 }}
+                      style={{
+                        width: '100%',
+                        maxHeight: 180,
+                        objectFit: 'cover',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        // For waste_truck_arrival, open full image viewer via authenticated fetch
+                        if (previewItem.eventType === 'waste_truck_arrival' && previewItem.imageUrl) {
+                          openFullImagePreview(previewItem.imageUrl)
+                        }
+                      }}
                     />
                   </div>
                 )}
@@ -2243,8 +2334,41 @@ const knownEventNames: Record<string, string> = {
                   type="button"
                   className="sf-btn sf-btn-outline"
                   style={{ marginRight: 'auto' }}
+                  onClick={() => {
+                    // Open paket detail in modal instead of navigating to separate page
+                    if (reportId) {
+                      setPaketDetailReportId(reportId)
+                      setShowPaketDetailModal(true)
+                    }
+                    setPreviewItem(null)
+                  }}
+                >
+                  Buka Detail Paket
+                </button>
+              )
+            })()}
+
+            {/* Iuran notifications — deep link to bills/iuran */}
+            {(previewItem.eventType === 'iuran_bill_created' ||
+              previewItem.eventType === 'iuran_payment_submitted' ||
+              previewItem.eventType === 'iuran_payment_reminder' ||
+              previewItem.eventType === 'iuran_upcoming_due_3_months' ||
+              previewItem.eventType === 'iuran_overdue_3_months' ||
+              previewItem.eventType === 'payment_verified' ||
+              previewItem.eventType === 'payment_rejected') && (() => {
+              const billId =
+                previewItem.payload?.bill_id ||
+                previewItem.payload?.dues_bill_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.includes(':')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
                   onClick={async () => {
-                    const targetUrl = reportId ? `/paket?reportId=${reportId}` : '/paket'
+                    const targetUrl = billId ? `/iuran?billId=${billId}` : '/iuran'
                     try {
                       navigate(targetUrl)
                       if (previewItem.id) {
@@ -2255,7 +2379,52 @@ const knownEventNames: Record<string, string> = {
                     }
                   }}
                 >
-                  Buka Detail Paket
+                  Buka Detail Tagihan
+                </button>
+              )
+            })()}
+
+            {/* Correction submission — navigate to security corrections with detail modal */}
+            {previewItem.eventType === 'correction_submitted' && (() => {
+              const correctionId = previewItem.payload?.correction_id
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    if (previewItem.id) {
+                      await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    }
+                    if (correctionId) {
+                      setCorrectionDetailId(correctionId)
+                      setShowCorrectionDetailModal(true)
+                    }
+                    setPreviewItem(null)
+                  }}
+                >
+                  Buka Detail Koreksi
+                </button>
+              )
+            })()}
+
+            {/* Waste truck arrival — no separate detail page; show full preview with image */}
+            {previewItem.eventType === 'waste_truck_arrival' && (() => {
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    // No separate detail page — keep preview open for full image viewer
+                    if (previewItem.id) {
+                      await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    }
+                    setPreviewItem(null)
+                    navigate('/home/notifikasi')
+                  }}
+                >
+                  Kembali ke Notifikasi
                 </button>
               )
             })()}
@@ -2268,6 +2437,26 @@ const knownEventNames: Record<string, string> = {
               Tutup Preview
             </button>
           </ModalFooter>
+        </Modal>
+      )}
+
+      {/* MODAL: Full Image Preview (for waste_truck_arrival and other notifications with images) */}
+      {fullImagePreview && (
+        <Modal open={!!fullImagePreview} onClose={closeFullImagePreview}>
+          <ModalHeader title="Foto Notifikasi" onClose={closeFullImagePreview} />
+          <ModalBody>
+            <div style={{ textAlign: 'center' }}>
+              {fullImageLoading ? (
+                <div style={{ padding: 40, color: 'var(--sf-text-muted)' }}>Memuat gambar...</div>
+              ) : (
+                <img
+                  src={fullImagePreview}
+                  alt="Foto Notifikasi"
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+                />
+              )}
+            </div>
+          </ModalBody>
         </Modal>
       )}
 
@@ -2510,6 +2699,30 @@ const knownEventNames: Record<string, string> = {
           </form>
         </Modal>
       )}
+
+      {/* MODAL: Paket Detail — opens from notification, shows full report */}
+      <PaketDetailModal
+        reportId={paketDetailReportId}
+        open={showPaketDetailModal}
+        onClose={() => {
+          setShowPaketDetailModal(false)
+          setPaketDetailReportId(null)
+        }}
+      />
+
+      {/* MODAL: Correction Detail — opens from correction_submitted notification */}
+      <CorrectionDetailModal
+        open={showCorrectionDetailModal}
+        correction={correctionDetailData}
+        onClose={() => {
+          setShowCorrectionDetailModal(false)
+          setCorrectionDetailId(null)
+          setCorrectionDetailData(null)
+        }}
+        onRefresh={() => {}}
+        canDecide={canAccessNotificationAdmin(user) || isKetuaRTUser(user)}
+        currentUserId={user?.id}
+      />
     </div>
   )
 }

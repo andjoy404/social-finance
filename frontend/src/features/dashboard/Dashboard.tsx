@@ -658,11 +658,10 @@ export function Dashboard() {
                       {node.members.length > 0 ? (
                         node.members.map((member) => {
                           const posLower = (member.jabatan ?? '').toLowerCase()
-                          const isKetua = posLower === 'ketua' || posLower === 'ketua_rt'
-                          const isOperasional = ['operasional', 'operasional_rt'].includes(posLower)
-                          const isKebersihan = ['kebersihan', 'kebersihan_rt'].includes(posLower)
-                          const dividerBelowName = isOperasional || isKebersihan
-                          const showPhone = isKetua
+                          const isKetuaPos = posLower === 'ketua' || posLower === 'ketua_rt'
+                          const isKeamananPos = ['keamanan', 'keamanan_rt', 'seksi_keamanan', 'seksi_keamanan_rt'].includes(posLower)
+                          // Backend sends phone for Ketua RT and Keamanan positions to all authenticated RT members
+                          const showPhone = isKetuaPos || isKeamananPos
                           return (
                           <div
                             key={member.user_id}
@@ -692,9 +691,6 @@ export function Dashboard() {
                               <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sf-text)' }}>
                                 {member.full_name}
                               </div>
-                              {dividerBelowName && (
-                                <div style={{ height: 1, background: 'var(--sf-border)', margin: '8px 0' }} />
-                              )}
                               {member.house_number && (
                                 <div
                                   style={{
@@ -725,9 +721,8 @@ export function Dashboard() {
                                   <span>{member.phone}</span>
                                 </div>
                               )}
-                              {!dividerBelowName && (
-                                <div style={{ height: 1, background: 'var(--sf-border)', margin: '8px 0' }} />
-                              )}
+                              {/* Divider selalu di bawah informasi terakhir (house_number/phone) */}
+                              <div style={{ height: 1, background: 'var(--sf-border)', margin: '8px 0' }} />
                             </div>
                           </div>
                           )

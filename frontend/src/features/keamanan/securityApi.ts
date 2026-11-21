@@ -561,6 +561,19 @@ export async function apiCreateSecurityCorrection(payload: {
   return parseOrThrow(res, 'Gagal membuat pengajuan koreksi')
 }
 
+export async function apiGetSecurityCorrectionById(id: string): Promise<AttendanceCorrection> {
+  const res = await authenticatedApiRequest(`${BASE}/security/corrections`, {
+    method: 'GET',
+  })
+  const body = await res.json()
+  const list: AttendanceCorrection[] = (body as any).data || []
+  const found = list.find((c: AttendanceCorrection) => c.id === id)
+  if (!found) {
+    throw new Error('Koreksi tidak ditemukan')
+  }
+  return found
+}
+
 export async function apiDecideSecurityCorrection(id: string, approve: boolean, note?: string): Promise<AttendanceCorrection> {
   const res = await authenticatedApiRequest(`${BASE}/security/corrections/${id}/decide`, {
     method: 'POST',

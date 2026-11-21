@@ -52,6 +52,7 @@ import { hasPermission, isKetuaRTUser, isSuperAdminUser, useAuth } from '@/app/A
 import { ResidentAvatar } from '@/components/ResidentAvatar'
 import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
 import { ScheduleImportModal } from './ScheduleImportModal'
+import { CorrectionDetailModal } from './CorrectionDetailModal'
 import {
   apiCancelSecuritySchedule,
   apiCreateSecurityCorrection,
@@ -965,6 +966,8 @@ export function KelolaKeamananPage() {
     },
   ]
 
+  const [correctionDetailModal, setCorrectionDetailModal] = useState<AttendanceCorrection | null>(null)
+
   const correctionColumns: ColumnsType<AttendanceCorrection> = [
     {
       title: 'Jadwal',
@@ -978,7 +981,6 @@ export function KelolaKeamananPage() {
         </Space>
       ),
     },
-    { title: 'Pengaju', dataIndex: 'requested_by_name', key: 'requested_by_name' },
     {
       title: 'Perubahan Status',
       key: 'diff',
@@ -990,7 +992,6 @@ export function KelolaKeamananPage() {
         </Space>
       ),
     },
-    { title: 'Alasan', dataIndex: 'reason', key: 'reason' },
     {
       title: 'Status',
       dataIndex: 'status',
@@ -1003,54 +1004,11 @@ export function KelolaKeamananPage() {
     {
       title: 'Aksi',
       key: 'actions',
-      render: (_, row) => {
-        if (row.status !== 'pending') {
-          return (
-            <Text type="secondary">
-              {row.decided_by_name ? `Oleh ${row.decided_by_name}` : '-'}
-              {row.decision_note ? ` (${row.decision_note})` : ''}
-            </Text>
-          )
-        }
-        const isSelfRequested = Boolean(user?.id && row.requested_by === user.id)
-        if (isSelfRequested) {
-          return <Tag color="default">Tidak bisa menyetujui pengajuan sendiri</Tag>
-        }
-        return (
-          <Space>
-            <Button
-              size="small"
-              type="primary"
-              icon={<CheckCircleOutlined />}
-              onClick={() =>
-                setDecisionModal({
-                  kind: 'correction',
-                  id: row.id,
-                  approve: true,
-                  title: `Setujui Koreksi ${row.officer_name ?? ''}`,
-                })
-              }
-            >
-              Setujui
-            </Button>
-            <Button
-              size="small"
-              danger
-              icon={<CloseCircleOutlined />}
-              onClick={() =>
-                setDecisionModal({
-                  kind: 'correction',
-                  id: row.id,
-                  approve: false,
-                  title: `Tolak Koreksi ${row.officer_name ?? ''}`,
-                })
-              }
-            >
-              Tolak
-            </Button>
-          </Space>
-        )
-      },
+      render: (_, row) => (
+        <Button type="link" size="small" onClick={() => setCorrectionDetailModal(row)}>
+          Detail
+        </Button>
+      ),
     },
   ]
 
@@ -1801,7 +1759,7 @@ export function KelolaKeamananPage() {
         </Form>
       </Modal>
 
-      {/* Approve / Reject Decision Modal */}
+      {/* Approve / Reject Decision Modal (for swaps only) */}
       <Modal
         open={Boolean(decisionModal)}
         title={decisionModal?.title ?? ''}
@@ -1826,6 +1784,16 @@ export function KelolaKeamananPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Correction Detail Modal */}
+      <CorrectionDetailModal
+        open={Boolean(correctionDetailModal)}
+        correction={correctionDetailModal}
+        onClose={() => setCorrectionDetailModal(null)}
+        onRefresh={loadCorrections}
+        canDecide={hasPermission(user, 'security.correction')}
+        currentUserId={user?.id}
+      />
     </div>
   )
 }

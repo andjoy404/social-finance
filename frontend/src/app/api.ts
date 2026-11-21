@@ -2127,6 +2127,22 @@ export async function apiUploadNotificationImage(
   return body
 }
 
+export async function apiGetNotificationImageBlob(imageUrl: string): Promise<Blob> {
+  // imageUrl is like "/api/v1/notifications/images/notifications/waste-truck/rt-002/..."
+  const token = getSessionPair()?.accessToken
+  if (!token) throw new ApiError('auth_expired', 'Session expired')
+  const res = await authenticatedApiRequest(BASE + imageUrl, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat gambar notifikasi')
+  }
+  return res.blob()
+}
+
 export async function apiUploadWasteTruckImage(
   token: string,
   eventType: 'waste_truck_arrival',

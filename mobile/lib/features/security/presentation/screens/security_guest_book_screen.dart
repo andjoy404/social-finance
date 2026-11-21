@@ -669,9 +669,19 @@ class _SecurityGuestBookScreenState
                                   checkedOutAt: g.checkedOutAt,
                                 ),
                                 const SizedBox(height: 4),
+                                Text(g.purpose),
+                                const SizedBox(height: 2),
                                 Text(
-                                  '${g.purpose}\nMasuk ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar ${DateFormat('HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
+                                  'Masuk: ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())}',
                                 ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  g.checkedOutAt == null
+                                      ? 'Belum keluar'
+                                      : 'Keluar: ${DateFormat('dd/MM HH:mm').format(g.checkedOutAt!.toLocal())}',
+                                ),
+                                const SizedBox(height: 2),
+                                Text(_guestDurationLabel(g)),
                               ],
                             ),
                             isThreeLine: true,

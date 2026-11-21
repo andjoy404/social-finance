@@ -1071,8 +1071,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
 	})
 
-	// Public notification image streaming
-	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
+	// Authenticated notification image streaming — requires valid JWT and RT scope match.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Get("/api/v1/notifications/images/*", notifH.GetImage)
+	})
 
 	// Notification device token management and notification history (accessible to all authenticated RT members)
 	r.Group(func(r chi.Router) {

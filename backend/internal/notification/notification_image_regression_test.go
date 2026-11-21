@@ -139,19 +139,13 @@ func handlerWithRouter(svc notification.Service, store *mockStorageService) http
 	r := chi.NewRouter()
 	h := handlerWithStorage(svc, store)
 
-	// Middleware must be defined BEFORE routes in chi
+	// Middleware: all endpoints now require authentication (including image streaming).
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			val := r.Context().Value(auth.AuthContextKey)
 			ac, ok := val.(*auth.AuthContext)
 			if !ok {
 				ac = nil
-			}
-			// GET image endpoint is public
-			isImageGet := r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/notifications/images/")
-			if isImageGet {
-				next.ServeHTTP(w, r)
-				return
 			}
 			if ac == nil {
 				http.Error(w, `{"error":{"code":"unauthorized"}}`, http.StatusUnauthorized)
@@ -165,8 +159,8 @@ func handlerWithRouter(svc notification.Service, store *mockStorageService) http
 		})
 	})
 
-	// Production routes:
-	//   GET  /api/v1/notifications/images/*  -> GetImage  (public)
+	// Production routes (all require auth):
+	//   GET  /api/v1/notifications/images/*  -> GetImage  (requires auth + RT scope match)
 	//   POST /api/v1/notifications/upload-image -> UploadImage (requires auth + RT)
 	r.Get("/api/v1/notifications/images/*", h.GetImage)
 	r.Post("/api/v1/notifications/upload-image", h.UploadImage)
@@ -275,8 +269,11 @@ func TestImage_GetPrefixConstraint(t *testing.T) {
 	svc := notification.NewService(nil, nil)
 	router := handlerWithRouter(svc, store)
 
+	ac := &auth.AuthContext{UserID: "test-user", RTID: "rt-002"}
+
 	// Valid key with notifications/ prefix returns 404 (not found, but no error)
 	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/manual/rt-002/12345678_test.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -285,6 +282,7 @@ func TestImage_GetPrefixConstraint(t *testing.T) {
 
 	// Key without prefix gets auto-prepend notifications/
 	req = httptest.NewRequest("GET", "/api/v1/notifications/images/manual/rt-002/12345678_test.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	// Should become notifications/manual/rt-002/... after auto-prepend
@@ -306,7 +304,9 @@ func TestImage_GetBucketIsolation(t *testing.T) {
 		Size:        11,
 	}
 
+	ac := &auth.AuthContext{UserID: "test-user", RTID: "rt-002"}
 	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/manual/rt-002/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -595,7 +595,9 @@ func TestImage_GetServesCacheControl(t *testing.T) {
 		Size:        15,
 	}
 
+	ac := &auth.AuthContext{UserID: "test-user", RTID: "rt-002"}
 	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/manual/rt-002/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -604,8 +606,8 @@ func TestImage_GetServesCacheControl(t *testing.T) {
 	}
 
 	cacheControl := rec.Header().Get("Cache-Control")
-	if cacheControl != "public, max-age=86400" {
-		t.Errorf("expected Cache-Control: public, max-age=86400, got %q", cacheControl)
+	if cacheControl != "private, max-age=3600" {
+		t.Errorf("expected Cache-Control: private, max-age=3600, got %q", cacheControl)
 	}
 
 	contentLength := rec.Header().Get("Content-Length")
@@ -645,6 +647,141 @@ func TestImage_PathTraversalHasZeroSideEffect(t *testing.T) {
 
 	if len(store.objects) != 0 {
 		t.Errorf("expected store to remain empty after traversal attempts, got %d objects", len(store.objects))
+	}
+}
+
+// ============================================================
+// Regression tests: Authenticated Image Access
+// ============================================================
+
+func TestImage_GetRequiresAuthentication(t *testing.T) {
+	store := newMockStorageService()
+	svc := notification.NewService(nil, nil)
+	router := handlerWithRouter(svc, store)
+
+	store.objects["notifications/waste-truck/rt-002/12345.png"] = []byte("img")
+	store.meta["notifications/waste-truck/rt-002/12345.png"] = storage.ObjectMetadata{
+		Key:         "notifications/waste-truck/rt-002/12345.png",
+		ContentType: "image/png",
+		Size:        3,
+	}
+
+	// No auth context → 401
+	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-002/12345.png", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated image access, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestImage_GetRejectsCrossRT(t *testing.T) {
+	store := newMockStorageService()
+	svc := notification.NewService(nil, nil)
+	router := handlerWithRouter(svc, store)
+
+	store.objects["notifications/waste-truck/rt-002/12345.png"] = []byte("img")
+	store.meta["notifications/waste-truck/rt-002/12345.png"] = storage.ObjectMetadata{
+		Key:         "notifications/waste-truck/rt-002/12345.png",
+		ContentType: "image/png",
+		Size:        3,
+	}
+
+	// Authenticated user from rt-999 tries to access rt-002 image → 403
+	ac := &auth.AuthContext{UserID: "user-999", RTID: "rt-999"}
+	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-002/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for cross-RT image access, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestImage_GetAllowsSameRT(t *testing.T) {
+	store := newMockStorageService()
+	svc := notification.NewService(nil, nil)
+	router := handlerWithRouter(svc, store)
+
+	store.objects["notifications/waste-truck/rt-002/12345.png"] = []byte("img")
+	store.meta["notifications/waste-truck/rt-002/12345.png"] = storage.ObjectMetadata{
+		Key:         "notifications/waste-truck/rt-002/12345.png",
+		ContentType: "image/png",
+		Size:        3,
+	}
+
+	// Authenticated user from rt-002 accesses rt-002 image → 200
+	ac := &auth.AuthContext{UserID: "user-002", RTID: "rt-002"}
+	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-002/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for same-RT image access, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestImage_GetSuperAdmin tests that Super Admin can access images via X-RT-ID header.
+// Note: the test helper middleware requires RTID != "", so we set RTID to the target
+// RT to pass the middleware, then verify the handler's X-RT-ID logic works correctly.
+func TestImage_GetSuperAdmin(t *testing.T) {
+	store := newMockStorageService()
+	svc := notification.NewService(nil, nil)
+	router := handlerWithRouter(svc, store)
+
+	store.objects["notifications/waste-truck/rt-002/12345.png"] = []byte("img")
+	store.meta["notifications/waste-truck/rt-002/12345.png"] = storage.ObjectMetadata{
+		Key:         "notifications/waste-truck/rt-002/12345.png",
+		ContentType: "image/png",
+		Size:        3,
+	}
+
+	// Super Admin with RTID matching image RT → 200
+	ac := &auth.AuthContext{
+		UserID:      "super-admin",
+		SystemRole:  auth.SystemRoleSuperAdmin,
+		RTID:        "rt-002", // Test helper requires non-empty RTID
+	}
+	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-002/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for Super Admin with matching RTID, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Super Admin with X-RT-ID header overriding to a different RT → 403 (mismatch)
+	ac2 := &auth.AuthContext{
+		UserID:      "super-admin",
+		SystemRole:  auth.SystemRoleSuperAdmin,
+		RTID:        "rt-002", // Test helper requires non-empty RTID
+	}
+	req2 := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-002/12345.png", nil)
+	req2.Header.Set("X-RT-ID", "rt-999")
+	req2 = req2.WithContext(context.WithValue(req2.Context(), auth.AuthContextKey, ac2))
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for Super Admin with X-RT-ID mismatching image RT, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+// TestImage_GetRejectsInvalidKey tests that image keys with RT ID not matching
+// the user's RT scope are rejected with 403.
+func TestImage_GetRejectsInvalidKey(t *testing.T) {
+	store := newMockStorageService()
+	svc := notification.NewService(nil, nil)
+	router := handlerWithRouter(svc, store)
+
+	ac := &auth.AuthContext{UserID: "test-user", RTID: "rt-002"}
+
+	// Key with RT ID "rt-999" but user is "rt-002" → 403 (RT scope mismatch)
+	req := httptest.NewRequest("GET", "/api/v1/notifications/images/notifications/waste-truck/rt-999/12345.png", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for RT scope mismatch, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

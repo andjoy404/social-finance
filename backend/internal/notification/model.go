@@ -41,6 +41,10 @@ const (
 	EventPaketReceived    = "paket_received"
 	EventPaketPickedUp    = "paket_picked_up"
 	EventPatrolBundleSent = "patrol_bundle_submitted"
+
+	// Security attendance correction notification — sent to Ketua RT when a
+	// security officer submits a new correction request.
+	EventCorrectionSubmitted = "correction_submitted"
 )
 
 const (
@@ -82,7 +86,8 @@ func TriggerCategoryForEvent(eventType string) string {
 		return TriggerCategoryManualTrigger
 	case EventPaketReceived,
 		EventPaketPickedUp,
-		EventPatrolBundleSent:
+		EventPatrolBundleSent,
+		EventCorrectionSubmitted:
 		return TriggerCategoryManualTrigger
 	}
 	return ""

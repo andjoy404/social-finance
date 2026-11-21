@@ -383,7 +383,15 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetImage streams a notification image from RustFS.
+// Requires authentication and validates that the caller's RT scope matches
+// the RT embedded in the image key (notifications/{category}/{rtID}/...).
 func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
 	rawKey := chi.URLParam(r, "*")
 	if rawKey == "" {
 		rawKey = strings.TrimPrefix(r.URL.Path, "/api/v1/notifications/images/")
@@ -397,6 +405,29 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		key = "notifications/" + key
 	}
 
+	// Extract RT ID from the image key: notifications/{category}/{rtID}/...
+	imageRTID := extractRTIDFromImageKey(key)
+	if imageRTID == "" {
+		httpx.WriteValidationError(w, "invalid image key", nil)
+		return
+	}
+
+	// Validate that the image's RT matches the authenticated user's RT scope.
+	// For Super Admin, the RTID is resolved via the X-RT-ID header (already
+	// validated by RequireAllowedRT middleware). For others, use JWT RTID.
+	userRTID := ac.RTID
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		// Super Admin: resolve RT from header (same as other handlers).
+		headerRT := r.Header.Get("X-RT-ID")
+		if headerRT != "" {
+			userRTID = headerRT
+		}
+	}
+	if userRTID == "" || userRTID != imageRTID {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "not authorized to access this image")
+		return
+	}
+
 	reader, err := h.storage.GetNotificationImage(r.Context(), key)
 	if err != nil {
 		httpx.WriteNotFound(w, "image not found")
@@ -406,8 +437,21 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", reader.ContentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	_, _ = io.Copy(w, reader.Body)
+}
+
+// extractRTIDFromImageKey extracts the RT ID from a notification image key.
+// Expected format: notifications/{category}/{rtID}/...
+func extractRTIDFromImageKey(key string) string {
+	// key should be like "notifications/waste-truck/rt-002/1234567890_abcdef.png"
+	// or "notifications/manual/rt-002/1234567890_abcdef.png"
+	trimmed := strings.TrimPrefix(key, "notifications/")
+	parts := strings.SplitN(trimmed, "/", 3) // [category, rtID, rest...]
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
 }
 
 // TestSelf sends an isolated test push notification exclusively to the authenticated user's registered devices.

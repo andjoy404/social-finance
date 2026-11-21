@@ -30,6 +30,7 @@ import { KelolaKeamananPage } from '@/features/keamanan/KelolaKeamananPage'
 import { BukuTamuPage } from '@/features/keamanan/BukuTamuPage'
 import { PatrolPage } from '@/features/keamanan/PatrolPage'
 import { PaketPage } from '@/features/keamanan/PaketPage'
+import { PaketDetailPage } from '@/features/keamanan/PaketDetailPage'
 import { hasPermission } from '@/app/AuthContext'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -387,6 +388,14 @@ export function App() {
             <PaketRoute>
               <PaketPage />
             </PaketRoute>
+          }
+        />
+        <Route
+          path="paket-detail"
+          element={
+            <ProtectedRoute>
+              <PaketDetailPage />
+            </ProtectedRoute>
           }
         />
         <Route

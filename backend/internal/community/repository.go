@@ -777,10 +777,13 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	}
 
 	// 2. Query active positions and members (with avatar from residents)
+	// Phone numbers for key positions (Ketua RT, Keamanan) are always visible
+	// to all authenticated RT members as an emergency contact directory.
+	// Email is only visible when the caller has full contact permission (Ketua RT).
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
 		       ph.house_number,
-		       CASE WHEN $2 = true THEN u.phone ELSE NULL END AS phone,
+		       CASE WHEN m.jabatan IN ('ketua', 'keamanan') THEN u.phone ELSE NULL END AS phone,
 		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
 		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m

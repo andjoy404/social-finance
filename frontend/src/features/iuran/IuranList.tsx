@@ -201,6 +201,14 @@ export function IuranList() {
   const initialPage = parseInt(searchParams.get('page') || '1', 10) || 1
   const initialPageSize = parseInt(searchParams.get('page_size') || searchParams.get('per_page') || '', 10) || undefined
 
+  // Deep link from notification: open bill detail modal when billId is in URL
+  const urlBillId = searchParams.get('billId')
+  useEffect(() => {
+    if (urlBillId && allBills.length > 0 && !showDetailBillId) {
+      setShowDetailBillId(urlBillId)
+    }
+  }, [urlBillId, allBills.length, showDetailBillId])
+
   const [filterType, setFilterType] = useState<FilterType>(initialFilter)
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)

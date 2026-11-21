@@ -268,7 +268,11 @@ bool rwMembershipHasWriteAccess(
   return jabatan == 'ketua' || jabatan == 'bendahara';
 }
 
-/// Helper untuk mengecek apakah user memiliki akses fitur RW (KAS, Lokasi Dana) - explicit members only.
+/// Helper untuk mengecek apakah user memiliki akses fitur RW (KAS, Lokasi Dana).
+///
+/// - Super Admin selalu dapat akses.
+/// - Membership dengan source === 'explicit' → full access.
+/// - Membership dengan source === 'rt_inferred' → READ access (dashboard + KAS read).
 bool rwMembershipHasFeatureAccess(
   Map<String, dynamic>? user,
   String rwId, {
@@ -288,5 +292,5 @@ bool rwMembershipHasFeatureAccess(
 
   if (currentMembership == null) return false;
   final source = currentMembership['source'] as String?;
-  return source == 'explicit';
+  return source == 'explicit' || source == 'rt_inferred';
 }

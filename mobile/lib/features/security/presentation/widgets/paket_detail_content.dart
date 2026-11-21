@@ -120,15 +120,34 @@ class PaketDetailContent extends StatelessWidget {
                     value: () {
                       final total = report.totalItems;
                       final handed = report.handedOverCount;
-                      if (total > 0 && handed == total) {
-                        return report.handedOverByName?.isNotEmpty == true
-                            ? report.handedOverByName!
-                            : 'Data serah terima belum tersedia';
+
+                      // Use report-level name if explicitly set.
+                      if (report.handedOverByName?.isNotEmpty == true) {
+                        if (total > 0 && handed == total) {
+                          return report.handedOverByName!;
+                        }
+                        if (handed > 0) {
+                          return report.handedOverByName!;
+                        }
+                        return 'Belum diserahkan';
                       }
+
+                      // Derive from item-level handedOverByName by comparing all handed items.
                       if (handed > 0) {
-                        return report.handedOverByName?.isNotEmpty == true
-                            ? report.handedOverByName!
-                            : 'Sebagian diserahkan ($handed dari $total item)';
+                        final handedNames = report.items
+                            .where((it) => it.status == 'sudah_diambil' || it.handedOverAt != null)
+                            .map((it) => it.handedOverByName)
+                            .where((name) => name?.isNotEmpty == true)
+                            .toSet();
+
+                        if (handedNames.isEmpty) {
+                          return 'Data serah terima belum tersedia';
+                        }
+                        if (handedNames.length == 1) {
+                          return handedNames.first!;
+                        }
+                        // Multiple different officers handed over different items.
+                        return 'Beberapa Petugas';
                       }
                       return 'Belum diserahkan';
                     }(),
@@ -258,6 +277,53 @@ class PaketDetailContent extends StatelessWidget {
     );
   }
 
+  /// Parses description text separated by " · " into individual lines.
+  /// If the description contains labels like "Kurir:", "Resi:", etc., each
+  /// becomes its own line. Otherwise the entire description is shown as one line.
+  List<Widget> _buildItemDescriptionLines(PaketItem it, ThemeData theme) {
+    final raw = it.description?.trim();
+    if (raw == null || raw.isEmpty) {
+      return [
+        Text(
+          'Paket / Titipan',
+          key: Key('paket_item_desc_${it.id}'),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ];
+    }
+
+    // Split on " · " separator if present
+    final parts = raw.split(' · ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+
+    if (parts.length <= 1) {
+      // No separator — show as single line
+      return [
+        Text(
+          raw,
+          key: Key('paket_item_desc_${it.id}'),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ];
+    }
+
+    // Multiple parts — render each on its own line
+    final widgets = <Widget>[];
+    for (var i = 0; i < parts.length; i++) {
+      if (i > 0) widgets.add(const SizedBox(height: 2));
+      final part = parts[i];
+      widgets.add(
+        Text(
+          part,
+          key: i == 0 ? Key('paket_item_desc_${it.id}') : null,
+          style: i == 0
+              ? const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)
+              : TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
+        ),
+      );
+    }
+    return widgets;
+  }
+
   Widget _buildItemCard(
     BuildContext context,
     ThemeData theme,
@@ -299,16 +365,7 @@ class PaketDetailContent extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        it.description?.isNotEmpty == true
-                            ? it.description!
-                            : 'Paket / Titipan',
-                        key: Key('paket_item_desc_${it.id}'),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      ..._buildItemDescriptionLines(it, theme),
                     ],
                   ),
                 ),

@@ -12,6 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/authenticated_network_image.dart';
+
+import 'correction_detail_screen.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
 import 'package:social_finance/core/widgets/accent_action_fab.dart';
@@ -140,7 +142,11 @@ class _SecurityManagementScreenState
       initialIndex: initialIndex,
     );
     _kelolaTabs = TabController(length: 3, vsync: this);
-    _absensiTabs = TabController(length: 2, vsync: this);
+    int absensiSubIndex = 0;
+    if (widget.initialSubTab == 'corrections' || widget.initialSubTab == 'koreksi') {
+      absensiSubIndex = 1;
+    }
+    _absensiTabs = TabController(length: 2, vsync: this, initialIndex: absensiSubIndex);
     int patrolSubIndex = 0;
     if (widget.initialSubTab == 'history' ||
         widget.initialSubTab == 'riwayat') {
@@ -324,6 +330,27 @@ class _SecurityManagementScreenState
       final corrections = await api.listManagerCorrections();
       if (!mounted) return;
       setState(() => _corrections = corrections);
+      // Deep link from correction_submitted notification — open detail
+      if (widget.targetId != null &&
+          widget.targetId!.isNotEmpty &&
+          !_targetDialogOpened) {
+        final found = corrections
+            .where((c) => c.id == widget.targetId)
+            .firstOrNull;
+        if (found != null) {
+          _targetDialogOpened = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CorrectionDetailScreen(correction: found),
+                ),
+              );
+            }
+          });
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       _showRefreshError(e);
@@ -2820,268 +2847,132 @@ class _SecurityManagementScreenState
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header: Petugas, Tanggal, Status (includes exact string for tests)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${c.officerName} · ${c.shiftDate} · ${c.status}',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (c.shiftName.isNotEmpty) ...[
-                        const SizedBox(height: 2),
+      child: InkWell(
+        onTap: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CorrectionDetailScreen(correction: c),
+            ),
+          );
+          if (result != null && mounted) {
+            await _loadData();
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header: Petugas, Tanggal, Status
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          'Shift: ${c.shiftName}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontSize: 11,
+                          '${c.officerName} · ${c.shiftDate}',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (c.shiftName.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Shift: ${c.shiftName}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  _correctionDecisionBadge(c.status),
+                  if (canDecideThis)
+                    PopupMenuButton<bool>(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      onSelected: (approve) => _decideCorrection(c, approve),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: true,
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.check,
+                                color: AppColors.success,
+                                size: 18,
+                              ),
+                              SizedBox(width: 8),
+                              Text('Setujui'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: false,
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.close,
+                                color: AppColors.danger,
+                                size: 18,
+                              ),
+                              SizedBox(width: 8),
+                              Text('Tolak'),
+                            ],
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                ),
-                if (canDecideThis)
-                  PopupMenuButton<bool>(
-                    icon: const Icon(Icons.more_vert, size: 20),
-                    onSelected: (approve) => _decideCorrection(c, approve),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: true,
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.check,
-                              color: AppColors.success,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text('Setujui'),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: false,
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.close,
-                              color: AppColors.danger,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Text('Tolak'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Status change formatted
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.3,
-                ),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    c.requestType == 'status_change'
-                        ? 'Perubahan Status: '
-                        : '${c.requestType}: ',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
                     ),
-                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Status change summary
+              Row(
+                children: [
                   _statusBadge(c.originalStatus),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 6),
                     child: Icon(Icons.arrow_forward, size: 14),
                   ),
                   _statusBadge(c.requestedStatus),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Blok Diajukan
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.25,
-                ),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.5,
-                  ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.send_outlined,
-                        size: 14,
-                        color: AppColors.seed,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Diajukan',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11.5,
-                          color: AppColors.seed,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
+                  const Spacer(),
                   Text(
-                    'Alasan: ${c.reason}',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  if (c.createdAt != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'Waktu: ${DateFormat('dd/MM/yyyy HH:mm').format(c.createdAt!)}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    c.reason.length > 40 ? '${c.reason.substring(0, 40)}…' : c.reason,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 11,
                     ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Blok Keputusan
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: c.status == 'pending'
-                    ? AppColors.warning.withValues(alpha: 0.08)
-                    : (c.status == 'approved'
-                          ? AppColors.success.withValues(alpha: 0.08)
-                          : AppColors.danger.withValues(alpha: 0.08)),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: c.status == 'pending'
-                      ? AppColors.warning.withValues(alpha: 0.3)
-                      : (c.status == 'approved'
-                            ? AppColors.success.withValues(alpha: 0.3)
-                            : AppColors.danger.withValues(alpha: 0.3)),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        c.status == 'pending'
-                            ? Icons.hourglass_empty
-                            : (c.status == 'approved'
-                                  ? Icons.check_circle_outline
-                                  : Icons.cancel_outlined),
-                        size: 14,
-                        color: c.status == 'pending'
-                            ? AppColors.warning
-                            : (c.status == 'approved'
-                                  ? AppColors.success
-                                  : AppColors.danger),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Keputusan',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11.5,
-                          color: c.status == 'pending'
-                              ? AppColors.warning
-                              : (c.status == 'approved'
-                                    ? AppColors.success
-                                    : AppColors.danger),
-                        ),
-                      ),
-                      const Spacer(),
-                      _decisionBadge(c.status),
-                    ],
                   ),
-                  const SizedBox(height: 4),
-                  if (c.status == 'pending')
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.schedule,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Menunggu Konfirmasi',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    )
-                  else ...[
-                    if (c.decidedByName != null || c.decidedBy != null) ...[
-                      Text(
-                        'Peninjau: ${c.decidedByName ?? c.decidedBy}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                    if (c.decisionNote != null &&
-                        c.decisionNote!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Catatan: ${c.decisionNote}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                    if (c.decidedAt != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Diputuskan: ${DateFormat('dd/MM/yyyy HH:mm').format(c.decidedAt!)}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ],
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _correctionDecisionBadge(String status) {
+    final isApp = status == 'approved';
+    final isPending = status == 'pending';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: (isPending ? AppColors.warning : (isApp ? AppColors.success : AppColors.danger))
+            .withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        isPending ? 'Menunggu' : (isApp ? 'Disetujui' : 'Ditolak'),
+        style: TextStyle(
+          color: isPending ? AppColors.warning : (isApp ? AppColors.success : AppColors.danger),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

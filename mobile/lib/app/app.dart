@@ -221,6 +221,19 @@ String normalizeNotificationTarget(
     return '/home/security-management?tab=patrol&subtab=history$q';
   }
 
+  // Correction submission notification — navigate to security corrections
+  if (type == 'correction_submitted' || title.contains('Pengajuan Koreksi Absensi')) {
+    var correctionId = cleanString(payload?['correction_id'] ?? existingQuery['correction_id']);
+    if (correctionId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 && parts[0] == 'correction') {
+        correctionId = parts[1];
+      }
+    }
+    final q = correctionId.isNotEmpty ? '&correction_id=$correctionId' : '';
+    return '/home/security-management?tab=corrections$q';
+  }
+
   if (type == 'paket_received' ||
       type == 'paket_picked_up' ||
       title.contains('Laporan Paket') ||
@@ -1244,15 +1257,16 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 final subtab = state.uri.queryParameters['subtab'];
                 final bundleId = state.uri.queryParameters['bundle_id'];
                 final reportId = state.uri.queryParameters['report_id'];
+                final correctionId = state.uri.queryParameters['correction_id'];
                 int initialTop = 0;
                 if (tab == 'patrol') initialTop = 3;
                 if (tab == 'paket') initialTop = 4;
-                if (tab == 'absen') initialTop = 1;
+                if (tab == 'absen' || tab == 'corrections') initialTop = 1;
                 return SecurityManagementScreen(
                   initialTopTabIndex: initialTop,
                   mode: SecurityManagementMode.full,
-                  initialSubTab: subtab,
-                  targetId: bundleId ?? reportId,
+                  initialSubTab: tab == 'corrections' ? 'corrections' : subtab,
+                  targetId: bundleId ?? reportId ?? correctionId,
                 );
               },
             ),
