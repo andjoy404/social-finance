@@ -386,12 +386,13 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		targetRT := ac.RTID
-		if targetRT == "" {
-			rtQueryPtr := parseStringQuery(r, "rt_id")
-			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
-				targetRT = strings.TrimSpace(*rtQueryPtr)
-			}
+		targetRT := ""
+		rtQueryPtr := parseStringQuery(r, "rt_id")
+		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+			targetRT = strings.TrimSpace(*rtQueryPtr)
+		}
+		if targetRT == "" && ac.RTID != "" {
+			targetRT = ac.RTID
 		}
 
 		if targetRT != "" {
@@ -486,12 +487,13 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		targetRT := ac.RTID
-		if targetRT == "" {
-			rtQueryPtr := parseStringQuery(r, "rt_id")
-			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
-				targetRT = strings.TrimSpace(*rtQueryPtr)
-			}
+		targetRT := ""
+		rtQueryPtr := parseStringQuery(r, "rt_id")
+		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+			targetRT = strings.TrimSpace(*rtQueryPtr)
+		}
+		if targetRT == "" && ac.RTID != "" {
+			targetRT = ac.RTID
 		}
 
 		if targetRT != "" {
@@ -863,15 +865,13 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 
 	var rtID string
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		targetRT := ac.RTID
+		var targetRT string
+		// Always check for explicit rt_id from body first
 		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
-			bodyRT := strings.TrimSpace(*req.RequestedRTID)
-			if targetRT != "" && targetRT != bodyRT {
-				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
-				return
-			}
-			targetRT = bodyRT
-		} else if targetRT == "" {
+			targetRT = strings.TrimSpace(*req.RequestedRTID)
+		} else if ac.RTID != "" {
+			targetRT = ac.RTID
+		} else {
 			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
 			if reqRT != "" {
 				targetRT = reqRT
@@ -1052,12 +1052,15 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		targetRT := ac.RTID
-		if targetRT == "" {
-			rtQueryPtr := parseStringQuery(r, "rt_id")
-			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
-				targetRT = strings.TrimSpace(*rtQueryPtr)
-			}
+		targetRT := ""
+		// Always check for explicit rt_id override from query param
+		rtQueryPtr := parseStringQuery(r, "rt_id")
+		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+			targetRT = strings.TrimSpace(*rtQueryPtr)
+		}
+		// Fallback to JWT-pinned RTID
+		if targetRT == "" && ac.RTID != "" {
+			targetRT = ac.RTID
 		}
 
 		if targetRT != "" {
