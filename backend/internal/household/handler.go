@@ -209,12 +209,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
 		targetRT := ""
 		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
-			bodyRT := strings.TrimSpace(*req.RequestedRTID)
-			if ac.RTID != "" && ac.RTID != bodyRT {
-				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
-				return
-			}
-			targetRT = bodyRT
+			targetRT = strings.TrimSpace(*req.RequestedRTID)
 		} else if ac.RTID != "" {
 			targetRT = ac.RTID
 		} else {
