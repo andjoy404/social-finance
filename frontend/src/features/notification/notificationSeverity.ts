@@ -76,6 +76,7 @@ const TRIGGER_CATEGORY_MANUAL_EVENTS = [
   'manual_push',
   'rw_cash_in',
   'rw_cash_out',
+  'correction_submitted',
 ] as const
 
 /**
