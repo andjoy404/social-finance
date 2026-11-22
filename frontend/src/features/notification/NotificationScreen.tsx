@@ -31,7 +31,6 @@ import {
   apiGetNotificationLogs,
   apiGetNotificationManagementHistory,
   apiUploadNotificationImage,
-  apiGetNotificationImageBlob,
   apiTriggerManualPush,
   apiTestPush,
   apiMarkNotificationAsRead,
@@ -53,6 +52,7 @@ import {
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import { PaketDetailModal } from '@/features/keamanan/PaketDetailModal'
 import { CorrectionDetailModal } from '@/features/keamanan/CorrectionDetailModal'
+import { NotificationImage } from './NotificationImage'
 import { apiGetSecurityCorrectionById } from '@/features/keamanan/securityApi'
 import type { AttendanceCorrection } from '@/features/keamanan/securityApi'
 import { renderNotificationBody } from './notificationUrl'
@@ -207,8 +207,7 @@ export function NotificationScreen() {
 
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [fullImagePreview, setFullImagePreview] = useState<string | null>(null)
-  const [fullImageLoading, setFullImageLoading] = useState(false)
+  const [fullImagePreviewSrc, setFullImagePreviewSrc] = useState<string | null>(null)
 
   // Paket detail modal state
   const [paketDetailReportId, setPaketDetailReportId] = useState<string | null>(null)
@@ -231,38 +230,12 @@ export function NotificationScreen() {
     }
   }, [showCorrectionDetailModal, correctionDetailId, correctionDetailData])
 
-  // Cleanup Blob URL when full image preview closes
-  useEffect(() => {
-    return () => {
-      if (fullImagePreview) {
-        URL.revokeObjectURL(fullImagePreview)
-      }
-    }
-  }, [fullImagePreview])
-
-  const openFullImagePreview = async (imageUrl: string) => {
-    if (fullImagePreview) {
-      URL.revokeObjectURL(fullImagePreview)
-    }
-    setFullImageLoading(true)
-    try {
-      const blob = await apiGetNotificationImageBlob(imageUrl)
-      const blobUrl = URL.createObjectURL(blob)
-      setFullImagePreview(blobUrl)
-    } catch {
-      // If authenticated fetch fails, show error state
-      setFullImagePreview(null)
-    } finally {
-      setFullImageLoading(false)
-    }
+  const openFullImagePreview = (imageUrl: string) => {
+    setFullImagePreviewSrc(imageUrl)
   }
 
   const closeFullImagePreview = () => {
-    if (fullImagePreview) {
-      URL.revokeObjectURL(fullImagePreview)
-      setFullImagePreview(null)
-    }
-    setFullImageLoading(false)
+    setFullImagePreviewSrc(null)
   }
 
   // Convert ISO 8601 datetime to a local "YYYY-MM-DDTHH:mm" string usable by <input type="datetime-local" />.
@@ -282,6 +255,8 @@ const knownEventNames: Record<string, string> = {
     payment_verified: 'Pembayaran Diverifikasi',
     payment_rejected: 'Pembayaran Ditolak',
     manual_push: 'Pengumuman Pengurus',
+    rw_cash_in: 'Kas Masuk RW',
+    rw_cash_out: 'Kas Keluar RW',
     waste_truck_arrival: 'Truk Sampah Tiba',
     patrol_bundle_submitted: 'Laporan Patroli Wilayah',
     paket_received: 'Titipan Paket Masuk',
@@ -552,7 +527,7 @@ const knownEventNames: Record<string, string> = {
       eventName,
       eventType: log.event_type,
       dedupKey: log.dedup_key,
-      imageUrl: log.image_url,
+      imageUrl: log.image_url || (log as any).payload?.image_url || (log as any).payload?.image,
       payload: (log as any).payload,
     })
     if (!isAdmin || activeTab === 'mine') handleMarkAsRead(log)
@@ -1705,6 +1680,12 @@ const knownEventNames: Record<string, string> = {
                               <span style={{ fontWeight: isPersonalUnread ? 700 : 500, color: 'var(--sf-text)' }}>
                                 {l.title}
                               </span>
+                              {(l.image_url || (l as any).payload?.image_url) && (
+                                <PictureOutlined
+                                  style={{ color: 'var(--sf-accent)', fontSize: 13 }}
+                                  title="Memiliki lampiran gambar"
+                                />
+                              )}
                               {l.activity_relation === 'sent_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Dikirim oleh Saya</span>}
                               {l.activity_relation === 'received_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Diterima oleh Saya</span>}
                               {l.activity_relation === 'performed_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Tindakan Saya</span>}
@@ -1875,7 +1856,7 @@ const knownEventNames: Record<string, string> = {
                   {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {createForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
-                      <img
+                      <NotificationImage
                         src={createForm.image_url}
                         alt="Preview Lampiran"
                         style={{ maxHeight: 90, borderRadius: 6, border: '1px solid var(--sf-border)' }}
@@ -2026,7 +2007,7 @@ const knownEventNames: Record<string, string> = {
                   {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {editForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
-                      <img
+                      <NotificationImage
                         src={editForm.image_url}
                         alt="Preview Lampiran"
                         style={{ maxHeight: 90, borderRadius: 6, border: '1px solid var(--sf-border)' }}
@@ -2194,7 +2175,11 @@ const knownEventNames: Record<string, string> = {
               </div>
               {confirmBroadcastItem.image_url && (
                 <div style={{ marginTop: 8 }}>
-                  <img src={confirmBroadcastItem.image_url} alt="Lampiran" style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }} />
+                  <NotificationImage
+                    src={confirmBroadcastItem.image_url}
+                    alt="Lampiran"
+                    style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }}
+                  />
                 </div>
               )}
             </div>
@@ -2268,7 +2253,7 @@ const knownEventNames: Record<string, string> = {
                 </div>
                 {previewItem.imageUrl && (
                   <div style={{ marginTop: 10 }}>
-                    <img
+                    <NotificationImage
                       src={previewItem.imageUrl}
                       alt="Banner Notifikasi"
                       style={{
@@ -2279,8 +2264,7 @@ const knownEventNames: Record<string, string> = {
                         cursor: 'pointer',
                       }}
                       onClick={() => {
-                        // For waste_truck_arrival, open full image viewer via authenticated fetch
-                        if (previewItem.eventType === 'waste_truck_arrival' && previewItem.imageUrl) {
+                        if (previewItem.imageUrl) {
                           openFullImagePreview(previewItem.imageUrl)
                         }
                       }}
@@ -2441,20 +2425,16 @@ const knownEventNames: Record<string, string> = {
       )}
 
       {/* MODAL: Full Image Preview (for waste_truck_arrival and other notifications with images) */}
-      {fullImagePreview && (
-        <Modal open={!!fullImagePreview} onClose={closeFullImagePreview}>
+      {fullImagePreviewSrc && (
+        <Modal open={!!fullImagePreviewSrc} onClose={closeFullImagePreview}>
           <ModalHeader title="Foto Notifikasi" onClose={closeFullImagePreview} />
           <ModalBody>
             <div style={{ textAlign: 'center' }}>
-              {fullImageLoading ? (
-                <div style={{ padding: 40, color: 'var(--sf-text-muted)' }}>Memuat gambar...</div>
-              ) : (
-                <img
-                  src={fullImagePreview}
-                  alt="Foto Notifikasi"
-                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
-                />
-              )}
+              <NotificationImage
+                src={fullImagePreviewSrc}
+                alt="Foto Notifikasi"
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
             </div>
           </ModalBody>
         </Modal>

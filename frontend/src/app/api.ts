@@ -31,6 +31,7 @@ export interface ApiUser {
     rw_number?: number
     jabatan: string
     source?: string
+    permissions?: string[]
   }>
 }
 
@@ -383,9 +384,9 @@ export async function authenticatedApiRequest(
     const nested = body && typeof body === 'object' ? (body as { error?: { code?: string; message?: string } }).error : undefined
     const apiErr = nested ?? (body && typeof body === 'object' ? body as { code?: string; message?: string } : null)
     if (currentRes.status >= 400 && apiErr?.code) {
-      throw new ApiError(apiErr.code, apiErr.message ?? 'Unexpected response')
+      throw new ApiError(apiErr.code, apiErr.message ?? 'Unexpected response', undefined, currentRes.status)
     }
-    throw new ApiError('unexpected', 'Unexpected response')
+    throw new ApiError('unexpected', 'Unexpected response', undefined, currentRes.status)
   }
 
   return currentRes
@@ -651,12 +652,14 @@ export async function apiReactivateRT(token: string, id: string): Promise<ApiRT>
 export class ApiError extends Error {
   code: string
   details?: unknown
+  status?: number
 
-  constructor(code: string, message: string, details?: unknown) {
+  constructor(code: string, message: string, details?: unknown, status?: number) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.details = details
+    this.status = status
   }
 }
 
@@ -938,10 +941,14 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   return data
 }
 
-export async function getResident(token: string, id: string): Promise<ApiResident> {
-  const res = await authenticatedApiRequest(BASE + '/residents/' + id, {
+export async function getResident(token: string, id: string, rtId?: string): Promise<ApiResident> {
+  const q = rtId ? `?rt_id=${encodeURIComponent(rtId)}` : ''
+  const res = await authenticatedApiRequest(BASE + '/residents/' + id + q, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(rtId ? { 'X-RT-ID': rtId } : {}),
+    },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   const data = await json<ApiResident>(res)
@@ -1032,7 +1039,11 @@ export async function createSpecialResident(
 ): Promise<ApiResident | void> {
   const res = await authenticatedApiRequest(BASE + '/residents/special', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(body.rt_id ? { 'X-RT-ID': body.rt_id } : {}),
+    },
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -2127,19 +2138,60 @@ export async function apiUploadNotificationImage(
   return body
 }
 
-export async function apiGetNotificationImageBlob(imageUrl: string): Promise<Blob> {
-  // imageUrl is like "/api/v1/notifications/images/notifications/waste-truck/rt-002/..."
+export function resolveNotificationImageUrl(imageUrl: string): string {
+  const trimmed = imageUrl.trim()
+  if (!trimmed) {
+    throw new ApiError('validation_error', 'URL gambar notifikasi tidak valid')
+  }
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) {
+    throw new ApiError('validation_error', 'Skema URL gambar notifikasi tidak didukung')
+  }
+  if (trimmed.startsWith(`${BASE}/`) || trimmed === BASE) {
+    return trimmed
+  }
+  if (trimmed.startsWith('/notifications/images/')) {
+    return `${BASE}${trimmed}`
+  }
+  if (trimmed.startsWith('notifications/')) {
+    return `${BASE}/notifications/images/${trimmed}`
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed
+  }
+  if (trimmed.startsWith('/')) {
+    return trimmed
+  }
+  return `${BASE}/notifications/images/${trimmed}`
+}
+
+export async function apiGetNotificationImageBlob(
+  imageUrl: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
   const token = getSessionPair()?.accessToken
-  if (!token) throw new ApiError('auth_expired', 'Session expired')
-  const res = await authenticatedApiRequest(BASE + imageUrl, {
+  if (!token) throw new ApiError('auth_expired', 'Session expired', undefined, 401)
+  const resolvedUrl = resolveNotificationImageUrl(imageUrl)
+
+  let effectiveSignal: AbortSignal | undefined
+  if (typeof AbortSignal !== 'undefined') {
+    const hasTimeout = typeof AbortSignal.timeout === 'function'
+    const hasAny = typeof AbortSignal.any === 'function'
+    if (signal && hasTimeout && hasAny) {
+      effectiveSignal = AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS * 2)])
+    } else if (signal) {
+      effectiveSignal = signal
+    } else if (hasTimeout) {
+      effectiveSignal = AbortSignal.timeout(TIMEOUT_MS * 2)
+    }
+  } else {
+    effectiveSignal = signal
+  }
+
+  const res = await authenticatedApiRequest(resolvedUrl, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
-    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+    ...(effectiveSignal ? { signal: effectiveSignal } : {}),
   })
-  if (!res.ok) {
-    const err = await json<ApiError>(res).catch(() => null)
-    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat gambar notifikasi')
-  }
   return res.blob()
 }
 

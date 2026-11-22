@@ -45,6 +45,7 @@ type Repository interface {
 	// RW-scoped template management
 	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
 	GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*NotificationTemplate, error)
 	CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error)
 	UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
 	ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
@@ -973,6 +974,34 @@ func (r *pgRepository) ListRWTemplates(ctx context.Context, rwID, eventType stri
 		templates = []NotificationTemplate{}
 	}
 	return templates, rows.Err()
+}
+
+func (r *pgRepository) GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*NotificationTemplate, error) {
+	query := `
+		SELECT id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE rw_id = $1 AND event_type = $2 AND is_active = true
+		ORDER BY updated_at DESC
+		LIMIT 1;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, eventType).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
 }
 
 // GetRWTemplateByID gets an RW-scoped template by ID.
@@ -2320,6 +2349,7 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		if len(payloadBytes) > 0 {
 			_ = json.Unmarshal(payloadBytes, &entry.Payload)
 		}
+		hydrateLogImageURL(&entry)
 		entry.ActivityRelation = "received_by_me"
 		logs = append(logs, entry)
 	}
@@ -2554,6 +2584,7 @@ func (r *pgRepository) ListManagementHistory(
 				return nil, 0, fmt.Errorf("decode notification history payload: %w", err)
 			}
 		}
+		hydrateLogImageURL(&entry)
 		entries = append(entries, entry)
 	}
 	return entries, total, rows.Err()
@@ -2751,7 +2782,23 @@ func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*Notifi
 	if len(payloadBytes) > 0 {
 		_ = json.Unmarshal(payloadBytes, &entry.Payload)
 	}
+	hydrateLogImageURL(&entry)
 	return &entry, nil
+}
+
+func hydrateLogImageURL(entry *NotificationLogEntry) {
+	if entry == nil || (entry.ImageURL != nil && strings.TrimSpace(*entry.ImageURL) != "") {
+		return
+	}
+	if entry.Payload == nil {
+		return
+	}
+	if v, ok := entry.Payload["image_url"]; ok {
+		if s, okStr := v.(string); okStr && strings.TrimSpace(s) != "" {
+			img := strings.TrimSpace(s)
+			entry.ImageURL = &img
+		}
+	}
 }
 
 func (r *pgRepository) GetBroadcastRecipientLog(
@@ -2848,8 +2895,8 @@ func (r *pgRepository) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([
 // ketua, wakil_ketua, bendahara, sekretaris, anggota, anggota_rt.
 //
 // Authorization logic:
-// 1. If jabatan IS NOT NULL, only the 6 allowed positions may receive.
-//    Users with jabatan='keamanan', 'sosial', 'operasional', 'kebersihan' are excluded.
+// 1. If jabatan IS NOT NULL, allowed positions may receive.
+//    Users with jabatan='keamanan', 'kebersihan' are strictly excluded. Jabatan 'sosial' is allowed.
 // 2. If jabatan IS NULL (legacy role-based users), role IN ('pengurus', 'bendahara') is allowed
 //    as a backward-compatible fallback.
 // 3. RW membership is always allowed regardless of role/jabatan.
@@ -2865,13 +2912,14 @@ func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID strin
 			  AND (
 			    -- Jabatan-based: strictly enforce the allowed positions.
 			    -- 'anggota_rt' added alongside 'anggota' per migration 083.
-			    -- 'anggota_rw' and 'operasional' included per RW broadcast distribution rules.
-			    -- 'keamanan' and 'kebersihan' are strictly excluded.
-			    urm.jabatan IN ('ketua', 'wakil_ketua', 'bendahara', 'sekretaris', 'anggota', 'anggota_rt', 'anggota_rw', 'operasional')
+			    -- 'anggota_rw', 'operasional', 'humas', and 'sosial' included per RW broadcast distribution rules.
+			    -- ONLY 'keamanan' and 'kebersihan' are strictly excluded.
+			    urm.jabatan IN ('ketua', 'wakil_ketua', 'bendahara', 'sekretaris', 'anggota', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial')
 			    -- Legacy role-based fallback: only when jabatan is NULL.
 			    -- This prevents users with role='pengurus' AND jabatan='keamanan' from receiving.
 			    OR (urm.jabatan IS NULL AND urm.role IN ('pengurus', 'bendahara'))
 			  )
+			  AND (urm.jabatan IS NULL OR urm.jabatan NOT IN ('keamanan', 'kebersihan'))
 		) all_pengurus;
 	`
 	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID)
@@ -2917,14 +2965,19 @@ func (r *pgRepository) RecordRWDedupWithStatus(
 	if strings.TrimSpace(status) == "" {
 		status = "SENT"
 	}
+	var imageURL *string
+	if img, ok := payload["image_url"]; ok && strings.TrimSpace(img) != "" {
+		trimmedImg := strings.TrimSpace(img)
+		imageURL = &trimmedImg
+	}
 	query := `
-		INSERT INTO notification_logs (rw_id, user_id, event_type, dedup_key, title, body, payload, status, sender_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO notification_logs (rw_id, user_id, event_type, dedup_key, title, body, payload, status, sender_user_id, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (dedup_key) DO NOTHING
 		RETURNING id;
 	`
 	var id string
-	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, uidParam, eventType, dedupKey, title, body, payloadJSON, status, senderUserID).Scan(&id)
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, uidParam, eventType, dedupKey, title, body, payloadJSON, status, senderUserID, imageURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil // deduplicated
@@ -2985,6 +3038,7 @@ func (r *pgRepository) ListRWLogs(ctx context.Context, rwID, eventType string, o
 		if len(payloadJSON) > 0 {
 			_ = json.Unmarshal(payloadJSON, &l.Payload)
 		}
+		hydrateLogImageURL(&l)
 		logs = append(logs, l)
 	}
 	return logs, total, nil
@@ -3083,6 +3137,7 @@ func (r *pgRepository) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eve
 		if len(payloadJSON) > 0 {
 			_ = json.Unmarshal(payloadJSON, &l.Payload)
 		}
+		hydrateLogImageURL(&l)
 		logs = append(logs, l)
 	}
 	if logs == nil {

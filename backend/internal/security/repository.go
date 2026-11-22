@@ -2384,6 +2384,7 @@ func (r *Repository) CreateCorrection(
 	_ = tx.QueryRowContext(ctx, `
 		SELECT COALESCE(full_name, 'Petugas Keamanan') FROM users WHERE id = $1
 	`, officerUserID).Scan(&officerName)
+	var ketuaIDs []string
 	notifyRows, nErr := tx.QueryContext(ctx, `
 		SELECT DISTINCT u.id
 		FROM users u
@@ -2394,26 +2395,29 @@ func (r *Repository) CreateCorrection(
 		for notifyRows.Next() {
 			var ketuaID string
 			if err := notifyRows.Scan(&ketuaID); err == nil {
-				// Skip notifying the requester themselves.
-				if ketuaID == requesterID {
-					continue
-				}
-				dedup := fmt.Sprintf("correction:%s:%s", corrID, ketuaID)
-				_, _ = tx.ExecContext(ctx, `
-					INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
-					VALUES ($1::uuid, $2::uuid, 'correction_submitted', $3, 'Pengajuan Koreksi Absensi', $4, 'SENT', $5, json_build_object(
-						'correction_id', $6::text,
-						'officer_user_id', $7::text,
-						'officer_name', $8::text,
-						'shift_date', $9::text
-					)::jsonb)
-					ON CONFLICT (dedup_key) DO NOTHING
-				`, rtID, ketuaID, dedup,
-					fmt.Sprintf("Petugas %s mengajukan koreksi absensi untuk shift %s. Silakan tinjau pengajuan.", officerName, shiftDateStr),
-					now, corrID, officerUserID, officerName, shiftDateStr)
+				ketuaIDs = append(ketuaIDs, ketuaID)
 			}
 		}
 		notifyRows.Close()
+	}
+	for _, ketuaID := range ketuaIDs {
+		// Skip notifying the requester themselves.
+		if ketuaID == requesterID {
+			continue
+		}
+		dedup := fmt.Sprintf("correction:%s:%s", corrID, ketuaID)
+		_, _ = tx.ExecContext(ctx, `
+			INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+			VALUES ($1::uuid, $2::uuid, 'correction_submitted', $3, 'Pengajuan Koreksi Absensi', $4, 'SENT', $5, json_build_object(
+				'correction_id', $6::text,
+				'officer_user_id', $7::text,
+				'officer_name', $8::text,
+				'shift_date', $9::text
+			)::jsonb)
+			ON CONFLICT (dedup_key) DO NOTHING
+		`, rtID, ketuaID, dedup,
+			fmt.Sprintf("Petugas %s mengajukan koreksi absensi untuk shift %s. Silakan tinjau pengajuan.", officerName, shiftDateStr),
+			now, corrID, officerUserID, officerName, shiftDateStr)
 	}
 
 	if err := tx.Commit(); err != nil {

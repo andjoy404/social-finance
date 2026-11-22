@@ -618,11 +618,75 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     Widget? trailing,
     String? subtitle,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isTotalSaldo = title.toLowerCase().contains('total saldo');
+    final isSaldoBersih = title.toLowerCase().contains('saldo bersih');
+
+    BoxDecoration decoration;
+    Color iconBgColor;
+    Color iconColor;
+    Color valueColor;
+    double valueFontSize = 16;
+    FontWeight valueFontWeight = FontWeight.w700;
+
+    if (isTotalSaldo) {
+      decoration = BoxDecoration(
+        color: isDark
+            ? AppColors.accent.withValues(alpha: 0.12)
+            : AppColors.accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: AppColors.accent, width: 1.8),
+      );
+      iconBgColor = AppColors.accent.withValues(alpha: 0.18);
+      iconColor = AppColors.accent;
+      valueColor = AppColors.accent;
+      valueFontSize = 18;
+      valueFontWeight = FontWeight.w800;
+    } else if (isSaldoBersih) {
+      decoration = BoxDecoration(
+        color: isDark ? const Color(0xFF1E222B) : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(
+          color: isDark ? const Color(0xFF333B48) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      );
+      iconBgColor = isDark
+          ? Colors.white.withValues(alpha: 0.12)
+          : const Color(0xFFF1F5F9);
+      iconColor = isDark ? Colors.white : const Color(0xFF334155);
+      valueColor = isDark ? Colors.white : const Color(0xFF0F172A);
+      valueFontSize = 16;
+      valueFontWeight = FontWeight.w700;
+    } else {
+      decoration = BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
+      );
+      iconBgColor = color.withValues(alpha: 0.1);
+      iconColor = color;
+      valueColor = color;
+    }
+
     final effectiveOnTap = onTap ?? () => _showSummaryCardDetail(
           context: context,
           title: title,
           value: value,
-          color: color,
+          color: isTotalSaldo
+              ? AppColors.accent
+              : (isSaldoBersih
+                  ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                  : color),
           icon: icon,
           subtitle: subtitle,
         );
@@ -631,26 +695,40 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
       borderRadius: BorderRadius.circular(AppRadius.base),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(AppRadius.base),
-          border: Border.all(color: color.withValues(alpha: 0.1)),
-        ),
+        decoration: decoration,
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(AppRadius.sm)),
-              child: Icon(icon, size: 16, color: color),
+              decoration: BoxDecoration(color: iconBgColor, borderRadius: BorderRadius.circular(AppRadius.sm)),
+              child: Icon(icon, size: 16, color: iconColor),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.lightTextMuted)),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: isTotalSaldo ? FontWeight.w700 : FontWeight.w600,
+                      color: isTotalSaldo
+                          ? AppColors.accent
+                          : (isSaldoBersih
+                              ? (isDark ? Colors.white70 : AppColors.lightTextMuted)
+                              : AppColors.lightTextMuted),
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: valueFontSize,
+                      fontWeight: valueFontWeight,
+                      color: valueColor,
+                    ),
+                  ),
                 ],
               ),
             ),

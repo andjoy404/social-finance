@@ -985,6 +985,19 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsImage:    true,
 		SupportsTest:     false,
 	},
+	{
+		EventType:        EventCorrectionSubmitted,
+		Name:             "Pengajuan Koreksi Absensi",
+		Trigger:          "Petugas keamanan mengajukan koreksi data absensi yang perlu persetujuan Ketua RT",
+		Channel:          "push",
+		RecipientsRule:   "Ketua RT yang menerima pengajuan koreksi",
+		DefaultTitle:     "Pengajuan Koreksi Absensi Baru",
+		DefaultBody:      "Petugas keamanan telah mengajukan pengajuan koreksi absensi. Silakan periksa dan berikan persetujuan.",
+		AllowedVariables: []string{"correction_id", "nama_petugas", "tanggal_koreksi", "status"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
 }
 
 // RWSystemNotificationTypes lists system notification types specific to RW level.
@@ -994,12 +1007,12 @@ var RWSystemNotificationTypes = []SystemNotificationType{
 		Name:             "Kas Masuk RW",
 		Trigger:          "Penerimaan dana kas masuk tingkat RW",
 		Channel:          "push",
-		RecipientsRule:   "Seluruh pengurus RW aktif",
+		RecipientsRule:   "Seluruh pengurus RW dan RT aktif (kecuali keamanan & kebersihan)",
 		DefaultTitle:     "Kas Masuk RW Diterima",
 		DefaultBody:      "Penerimaan kas masuk RW sebesar {{amount}} telah dicatat.",
 		AllowedVariables: []string{"amount", "description", "location"},
-		IsConfigurable:   false,
-		SupportsImage:    false,
+		IsConfigurable:   true,
+		SupportsImage:    true,
 		SupportsTest:     false,
 	},
 	{
@@ -1007,12 +1020,12 @@ var RWSystemNotificationTypes = []SystemNotificationType{
 		Name:             "Kas Keluar RW",
 		Trigger:          "Pengeluaran dana kas keluar tingkat RW",
 		Channel:          "push",
-		RecipientsRule:   "Seluruh pengurus RW aktif",
+		RecipientsRule:   "Seluruh pengurus RW dan RT aktif (kecuali keamanan & kebersihan)",
 		DefaultTitle:     "Kas Keluar RW Dicatat",
 		DefaultBody:      "Pengeluaran kas RW sebesar {{amount}} untuk {{description}} telah dicatat.",
 		AllowedVariables: []string{"amount", "description", "category", "location"},
-		IsConfigurable:   false,
-		SupportsImage:    false,
+		IsConfigurable:   true,
+		SupportsImage:    true,
 		SupportsTest:     false,
 	},
 }
@@ -1060,6 +1073,11 @@ func (s *service) GetSystemTypes() []SystemNotificationType {
 
 func findSystemType(eventType string) *SystemNotificationType {
 	for _, t := range SystemNotificationTypes {
+		if t.EventType == eventType {
+			return &t
+		}
+	}
+	for _, t := range RWSystemNotificationTypes {
 		if t.EventType == eventType {
 			return &t
 		}
@@ -2226,17 +2244,42 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		targets, err := s.repo.GetRWAndRTPengurusUserIDs(bgCtx, rwID)
 		if err != nil {
 			slog.Error("failed to find recipients for rw_cash_in", "rw_id", rwID, "error", err)
 			return
 		}
 
 		formattedAmount := finance.FormatRupiahFromString(amount)
+		if formattedAmount == "Rp 0" && strings.TrimSpace(amount) != "0" && strings.TrimSpace(amount) != "" {
+			formattedAmount = strings.TrimSpace(amount)
+		}
 		title := "Kas Masuk RW Diterima"
 		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar %s telah dicatat.", formattedAmount)
 		if strings.TrimSpace(description) != "" {
 			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar %s (%s) telah dicatat.", formattedAmount, description)
+		}
+		var imgURL *string
+
+		if tmpl, err := s.repo.GetActiveRWTemplateForEvent(bgCtx, rwID, EventRWCashIn); err == nil && tmpl != nil && tmpl.IsActive {
+			vars := map[string]string{
+				"amount":      formattedAmount,
+				"description": description,
+				"location":    locationName,
+			}
+			tTitle := tmpl.Title
+			tBody := tmpl.Body
+			for k, v := range vars {
+				tTitle = strings.ReplaceAll(tTitle, "{{"+k+"}}", v)
+				tBody = strings.ReplaceAll(tBody, "{{"+k+"}}", v)
+			}
+			if strings.TrimSpace(tTitle) != "" {
+				title = tTitle
+			}
+			if strings.TrimSpace(tBody) != "" {
+				body = tBody
+			}
+			imgURL = tmpl.ImageURL
 		}
 
 		payload := map[string]string{
@@ -2246,7 +2289,11 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 			"amount":      amount,
 			"description": description,
 			"location":    locationName,
+			"deep_link":   fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txID),
 			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if imgURL != nil && strings.TrimSpace(*imgURL) != "" {
+			payload["image_url"] = *imgURL
 		}
 
 		for _, uid := range targets {
@@ -2273,15 +2320,41 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		targets, err := s.repo.GetRWAndRTPengurusUserIDs(bgCtx, rwID)
 		if err != nil {
 			slog.Error("failed to find recipients for rw_cash_out", "rw_id", rwID, "error", err)
 			return
 		}
 
 		formattedAmount := finance.FormatRupiahFromString(amount)
+		if formattedAmount == "Rp 0" && strings.TrimSpace(amount) != "0" && strings.TrimSpace(amount) != "" {
+			formattedAmount = strings.TrimSpace(amount)
+		}
 		title := "Kas Keluar RW Dicatat"
 		body := fmt.Sprintf("Pengeluaran kas RW sebesar %s untuk %s telah dicatat.", formattedAmount, description)
+		var imgURL *string
+
+		if tmpl, err := s.repo.GetActiveRWTemplateForEvent(bgCtx, rwID, EventRWCashOut); err == nil && tmpl != nil && tmpl.IsActive {
+			vars := map[string]string{
+				"amount":      formattedAmount,
+				"description": description,
+				"category":    category,
+				"location":    locationName,
+			}
+			tTitle := tmpl.Title
+			tBody := tmpl.Body
+			for k, v := range vars {
+				tTitle = strings.ReplaceAll(tTitle, "{{"+k+"}}", v)
+				tBody = strings.ReplaceAll(tBody, "{{"+k+"}}", v)
+			}
+			if strings.TrimSpace(tTitle) != "" {
+				title = tTitle
+			}
+			if strings.TrimSpace(tBody) != "" {
+				body = tBody
+			}
+			imgURL = tmpl.ImageURL
+		}
 
 		payload := map[string]string{
 			"type":        EventRWCashOut,
@@ -2291,7 +2364,11 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 			"description": description,
 			"category":    category,
 			"location":    locationName,
+			"deep_link":   fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txID),
 			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if imgURL != nil && strings.TrimSpace(*imgURL) != "" {
+			payload["image_url"] = *imgURL
 		}
 
 		for _, uid := range targets {
@@ -2313,10 +2390,19 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 	}()
 }
 
-func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, target ...string) (int, error) {
+func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, opts ...string) (int, error) {
+	var target string
+	var imageURL string
+	if len(opts) > 0 {
+		target = opts[0]
+	}
+	if len(opts) > 1 {
+		imageURL = opts[1]
+	}
+
 	var targets []string
 	var err error
-	if len(target) > 0 && strings.TrimSpace(target[0]) == "rw_only" {
+	if strings.TrimSpace(target) == "rw_only" {
 		targets, err = s.repo.GetRWPengurusUserIDs(ctx, rwID)
 	} else {
 		targets, err = s.repo.GetRWAndRTPengurusUserIDs(ctx, rwID)
@@ -2335,6 +2421,9 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 		"body":           body,
 		"sender_user_id": senderUserID,
 		"sent_at":        time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if strings.TrimSpace(imageURL) != "" {
+		payload["image_url"] = strings.TrimSpace(imageURL)
 	}
 
 	batchID := fmt.Sprintf("rw_manual:%s:%d", rwID, time.Now().UnixNano())

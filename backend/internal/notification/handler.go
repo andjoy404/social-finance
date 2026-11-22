@@ -330,9 +330,9 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5MB max upload
-	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
+	// 5MB max upload (allow 10MB for multipart body + form headers)
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		httpx.WriteValidationError(w, "file too large or invalid multipart form", nil)
 		return
 	}
@@ -386,12 +386,6 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 // Requires authentication and validates that the caller's RT scope matches
 // the RT embedded in the image key (notifications/{category}/{rtID}/...).
 func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
-	ac := auth.GetAuthContext(r)
-	if ac == nil || ac.UserID == "" {
-		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
-		return
-	}
-
 	rawKey := chi.URLParam(r, "*")
 	if rawKey == "" {
 		rawKey = strings.TrimPrefix(r.URL.Path, "/api/v1/notifications/images/")
@@ -405,25 +399,54 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		key = "notifications/" + key
 	}
 
-	// Extract RT ID from the image key: notifications/{category}/{rtID}/...
-	imageRTID := extractRTIDFromImageKey(key)
-	if imageRTID == "" {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	// Extract Category and Scope ID (RT or RW ID) from the image key: notifications/{category}/{scopeID}/...
+	category, scopeID := extractCategoryAndScopeIDFromImageKey(key)
+	if scopeID == "" {
 		httpx.WriteValidationError(w, "invalid image key", nil)
 		return
 	}
 
-	// Validate that the image's RT matches the authenticated user's RT scope.
-	// For Super Admin, the RTID is resolved via the X-RT-ID header (already
-	// validated by RequireAllowedRT middleware). For others, use JWT RTID.
-	userRTID := ac.RTID
-	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		// Super Admin: resolve RT from header (same as other handlers).
-		headerRT := r.Header.Get("X-RT-ID")
-		if headerRT != "" {
-			userRTID = headerRT
+	authorized := false
+	if category == "rw-kas" || category == "rw-manual" {
+		if ac.SystemRole == auth.SystemRoleSuperAdmin {
+			authorized = true
+		} else {
+			// RW scope check: user is an RW member with this RW ID, or user's RT belongs to this RW
+			for _, rm := range ac.RWMemberships {
+				if rm.RWID == scopeID {
+					authorized = true
+					break
+				}
+			}
+			if !authorized && ac.RTID != "" && h.pool != nil {
+				var exists bool
+				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2)", ac.RTID, scopeID).Scan(&exists)
+				if err == nil && exists {
+					authorized = true
+				}
+			}
+		}
+	} else {
+		// RT scope check: validate that the image's RT matches the authenticated user's RT scope.
+		userRTID := ac.RTID
+		if ac.SystemRole == auth.SystemRoleSuperAdmin {
+			headerRT := r.Header.Get("X-RT-ID")
+			if headerRT != "" {
+				userRTID = headerRT
+			}
+		}
+		if userRTID != "" && userRTID == scopeID {
+			authorized = true
 		}
 	}
-	if userRTID == "" || userRTID != imageRTID {
+
+	if !authorized {
 		httpx.WriteError(w, http.StatusForbidden, "forbidden", "not authorized to access this image")
 		return
 	}
@@ -441,17 +464,22 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, reader.Body)
 }
 
+// extractCategoryAndScopeIDFromImageKey extracts category and scope ID (RT or RW) from an image key.
+// Expected format: notifications/{category}/{scopeID}/...
+func extractCategoryAndScopeIDFromImageKey(key string) (string, string) {
+	trimmed := strings.TrimPrefix(key, "notifications/")
+	parts := strings.SplitN(trimmed, "/", 3) // [category, scopeID, rest...]
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
 // extractRTIDFromImageKey extracts the RT ID from a notification image key.
 // Expected format: notifications/{category}/{rtID}/...
 func extractRTIDFromImageKey(key string) string {
-	// key should be like "notifications/waste-truck/rt-002/1234567890_abcdef.png"
-	// or "notifications/manual/rt-002/1234567890_abcdef.png"
-	trimmed := strings.TrimPrefix(key, "notifications/")
-	parts := strings.SplitN(trimmed, "/", 3) // [category, rtID, rest...]
-	if len(parts) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(parts[1])
+	_, scopeID := extractCategoryAndScopeIDFromImageKey(key)
+	return scopeID
 }
 
 // TestSelf sends an isolated test push notification exclusively to the authenticated user's registered devices.

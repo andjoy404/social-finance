@@ -78,6 +78,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  bool _isKetuaRT(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final sysRole = (user['system_role'] ?? '').toString().trim().toLowerCase();
+    if (sysRole == 'super_admin' || user['role'] == AppRole.superAdmin) {
+      return false;
+    }
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    return jabatan == 'ketua';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -567,7 +577,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final resident = wargaMap[o.id];
       final avatarPath = o.avatarPath ?? resident?.avatarPath;
       final avatarThumbPath = o.avatarThumbPath ?? resident?.avatarThumbPath;
-      final phone = o.phone ?? resident?.phoneNumber ?? '';
+                      final canViewContact = _isKetuaRT(ref.read(authRepositoryProvider)?.asData?.value);
+      final phone = canViewContact ? (o.phone ?? '') : '';
       final name = o.name;
       return {
         'avatarPath': avatarPath ?? '',
@@ -989,21 +1000,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final member = activeMembers[i];
                       final name = member.name.trim();
                       final warga = memberWargaMap[member.userId];
-                      final memberPhone =
-                          (member.phone ?? warga?.phoneNumber ?? '').trim();
-                      // Backend sends phone for Ketua RT and Keamanan positions to all RT members
-                      final jabatanNorm = jabatan.trim().toLowerCase();
-                      final isKetuaPos =
-                          jabatanNorm == 'ketua' ||
-                          jabatanNorm == 'ketua rt' ||
-                          jabatanNorm == 'ketua_rt';
-                      final isKeamananPos =
-                          jabatanNorm == 'keamanan' ||
-                          jabatanNorm == 'keamanan_rt' ||
-                          jabatanNorm == 'seksi_keamanan' ||
-                          jabatanNorm == 'seksi_keamanan_rt';
-                      final showPhone =
-                          (isKetuaPos || isKeamananPos) && memberPhone.isNotEmpty;
+                      final memberPhone = (member.phone ?? '').trim();
+                      // Contact privacy: only exact RT jabatan "ketua" may receive phone/email.
+                      // Backend redacts for everyone else; UI must not display leaked/fallback contacts.
+      final canViewContact = _isKetuaRT(ref.read(authRepositoryProvider)?.asData?.value);
+                      final showPhone = canViewContact && memberPhone.isNotEmpty;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

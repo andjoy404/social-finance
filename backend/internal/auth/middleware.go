@@ -792,11 +792,15 @@ func RequireAllowedRTForWarga(pool *database.Pool, cfg ScopingConfig) func(http.
 				return
 			}
 
-			// SuperAdmin platform-wide access to Warga across all RT/RW scopes
+			// SuperAdmin cross-RT access to Warga within their configured administrative scope
+			// (SCOPED_RT_IDS or active RTs under SCOPED_RW_IDS). Fail-closed for any RT outside scope.
 			if ac.SystemRole == SystemRoleSuperAdmin {
-				targetRT := ac.RTID
+				targetRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
 				if targetRT == "" {
 					targetRT = strings.TrimSpace(r.Header.Get("X-RT-ID"))
+				}
+				if targetRT == "" {
+					targetRT = strings.TrimSpace(ac.RTID)
 				}
 				if targetRT != "" {
 					effectivePool := pool
@@ -806,10 +810,13 @@ func RequireAllowedRTForWarga(pool *database.Pool, cfg ScopingConfig) func(http.
 					if effectivePool != nil {
 						ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 						defer cancel()
-						var isActive bool
-						err := effectivePool.Raw().QueryRowContext(ctx, "SELECT is_active FROM rts WHERE id = $1", targetRT).Scan(&isActive)
-						if err != nil || !isActive {
-							httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
+						allowed, err := cfg.IsRTInAdminScope(ctx, effectivePool, targetRT)
+						if err != nil {
+							httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to validate rt scope")
+							return
+						}
+						if !allowed {
+							httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not in the configured scope")
 							return
 						}
 					}

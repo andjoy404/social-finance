@@ -366,7 +366,7 @@ void main() {
     testWidgets(
       'renders mobile vertical cards (no DataTable) for both Masuk and Keluar',
       (tester) async {
-        tester.view.physicalSize = const Size(800, 1200);
+        tester.view.physicalSize = const Size(800, 1600);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(() {
           tester.view.resetPhysicalSize();

@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -29,45 +30,69 @@ import (
 
 // Handler wires profile photo endpoints to the shared storage backend.
 type Handler struct {
-	pool  *database.Pool
-	store storage.Service
+	pool       *database.Pool
+	store      storage.Service
+	scopingCfg *auth.ScopingConfig
 }
 
 func NewHandler(pool *database.Pool, store storage.Service) *Handler {
 	return &Handler{pool: pool, store: store}
 }
 
+func NewHandlerWithScope(pool *database.Pool, store storage.Service, cfg auth.ScopingConfig) *Handler {
+	c := cfg
+	return &Handler{pool: pool, store: store, scopingCfg: &c}
+}
+
 type targetRTResolver func(context.Context) (string, error)
 
 // resolveTargetRT resolves the RT scope for the resident id. Tenant users are
-// scoped to their authenticated RT (middleware enforces it before the handler
-// runs); a system super_admin without RT context resolves the RT from the
-// resident itself (mirrors the management flows in households).
+// strictly scoped to their authenticated RT (fail-closed if RTID is empty).
+// System super_admin resolves the RT from the resident itself and validates it
+// against the configured administrative scope (SCOPED_RT_IDS / SCOPED_RW_IDS).
 func (h *Handler) resolveTargetRT(ctx context.Context, ac *auth.AuthContext, residentID string) (string, error) {
-	rtID := strings.TrimSpace(ac.RTID)
-	if rtID != "" {
-		// Ensure the resident actually lives in the caller's RT.
-		var exists bool
+	if ac == nil {
+		return "", fmt.Errorf("missing authentication")
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		var target string
 		err := h.pool.Raw().QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM residents WHERE id = $1 AND rt_id = $2 AND is_active = true)`,
-			residentID, rtID).Scan(&exists)
+			`SELECT rt_id FROM residents WHERE id = $1 AND is_active = true`,
+			residentID).Scan(&target)
 		if err != nil {
-			return "", fmt.Errorf("resolve resident rt: %w", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", fmt.Errorf("resident not found")
+			}
+			return "", err
 		}
-		if !exists {
-			return "", fmt.Errorf("resident not found")
+		if h.scopingCfg != nil {
+			allowed, scopeErr := h.scopingCfg.IsRTInAdminScope(ctx, h.pool, target)
+			if scopeErr != nil {
+				return "", scopeErr
+			}
+			if !allowed {
+				return "", fmt.Errorf("target RT outside administrative scope")
+			}
 		}
-		return rtID, nil
+		return target, nil
 	}
-	// System super_admin without an active RT — resolve from the resident.
-	var target string
+
+	rtID := strings.TrimSpace(ac.RTID)
+	if rtID == "" {
+		return "", fmt.Errorf("tenant context required")
+	}
+	// Ensure the resident actually lives in the caller's RT.
+	var exists bool
 	err := h.pool.Raw().QueryRowContext(ctx,
-		`SELECT rt_id FROM residents WHERE id = $1 AND is_active = true`,
-		residentID).Scan(&target)
+		`SELECT EXISTS(SELECT 1 FROM residents WHERE id = $1 AND rt_id = $2 AND is_active = true)`,
+		residentID, rtID).Scan(&exists)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve resident rt: %w", err)
 	}
-	return target, nil
+	if !exists {
+		return "", fmt.Errorf("resident not found")
+	}
+	return rtID, nil
 }
 
 // loadCurrentAvatar reads the resident's current avatar_path in one query and

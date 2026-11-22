@@ -692,7 +692,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	})
 
 	// Household and resident routes (tenant-scoped, requires auth context).
-	hh := household.NewHandler(pool)
+	hh := household.NewHandlerWithScope(pool, *scopingCfg)
 
 	// Read access: warga, bendahara, pengurus.
 	// jabatan-based users evaluated via position_permissions;
@@ -806,7 +806,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// the resident.profile_photo.manage permission (currently position 'ketua')
 	// may change a resident's photo. Visibility of uploaded photos is enforced
 	// by the community image reference check for residents.
-	profileH := profilephoto.NewHandler(pool, store)
+	profileH := profilephoto.NewHandlerWithScope(pool, store, *scopingCfg)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
@@ -1044,6 +1044,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Put("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.UpdateRWTemplate)
 		r.Patch("/api/v1/rw/{rwId}/notifications/templates/{id}/toggle", rwHandler.ToggleRWTemplateActive)
 		r.Delete("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.DeleteRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/upload-image", rwHandler.UploadNotificationImage)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
 		r.Get("/api/v1/rw/{rwId}/kas/report", rwHandler.GetKASReportDetail)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)

@@ -580,6 +580,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('nav-item-sampah')));
       await tester.pumpAndSettle();
 
@@ -889,34 +891,27 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          // Navigate to Profile tab -> open "Kelola Notifikasi".
-          // The bottom nav is horizontally scrollable with 8+ tabs; the
-          // Profil item is off-screen until scrolled into view.
-          final bottomNavScrollable = find.descendant(
-            of: find.byType(BottomAppBar),
-            matching: find.byType(Scrollable),
-          ).first;
-          await tester.scrollUntilVisible(
-            find.byKey(const Key('nav-item-profil')),
-            200,
-            scrollable: bottomNavScrollable,
-          );
+          // The active notification entrypoint is in the Menu grid, whose
+          // Notifikasi item opens the management screen and history tabs.
+          await tester.tap(find.byKey(const Key('nav-item-menu')));
           await tester.pumpAndSettle();
-          await tester.tap(find.byKey(const Key('nav-item-profil')));
-          await tester.pumpAndSettle();
-
+          final notificationMenuItem =
+              find.byKey(const Key('grid-item-notifikasi'));
           await tester.scrollUntilVisible(
-            find.text('Kelola Notifikasi'),
-            200,
-            scrollable: find.byType(Scrollable).first,
+            notificationMenuItem,
+            160,
+            scrollable: find.descendant(
+              of: find.byType(GridView),
+              matching: find.byType(Scrollable),
+            ).first,
           );
-          await tester.tap(find.text('Kelola Notifikasi'));
+          await tester.tap(notificationMenuItem);
           await tester.pumpAndSettle();
 
           expect(find.byType(NotificationManagementScreen), findsOneWidget);
 
           // Switch to categorized notification history.
-          await tester.tap(find.text('SISTEM'));
+          await tester.tap(find.textContaining('SISTEM').first);
           await tester.pumpAndSettle();
 
           expect(

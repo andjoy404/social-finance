@@ -353,6 +353,10 @@ func (r *inMemoryRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (
 	return nil, nil
 }
 
+func (r *inMemoryRepo) GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
 func (r *inMemoryRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
 	return &notification.NotificationTemplate{
 		ID:        "rw-tmpl-1",

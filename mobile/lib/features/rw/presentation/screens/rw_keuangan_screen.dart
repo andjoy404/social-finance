@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_finance/core/api/models.dart';
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -99,7 +100,10 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
     // Pengurus RW (explicit): Beranda, KAS, Lokasi Dana, Notifikasi (read; write by jabatan).
     // Ketua RW & Bendahara RW explicit: write-capable per feature/backend.
     // Super Admin: all tabs.
-    final isSuperAdmin = user?['role'] == 'super_admin' || user?['system_role'] == 'super_admin';
+    final isSuperAdmin =
+        user?['role'] == AppRole.superAdmin ||
+        user?['role'] == 'super_admin' ||
+        user?['system_role'] == 'super_admin';
     final isExplicitMember = currentMembership?.source == 'explicit';
     final hasFeatureAccess = rwMembershipHasFeatureAccess(user, widget.rwId,
         rwMemberships: rwMemberships.map((m) => m.toJson()).toList());

@@ -1004,11 +1004,17 @@ export function KelolaKeamananPage() {
     {
       title: 'Aksi',
       key: 'actions',
-      render: (_, row) => (
-        <Button type="link" size="small" onClick={() => setCorrectionDetailModal(row)}>
-          Detail
-        </Button>
-      ),
+      render: (_, row) => {
+        const isSelfRequested = row.status === 'pending' && Boolean(user?.id && row.requested_by === user.id)
+        return (
+          <Space>
+            <Button type="link" size="small" onClick={() => setCorrectionDetailModal(row)}>
+              Detail
+            </Button>
+            {isSelfRequested && <Tag color="default">Tidak bisa menyetujui pengajuan sendiri</Tag>}
+          </Space>
+        )
+      },
     },
   ]
 

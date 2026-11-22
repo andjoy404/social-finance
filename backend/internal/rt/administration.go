@@ -30,12 +30,21 @@ type RTMembership struct {
 }
 
 func ListMemberships(ctx context.Context, tx *sql.Tx, rtID string) ([]RTMembership, error) {
+	return listMemberships(ctx, tx, rtID, false)
+}
+
+// listMemberships includes contact columns only when the handler has already
+// established exact Ketua RT authorization and matching RT scope.
+func listMemberships(ctx context.Context, tx *sql.Tx, rtID string, includeContact bool) ([]RTMembership, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT urm.id, u.id, u.full_name, u.email, u.phone, urm.role, urm.jabatan, urm.is_active
+		SELECT urm.id, u.id, u.full_name,
+		       CASE WHEN $2 THEN u.email ELSE NULL END,
+		       CASE WHEN $2 THEN u.phone ELSE NULL END,
+		       urm.role, urm.jabatan, urm.is_active
 		FROM user_rt_memberships urm
 		JOIN users u ON u.id = urm.user_id
 		WHERE urm.rt_id = $1 AND urm.is_active = true AND u.is_active = true
-		ORDER BY u.full_name ASC, u.id ASC`, rtID)
+		ORDER BY u.full_name ASC, u.id ASC`, rtID, includeContact)
 	if err != nil {
 		return nil, fmt.Errorf("list RT memberships: %w", err)
 	}
@@ -75,7 +84,7 @@ func SetJabatan(ctx context.Context, tx *sql.Tx, rtID, userID string, jabatan au
 	var old *string
 	var oldValue sql.NullString
 	err := tx.QueryRowContext(ctx, `
-		SELECT urm.id, u.id, u.full_name, u.email, u.phone, urm.role, urm.jabatan, urm.is_active
+		SELECT urm.id, u.id, u.full_name, NULL::text, NULL::text, urm.role, urm.jabatan, urm.is_active
 		FROM user_rt_memberships urm JOIN users u ON u.id = urm.user_id
 		WHERE urm.rt_id = $1 AND urm.user_id = $2 AND urm.is_active = true AND u.is_active = true
 		FOR UPDATE`, rtID, userID).Scan(&item.ID, &item.UserID, &item.FullName, &item.Email, &item.Phone, &item.Role, &oldValue, &item.IsActive)
@@ -134,7 +143,7 @@ func RemoveJabatan(ctx context.Context, tx *sql.Tx, rtID, userID string) (*RTMem
 	var item RTMembership
 	var oldValue sql.NullString
 	err := tx.QueryRowContext(ctx, `
-		SELECT urm.id, u.id, u.full_name, u.email, u.phone, urm.role, urm.jabatan, urm.is_active
+		SELECT urm.id, u.id, u.full_name, NULL::text, NULL::text, urm.role, urm.jabatan, urm.is_active
 		FROM user_rt_memberships urm JOIN users u ON u.id = urm.user_id
 		WHERE urm.user_id = $1 AND urm.rt_id = $2 AND urm.is_active = true AND u.is_active = true AND urm.jabatan IS NOT NULL
 		FOR UPDATE`, userID, rtID).Scan(&item.ID, &item.UserID, &item.FullName, &item.Email, &item.Phone, &item.Role, &oldValue, &item.IsActive)

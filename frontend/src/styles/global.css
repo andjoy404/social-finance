@@ -2483,3 +2483,97 @@ input[type="file"].sf-form-file::-webkit-file-upload-button:active {
   text-align: center !important;
   padding: 10px 8px !important;
 }
+
+/* ── Detail Koreksi Absensi Modal (theme-token aware Light & Dark) ──── */
+.sf-correction-detail-modal .ant-modal-content,
+.sf-correction-confirm-modal .ant-modal-content {
+  background: var(--sf-surface) !important;
+  color: var(--sf-text) !important;
+  border: 1px solid var(--sf-border);
+  box-shadow: var(--sf-shadow-md);
+}
+
+.sf-correction-detail-modal .ant-modal-header,
+.sf-correction-confirm-modal .ant-modal-header {
+  background: var(--sf-surface) !important;
+  border-bottom: 1px solid var(--sf-border-subtle);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.sf-correction-detail-modal .ant-modal-title,
+.sf-correction-confirm-modal .ant-modal-confirm-title {
+  color: var(--sf-text) !important;
+}
+
+.sf-correction-detail-modal .ant-modal-body,
+.sf-correction-confirm-modal .ant-modal-confirm-content {
+  background: transparent !important;
+  color: var(--sf-text) !important;
+}
+
+.sf-correction-detail-modal .ant-modal-footer {
+  background: transparent !important;
+  border-top: 1px solid var(--sf-border-subtle);
+  padding-top: 12px;
+  margin-top: 16px;
+}
+
+.sf-correction-detail-modal .ant-modal-close,
+.sf-correction-confirm-modal .ant-modal-close {
+  color: var(--sf-text-muted) !important;
+}
+
+.sf-correction-detail-modal .ant-modal-close:hover,
+.sf-correction-confirm-modal .ant-modal-close:hover {
+  color: var(--sf-text) !important;
+  background: var(--sf-surface-hover) !important;
+}
+
+.sf-correction-detail-modal .ant-descriptions-bordered .ant-descriptions-view {
+  background: var(--sf-surface) !important;
+  border-color: var(--sf-border) !important;
+  border-radius: var(--sf-radius-md);
+  overflow: hidden;
+}
+
+.sf-correction-detail-modal .ant-descriptions-bordered .ant-descriptions-row {
+  border-bottom-color: var(--sf-border) !important;
+}
+
+.sf-correction-detail-modal .ant-descriptions-bordered .ant-descriptions-item-label {
+  background: var(--sf-surface-subtle) !important;
+  color: var(--sf-text-muted) !important;
+  border-inline-end-color: var(--sf-border) !important;
+  font-weight: 600;
+}
+
+.sf-correction-detail-modal .ant-descriptions-bordered .ant-descriptions-item-content {
+  background: var(--sf-surface) !important;
+  color: var(--sf-text) !important;
+  border-inline-end-color: var(--sf-border) !important;
+}
+
+.sf-correction-detail-modal .ant-btn-default,
+.sf-correction-confirm-modal .ant-btn-default {
+  background: var(--sf-surface-subtle) !important;
+  border-color: var(--sf-border) !important;
+  color: var(--sf-text) !important;
+}
+
+.sf-correction-detail-modal .ant-btn-default:hover,
+.sf-correction-confirm-modal .ant-btn-default:hover {
+  background: var(--sf-surface-hover) !important;
+  border-color: var(--sf-accent) !important;
+  color: var(--sf-text) !important;
+}
+
+.sf-correction-confirm-modal .ant-input {
+  background: var(--sf-bg) !important;
+  color: var(--sf-text) !important;
+  border-color: var(--sf-border) !important;
+}
+
+.sf-correction-confirm-modal .ant-input::placeholder {
+  color: var(--sf-text-muted) !important;
+}

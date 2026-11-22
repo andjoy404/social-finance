@@ -579,6 +579,199 @@ describe('Sidebar — active route detection', () => {
     expect(kelolaRwLink).not.toHaveClass('nav-item-active')
   })
 
+  it('highlights ONLY Kas RT on /kas and nested /kas/* routes, NOT Data RW', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'bendahara' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    for (const path of ['/kas', '/kas/transaksi/tx-1']) {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[path]}>
+          <Sidebar />
+        </MemoryRouter>,
+      )
+      const kasRtLink = document.querySelector('a[href="/kas"]')
+      const dataRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+      expect(kasRtLink).toHaveClass('nav-item-active')
+      expect(dataRwLink).not.toHaveClass('nav-item-active')
+      unmount()
+    }
+  })
+
+  it('does NOT highlight Kas RT on Data RW -> Kas (/rw-view/:rwId/kas); highlights Data RW instead', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'bendahara' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const kasRtLink = document.querySelector('a[href="/kas"]')
+    const dataRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(kasRtLink).toBeInTheDocument()
+    expect(kasRtLink).not.toHaveClass('nav-item-active')
+    expect(dataRwLink).toHaveClass('nav-item-active')
+  })
+
+  it('highlights parent Data RW and matching RW submenu on multi-RW /rw-view/:rwId/kas without highlighting Kas RT', () => {
+    const multiRwUser: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-2', rw_name: 'RW 002', jabatan: 'bendahara' },
+        { rw_id: 'rw-20', rw_name: 'RW 020', jabatan: 'ketua' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: multiRwUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-20/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const kasRtLink = document.querySelector('a[href="/kas"]')
+    const dataRwParent = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW (2)'))
+    const rw2Sub = screen.getAllByRole('link').find(l => l.textContent?.includes('RW 002'))
+    const rw20Sub = screen.getAllByRole('link').find(l => l.textContent?.includes('RW 020'))
+
+    expect(kasRtLink).not.toHaveClass('nav-item-active')
+    expect(dataRwParent).toHaveClass('nav-item-active')
+    expect(rw2Sub).not.toHaveClass('nav-item-active')
+    expect(rw20Sub).toHaveClass('nav-item-active')
+  })
+
+  it('updates highlight accurately when navigating Kas RT -> Data RW Kas -> Kas RT', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'ketua' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const getKasRt = () => document.querySelector('a[href="/kas"]') as HTMLElement
+    const getDataRw = () => screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW')) as HTMLElement
+
+    // Start at Kas RT
+    expect(getKasRt()).toHaveClass('nav-item-active')
+    expect(getDataRw()).not.toHaveClass('nav-item-active')
+
+    // Click Data RW (goes to /rw-view/rw-002/dashboard)
+    fireEvent.click(getDataRw())
+    expect(getDataRw()).toHaveClass('nav-item-active')
+    expect(getKasRt()).not.toHaveClass('nav-item-active')
+
+    // Click Kas RT again
+    fireEvent.click(getKasRt())
+    expect(getKasRt()).toHaveClass('nav-item-active')
+    expect(getDataRw()).not.toHaveClass('nav-item-active')
+  })
+
+  it('preserves read-only highlight and visibility for operasional and humas on /rw-view/:rwId/kas', () => {
+    const operasionalUser: AuthUser = {
+      id: 'user-op-1',
+      name: 'Operasional',
+      email: 'op@local.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: 'operasional',
+      rt: { id: 'rt-1', name: '001' },
+      rtCode: '001',
+      rtId: 'rt-1',
+      rwId: 'rw-002',
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: operasionalUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    const opDataRw = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(opDataRw).toHaveClass('nav-item-active')
+    unmount()
+
+    const humasUser: AuthUser = {
+      id: 'user-humas-1',
+      name: 'Humas',
+      email: 'humas@local.com',
+      systemRole: null,
+      role: 'pengurus',
+      jabatan: 'humas',
+      rt: { id: 'rt-1', name: '001' },
+      rtCode: '001',
+      rtId: 'rt-1',
+      rwId: 'rw-002',
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: humasUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    // Humas has no Kas RT link; its Kas link points directly to /rw-view/rw-002/kas
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    const humasKasRw = document.querySelector('a[href="/rw-view/rw-002/kas"]')
+    const humasDataRw = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(humasKasRw).toHaveClass('nav-item-active')
+    expect(humasDataRw).toHaveClass('nav-item-active')
+  })
+
 })
 
 describe('Sidebar — layout classes', () => {

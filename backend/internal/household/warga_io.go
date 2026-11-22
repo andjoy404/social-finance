@@ -1583,7 +1583,7 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 		}
 		phoneVal := phone
 		emailVal := email
-		if !canViewContact(ac, rtID) {
+		if !canViewContactVerified(ctx, pool, ac, rtID) {
 			phoneVal = ""
 			emailVal = ""
 		} else if phoneVal != "" {
@@ -1701,12 +1701,13 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 			validCount = 0
 		}
 
+		allowContact := canViewContactVerified(r.Context(), pool, ac, targetRT)
 		resp := ImportPreviewResponse{
 			TotalRows:   len(rows),
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rowsToPreview(rows, ac),
+			PreviewData: rowsToPreview(rows, targetRT, ac, allowContact),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1716,13 +1717,22 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 }
 
 // rowsToPreview converts WargaCSVRow (input model) to WargaPreviewRow (safe response DTO),
-// stripping the password, adding a hint about password update status, and redacting NIK if unauthorized.
-func rowsToPreview(rows []WargaCSVRow, acOpt ...*auth.AuthContext) []WargaPreviewRow {
-	var ac *auth.AuthContext
-	if len(acOpt) > 0 {
-		ac = acOpt[0]
+// stripping the password, adding a hint about password update status, and redacting NIK/contacts if unauthorized.
+func previewContact(value string, allow bool) string {
+	if !allow {
+		return ""
 	}
-	allowNik := canViewNik(ac, "")
+	return value
+}
+
+func rowsToPreview(rows []WargaCSVRow, targetRT string, ac *auth.AuthContext, verifiedContact ...bool) []WargaPreviewRow {
+	// NIK and contact visibility are evaluated independently against the resolved targetRT
+	// and the caller's authenticated RT context. A client-supplied target RT never grants access.
+	allowNik := canViewNik(ac, targetRT)
+	allowContact := canViewContact(ac, targetRT)
+	if len(verifiedContact) > 0 {
+		allowContact = allowContact && verifiedContact[0]
+	}
 
 	preview := make([]WargaPreviewRow, len(rows))
 	for i, r := range rows {
@@ -1738,8 +1748,8 @@ func rowsToPreview(rows []WargaCSVRow, acOpt ...*auth.AuthContext) []WargaPrevie
 			Address:         r.Address,
 			ResidentName:    r.ResidentName,
 			Nik:             nikVal,
-			Phone:           r.Phone,
-			Email:           r.Email,
+			Phone:           previewContact(r.Phone, allowContact),
+			Email:           previewContact(r.Email, allowContact),
 			MoveInDate:      r.MoveInDate,
 			Jabatan:         r.Jabatan,
 		}

@@ -52,8 +52,8 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
     'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
   ];
 
-  String _formatPeriod() {
-    if (_isAllPeriods) return 'all';
+  String? _formatPeriod() {
+    if (_isAllPeriods) return null;
     return '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
   }
 
@@ -99,6 +99,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         try {
           return await api.getTransactions(
             rwId: widget.rwId,
+            period: _isAllPeriods ? null : periodStr,
             page: 1,
             pageSize: 5,
           );
@@ -224,8 +225,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
   }
 
   Future<void> _pickMonth(BuildContext context) async {
-    final pickedYear = _activeDate.year;
-    final pickedMonth = _activeDate.month;
+    int selectedYear = _activeDate.year;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -233,74 +233,131 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
       ),
       builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            AppSpacing.base,
-            AppSpacing.base,
-            AppSpacing.base,
-            MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Pilih Bulan — $pickedYear',
-                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.base,
+                AppSpacing.base,
+                AppSpacing.base,
+                MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
               ),
-              const SizedBox(height: AppSpacing.sm),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 4,
-                  childAspectRatio: 2.2,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
-                itemCount: 12,
-                itemBuilder: (_, i) {
-                  final m = i + 1;
-                  final isSelected = !_isAllPeriods && m == pickedMonth;
-                  return InkWell(
-                    onTap: () {
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        key: const Key('rw-dashboard-prev-year'),
+                        icon: const Icon(Icons.chevron_left),
+                        onPressed: () {
+                          setModalState(() {
+                            selectedYear--;
+                          });
+                        },
+                      ),
+                      Text(
+                        'Pilih Periode — $selectedYear',
+                        style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('rw-dashboard-next-year'),
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: () {
+                          setModalState(() {
+                            selectedYear++;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  OutlinedButton(
+                    key: const Key('rw-dashboard-all-periods-btn'),
+                    onPressed: () {
                       Navigator.of(ctx).pop();
                       setState(() {
-                        _activeDate = DateTime(pickedYear, m, 1);
-                        _isAllPeriods = false;
+                        _isAllPeriods = true;
                       });
                       _fetch();
                     },
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
-                            : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        border: Border.all(
-                          color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                          width: isSelected ? 2 : 1,
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        _monthNames[m],
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
-                          fontWeight: isSelected ? FontWeight.w600 : null,
-                        ),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: _isAllPeriods
+                          ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                          : null,
+                      side: BorderSide(
+                        color: _isAllPeriods
+                            ? AppColors.accent
+                            : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
                       ),
                     ),
-                  );
-                },
+                    child: Text(
+                      'Semua Periode',
+                      style: TextStyle(
+                        color: _isAllPeriods
+                            ? AppColors.accent
+                            : (isDark ? AppColors.darkText : AppColors.lightText),
+                        fontWeight: _isAllPeriods ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      childAspectRatio: 2.2,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                    ),
+                    itemCount: 12,
+                    itemBuilder: (_, i) {
+                      final m = i + 1;
+                      final isSelected = !_isAllPeriods && selectedYear == _activeDate.year && m == _activeDate.month;
+                      return InkWell(
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          setState(() {
+                            _activeDate = DateTime(selectedYear, m, 1);
+                            _isAllPeriods = false;
+                          });
+                          _fetch();
+                        },
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                                : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            border: Border.all(
+                              color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            _monthNames[m],
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                              fontWeight: isSelected ? FontWeight.w600 : null,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -518,6 +575,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         children: [
           Expanded(
             child: InkWell(
+              key: const Key('rw-dashboard-period-picker-button'),
               onTap: () => _pickMonth(context),
               borderRadius: BorderRadius.circular(AppRadius.sm),
               child: Container(
@@ -610,6 +668,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
             value: _isLoading && _data == null ? '...' : saldoStr,
             color: AppColors.accent,
             icon: Icons.account_balance_wallet_outlined,
+            isTotalSaldo: true,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
@@ -619,6 +678,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
             value: _isLoading && _data == null ? '...' : netStr,
             color: AppColors.info,
             icon: Icons.account_balance_outlined,
+            isSaldoBersih: true,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
@@ -756,33 +816,93 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
     required String value,
     required Color color,
     required IconData icon,
+    bool isTotalSaldo = false,
+    bool isSaldoBersih = false,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    BoxDecoration decoration;
+    Color iconBgColor;
+    Color iconColor;
+    Color valueColor;
+    double valueFontSize = 16;
+    FontWeight valueFontWeight = FontWeight.w700;
+
+    if (isTotalSaldo) {
+      decoration = BoxDecoration(
+        color: isDark
+            ? AppColors.accent.withValues(alpha: 0.12)
+            : AppColors.accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: AppColors.accent, width: 1.8),
+      );
+      iconBgColor = AppColors.accent.withValues(alpha: 0.18);
+      iconColor = AppColors.accent;
+      valueColor = AppColors.accent;
+      valueFontSize = 18;
+      valueFontWeight = FontWeight.w800;
+    } else if (isSaldoBersih) {
+      decoration = BoxDecoration(
+        color: isDark ? const Color(0xFF1E222B) : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(
+          color: isDark ? const Color(0xFF333B48) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      );
+      iconBgColor = isDark
+          ? Colors.white.withValues(alpha: 0.12)
+          : const Color(0xFFF1F5F9);
+      iconColor = isDark ? Colors.white : const Color(0xFF334155);
+      valueColor = isDark ? Colors.white : const Color(0xFF0F172A);
+      valueFontSize = 16;
+      valueFontWeight = FontWeight.w700;
+    } else {
+      decoration = BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
+      );
+      iconBgColor = color.withValues(alpha: 0.1);
+      iconColor = color;
+      valueColor = color;
+    }
+
     return InkWell(
       onTap: () => _showSummaryCardDetail(
         context: context,
         title: label,
         value: value,
-        color: color,
+        color: isTotalSaldo
+            ? AppColors.accent
+            : (isSaldoBersih
+                ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                : color),
         icon: icon,
         subtitle: 'Periode: $period',
       ),
       borderRadius: BorderRadius.circular(AppRadius.base),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(AppRadius.base),
-          border: Border.all(color: color.withValues(alpha: 0.1)),
-        ),
+        decoration: decoration,
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: iconBgColor,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: Icon(icon, size: 16, color: color),
+              child: Icon(icon, size: 16, color: iconColor),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -791,10 +911,17 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.lightTextMuted,
+                      fontWeight:
+                          isTotalSaldo ? FontWeight.w700 : FontWeight.w600,
+                      color: isTotalSaldo
+                          ? AppColors.accent
+                          : (isSaldoBersih
+                              ? (isDark
+                                  ? Colors.white70
+                                  : AppColors.lightTextMuted)
+                              : AppColors.lightTextMuted),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -806,9 +933,9 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
                     child: Text(
                       value,
                       style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: color,
+                        fontSize: valueFontSize,
+                        fontWeight: valueFontWeight,
+                        color: valueColor,
                       ),
                     ),
                   ),

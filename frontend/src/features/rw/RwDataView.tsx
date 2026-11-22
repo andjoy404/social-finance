@@ -379,7 +379,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
       </div>
 
       {/* RW View Content */}
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: activeTab === 'notification' ? '8px 16px 16px' : 16 }}>
         {activeTab === 'dashboard' && (
           <RwDashboard
             rwId={selectedRwId}

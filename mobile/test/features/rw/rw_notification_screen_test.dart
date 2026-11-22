@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/device_id_service.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
@@ -37,8 +41,16 @@ class FakeRwApiClient extends RwApiClient {
   int templatesCalls = 0;
   int manualPushCalls = 0;
   int createTemplateCalls = 0;
+  int updateTemplateCalls = 0;
   int toggleTemplateCalls = 0;
   int deleteTemplateCalls = 0;
+  int uploadImageCalls = 0;
+  String? lastUploadedEventType;
+  String? lastUploadedFilename;
+  String? lastCreatedImageUrl;
+  String? lastUpdatedImageUrl;
+  bool updateImageUrlPassed = false;
+  Object? uploadImageError;
   Future<List<RwNotificationLog>> logsToReturn = Future.value(const []);
   Future<List<RwNotificationTemplate>> templatesToReturn = Future.value(const []);
   Object? notificationsError;
@@ -79,8 +91,29 @@ class FakeRwApiClient extends RwApiClient {
   @override
   Future<int> sendManualPush(String rwId, {required String title, required String body}) async { manualPushCalls++; return 3; }
   @override
-  Future<RwNotificationTemplate> createNotificationTemplate(String rwId, {required String name, required String eventType, required String title, required String body, String channel = 'push'}) async {
-    createTemplateCalls++; return _tmpl('new');
+  Future<RwNotificationTemplate> createNotificationTemplate(String rwId, {required String name, required String eventType, required String title, required String body, String? imageUrl, String channel = 'push'}) async {
+    createTemplateCalls++;
+    lastCreatedImageUrl = imageUrl;
+    return _tmpl('new');
+  }
+  @override
+  Future<RwNotificationTemplate> updateNotificationTemplate(String rwId, String templateId, {String? name, String? title, String? body, String? imageUrl, bool? isActive}) async {
+    updateTemplateCalls++;
+    updateImageUrlPassed = imageUrl != null;
+    lastUpdatedImageUrl = imageUrl;
+    return _tmpl(templateId);
+  }
+  @override
+  Future<String> uploadNotificationImage(String rwId, {required String eventType, required List<int> bytes, required String filename}) async {
+    uploadImageCalls++;
+    lastUploadedEventType = eventType;
+    lastUploadedFilename = filename;
+    if (uploadImageError != null) throw uploadImageError!;
+    return '/api/v1/notifications/images/rw-manual/$rwId/$filename';
+  }
+  @override
+  Future<void> deleteNotificationTemplate(String rwId, String templateId) async {
+    deleteTemplateCalls++;
   }
   @override
   Future<RwNotificationTemplate> toggleNotificationTemplate(String rwId, String templateId) async { toggleTemplateCalls++; return _tmpl(templateId, active: false); }
@@ -211,14 +244,18 @@ void main() {
           user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'sekretaris', rwId: 'rw-a', source: 'explicit'), api: api));
       await tester.pumpAndSettle();
       expect(api.lastRwId, 'rw-a');
-      expect(find.text('A title'), findsOneWidget);
       expect(find.text('Template 1'), findsOneWidget);
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
+      await tester.pumpAndSettle();
+      expect(find.text('A title'), findsOneWidget);
     });
 
     testWidgets('switching rwId requests new tenant and does not show old data', (tester) async {
       final api = FakeRwApiClient()..logsToReturn = Future.value([logA])..templatesToReturn = Future.value(const []);
       await tester.pumpWidget(wrap(const RwNotificationScreen(rwId: 'rw-a'),
           user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'sekretaris', rwId: 'rw-a', source: 'explicit'), api: api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
       await tester.pumpAndSettle();
       expect(find.text('A title'), findsOneWidget);
 
@@ -236,6 +273,8 @@ void main() {
       await tester.pumpWidget(wrap(const RwNotificationScreen(rwId: 'rw-a'),
           user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'sekretaris', rwId: 'rw-a', source: 'explicit'), api: api));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('izin'), findsWidgets);
       expect(find.text('A title'), findsNothing);
     });
@@ -247,6 +286,8 @@ void main() {
         overrides: [authRepositoryProvider.overrideWith((_) => auth), rwApiClientProvider.overrideWithValue(api)],
         child: const MaterialApp(home: RwNotificationScreen(rwId: 'rw-a')),
       ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
       await tester.pumpAndSettle();
       expect(find.text('A title'), findsOneWidget);
 
@@ -356,6 +397,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
+      await tester.pumpAndSettle();
+
       // Check item in list with aligned delivery status
       expect(find.text('Pengumuman Kerja Bakti'), findsOneWidget);
       expect(find.text('TERKIRIM'), findsOneWidget);
@@ -401,6 +445,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('Riwayat Notifikasi Sistem'));
+      await tester.pumpAndSettle();
+
       expect(find.text('TERKIRIM'), findsOneWidget);
       expect(find.text('GAGAL'), findsOneWidget);
       expect(find.text('SEBAGIAN'), findsOneWidget);
@@ -434,5 +481,686 @@ void main() {
 
       expect(find.byKey(const Key('rwNotifManualPushBtn')), findsOneWidget);
     });
+
+    testWidgets('editing template opens form dialog with prefilled fields', (tester) async {
+      final api = FakeRwApiClient()..logsToReturn = Future.value([logA])..templatesToReturn = Future.value([tmpl]);
+      await tester.pumpWidget(wrap(const RwNotificationScreen(rwId: 'rw-a'),
+          user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit'), api: api));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('rwNotifTplEdit_t1')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ubah Template'), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplateNameField')), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplateTitleField')), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplateBodyField')), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplatePickGalleryBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplatePickCameraBtn')), findsOneWidget);
+
+      await tester.tap(find.text('Batal'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ubah Template'), findsNothing);
+    });
+
+    testWidgets('deleting template shows confirmation dialog before deletion', (tester) async {
+      final api = FakeRwApiClient()..logsToReturn = Future.value([logA])..templatesToReturn = Future.value([tmpl]);
+      await tester.pumpWidget(wrap(const RwNotificationScreen(rwId: 'rw-a'),
+          user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit'), api: api));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('rwNotifTplDelete_t1')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hapus Template?'), findsOneWidget);
+      expect(find.textContaining('Apakah Anda yakin ingin menghapus template "Template 1"?'), findsOneWidget);
+
+      await tester.tap(find.text('Batal'));
+      await tester.pumpAndSettle();
+      expect(api.deleteTemplateCalls, 0);
+    });
   });
+
+  group('RW Notification Template Finalization (Tab Style, RBAC, CRUD, Image Upload, Small Screen)', () {
+    // Minimal 1x1 transparent PNG bytes for Image.memory preview tests
+    final validPngBytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    );
+
+    final tmplWithImage = RwNotificationTemplate(
+      id: 't-img',
+      rwId: 'rw-a',
+      name: 'Template Bergambar',
+      eventType: 'manual_push',
+      channel: 'push',
+      title: 'Judul Lama',
+      body: 'Isi Lama',
+      imageUrl: '/api/v1/notifications/images/rw-manual/rw-a/existing.png',
+      isActive: true,
+    );
+
+    testWidgets('uses Notifikasi RT TabBar style (no SegmentedButton) in Light and Dark themes', (tester) async {
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        final api = FakeRwApiClient()
+          ..logsToReturn = Future.value([logA])
+          ..templatesToReturn = Future.value([tmpl]);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (_) => FakeAuthRepo(userFor(
+                  superAdmin: false,
+                  role: 'pengurus',
+                  jabatan: 'ketua',
+                  rwId: 'rw-a',
+                  source: 'explicit',
+                )),
+              ),
+              rwApiClientProvider.overrideWithValue(api),
+            ],
+            child: MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: Scaffold(body: RwNotificationScreen(key: ValueKey(brightness), rwId: 'rw-a')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SegmentedButton<int>), findsNothing);
+        final tabBarFinder = find.byKey(const Key('rwNotifSubTabBar'));
+        expect(tabBarFinder, findsOneWidget);
+        final tabBar = tester.widget<TabBar>(tabBarFinder);
+        expect(tabBar.labelColor, AppColors.accent);
+        expect(tabBar.indicatorColor, AppColors.accent);
+        expect(tabBar.indicatorWeight, 3);
+        expect(tabBar.tabAlignment, TabAlignment.fill);
+        expect(find.descendant(of: tabBarFinder, matching: find.text('Template')), findsOneWidget);
+        expect(find.descendant(of: tabBarFinder, matching: find.text('Riwayat Notifikasi Sistem')), findsOneWidget);
+
+        // Switching to Riwayat Notifikasi Sistem still works
+        await tester.tap(find.descendant(of: tabBarFinder, matching: find.text('Riwayat Notifikasi Sistem')));
+        await tester.pumpAndSettle();
+        expect(find.text('A title'), findsOneWidget);
+      }
+    });
+
+    testWidgets('RBAC: permission-based READ vs WRITE aliases (notification.read vs notification.manage)', (tester) async {
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl]);
+
+      // READ-only via notification.read alias -> can view & preview, NO mutation buttons
+      final readUser = userFor(
+        superAdmin: false,
+        role: 'pengurus',
+        jabatan: 'sekretaris',
+        rwId: 'rw-a',
+        source: 'explicit',
+      )..['effective_permissions'] = ['notification.read'];
+
+      final auth = FakeAuthRepo(readUser);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [authRepositoryProvider.overrideWith((_) => auth), rwApiClientProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: Scaffold(body: RwNotificationScreen(rwId: 'rw-a'))),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifTplPreview_t1')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplToggle_t1')), findsNothing);
+
+      // WRITE via notification.manage alias (even for non-ketua/bendahara jabatan!) -> full CRUD visible
+      final manageUser = userFor(
+        superAdmin: false,
+        role: 'pengurus',
+        jabatan: 'sekretaris',
+        rwId: 'rw-a',
+        source: 'explicit',
+      )..['effective_permissions'] = ['notification.read', 'notification.manage'];
+
+      auth.state = AsyncData(manageUser);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplToggle_t1')), findsOneWidget);
+    });
+
+    testWidgets('CRUD: create, edit, toggle, and confirm-delete template refresh list', (tester) async {
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl]);
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.read', 'rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+      final initialListCalls = api.templatesCalls;
+
+      // 1. Create
+      await tester.tap(find.byKey(const Key('rwNotifCreateTemplateBtn')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('rwTemplateNameField')), 'Template Baru');
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Judul Baru');
+      await tester.enterText(find.byKey(const Key('rwTemplateBodyField')), 'Isi Baru');
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+      expect(api.createTemplateCalls, 1);
+      expect(api.templatesCalls, greaterThan(initialListCalls));
+
+      // 2. Toggle active
+      await tester.tap(find.byKey(const Key('rwNotifTplToggle_t1')));
+      await tester.pumpAndSettle();
+      expect(api.toggleTemplateCalls, 1);
+
+      // 3. Delete with confirmation
+      await tester.tap(find.byKey(const Key('rwNotifTplDelete_t1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('rwTemplateConfirmDeleteBtn')));
+      await tester.pumpAndSettle();
+      expect(api.deleteTemplateCalls, 1);
+    });
+
+    testWidgets('Gallery upload: picks image from gallery, shows preview, uploads, and saves URL', (tester) async {
+      final api = FakeRwApiClient()..templatesToReturn = Future.value(const []);
+      ImageSource? pickedSource;
+
+      await tester.pumpWidget(wrap(
+        RwNotificationScreen(
+          rwId: 'rw-a',
+          imagePickerOverride: (source) async {
+            pickedSource = source;
+            return (bytes: validPngBytes, filename: 'gallery_banner.png');
+          },
+        ),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('rwNotifCreateTemplateBtn')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('rwTemplateNameField')), 'Info Kerja Bakti');
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Kerja Bakti RW');
+      await tester.enterText(find.byKey(const Key('rwTemplateBodyField')), 'Minggu pukul 07.00');
+
+      await tester.tap(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.pumpAndSettle();
+
+      expect(pickedSource, ImageSource.gallery);
+      expect(find.byKey(const Key('rwTemplateDraftImagePreview')), findsOneWidget);
+      expect(find.byKey(const Key('rwTemplateRemoveImageBtn')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+
+      expect(api.uploadImageCalls, 1);
+      expect(api.lastUploadedFilename, 'gallery_banner.png');
+      expect(api.lastUploadedEventType, 'manual_push');
+      expect(api.createTemplateCalls, 1);
+      expect(api.lastCreatedImageUrl, '/api/v1/notifications/images/rw-manual/rw-a/gallery_banner.png');
+    });
+
+    testWidgets('Camera capture: takes photo from camera, allows replace and remove draft image', (tester) async {
+      final api = FakeRwApiClient()..templatesToReturn = Future.value(const []);
+      final pickedSources = <ImageSource>[];
+
+      await tester.pumpWidget(wrap(
+        RwNotificationScreen(
+          rwId: 'rw-a',
+          imagePickerOverride: (source) async {
+            pickedSources.add(source);
+            if (source == ImageSource.gallery) {
+              return (bytes: validPngBytes, filename: 'first_gallery.png');
+            }
+            return (bytes: validPngBytes, filename: 'camera_shot.png');
+          },
+        ),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('rwNotifCreateTemplateBtn')));
+      await tester.pumpAndSettle();
+
+      // Pick from gallery first
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rwTemplateDraftImagePreview')), findsOneWidget);
+
+      // Replace with camera photo
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.pumpAndSettle();
+      expect(pickedSources, [ImageSource.gallery, ImageSource.camera]);
+      expect(find.byKey(const Key('rwTemplateDraftImagePreview')), findsOneWidget);
+
+      // Remove draft image -> preview disappears
+      await tester.ensureVisible(find.byKey(const Key('rwTemplateRemoveImageBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplateRemoveImageBtn')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rwTemplateDraftImagePreview')), findsNothing);
+
+      // Pick again with camera and save
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('rwTemplateNameField')), 'Foto Kamera');
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Judul Kamera');
+      await tester.enterText(find.byKey(const Key('rwTemplateBodyField')), 'Isi Kamera');
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+
+      expect(api.uploadImageCalls, 1);
+      expect(api.lastUploadedFilename, 'camera_shot.png');
+      expect(api.lastCreatedImageUrl, '/api/v1/notifications/images/rw-manual/rw-a/camera_shot.png');
+    });
+
+    testWidgets('Edit template without changing image preserves existing image; cancelling picker keeps old image', (tester) async {
+      final api = FakeRwApiClient()..templatesToReturn = Future.value([tmplWithImage]);
+
+      await tester.pumpWidget(wrap(
+        RwNotificationScreen(
+          rwId: 'rw-a',
+          imagePickerOverride: (_) async => null, // user cancels picker
+        ),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('rwNotifTplEdit_t-img')));
+      await tester.pumpAndSettle();
+
+      // Existing saved image preview is visible
+      expect(find.byKey(const Key('rwTemplateSavedImagePreview')), findsOneWidget);
+
+      // Cancel image picker -> saved image must remain
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rwTemplateSavedImagePreview')), findsOneWidget);
+
+      // Save without changing image -> no upload, imageUrl omitted (null) so backend preserves it
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Judul Diperbarui');
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+
+      expect(api.uploadImageCalls, 0);
+      expect(api.updateTemplateCalls, 1);
+      expect(api.updateImageUrlPassed, isFalse);
+      expect(api.lastUpdatedImageUrl, isNull);
+    });
+
+    testWidgets('Upload error and camera permission error show inline error and keep dialog open for retry', (tester) async {
+      final api = FakeRwApiClient()
+        ..templatesToReturn = Future.value(const [])
+        ..uploadImageError = Exception('upload failed: 500');
+      var failPermission = true;
+
+      await tester.pumpWidget(wrap(
+        RwNotificationScreen(
+          rwId: 'rw-a',
+          imagePickerOverride: (source) async {
+            if (failPermission && source == ImageSource.camera) {
+              throw PlatformException(code: 'camera_access_denied', message: 'Camera denied');
+            }
+            return (bytes: validPngBytes, filename: 'retry.png');
+          },
+        ),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('rwNotifCreateTemplateBtn')));
+      await tester.pumpAndSettle();
+
+      // 1. Camera permission denied shows friendly inline error
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickCameraBtn')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rwTemplateFormError')), findsOneWidget);
+      expect(find.textContaining('Izin kamera ditolak'), findsOneWidget);
+
+      // 2. Pick from gallery then fail upload -> dialog stays open with error
+      failPermission = false;
+      await tester.ensureVisible(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.tap(find.byKey(const Key('rwTemplatePickGalleryBtn')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('rwTemplateNameField')), 'Retry Template');
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Retry Title');
+      await tester.enterText(find.byKey(const Key('rwTemplateBodyField')), 'Retry Body');
+
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('rwTemplateFormError')), findsOneWidget);
+      expect(api.createTemplateCalls, 0);
+
+      // 3. Clear upload error and retry -> succeeds!
+      api.uploadImageError = null;
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+      expect(api.uploadImageCalls, 2);
+      expect(api.createTemplateCalls, 1);
+    });
+
+    testWidgets('renders cleanly without overflow on small Android screen (320x640)', (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl, tmplWithImage]);
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit')
+          ..['effective_permissions'] = ['rw.notification.read', 'rw.notification.write'],
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifManualPushBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsOneWidget);
+    });
+
+    testWidgets('hides removed header wording and preserves Template / Riwayat Notifikasi Sistem tabs', (tester) async {
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl]);
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: userFor(superAdmin: false, role: 'pengurus', jabatan: 'ketua', rwId: 'rw-a', source: 'explicit'),
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifikasi RW'), findsNothing);
+      expect(find.text('Riwayat notifikasi dan template untuk RW ini.'), findsNothing);
+      expect(find.text('Template'), findsOneWidget);
+      expect(find.text('Riwayat Notifikasi Sistem'), findsOneWidget);
+    });
+
+    testWidgets('Ketua RW who is RT warga with non-empty RT effective_permissions still sees WRITE CRUD controls', (tester) async {
+      // Reproduces live bug: /auth/me returns RT-scoped effective_permissions (finance.read, etc.)
+      // without notification.manage for a Warga who is Ketua RW.
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl]);
+
+      final ketuaRwWargaRt = <String, dynamic>{
+        'id': 'u-mety',
+        'email': 'mety@local.com',
+        'name': 'Mety',
+        'role': AppRole.warga,
+        'effective_permissions': [
+          'finance.read',
+          'activities.read',
+          'announcements.read',
+          'banner_templates.read',
+          'organization.read',
+        ],
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-a',
+            'rw_number': 16,
+            'rw_name': 'RW 016',
+            'jabatan': 'ketua',
+            'source': 'explicit',
+            'permissions': [
+              'rw.dashboard.read',
+              'rw.kas.read',
+              'rw.kas.write',
+              'rw.notification.read',
+              'rw.notification.write',
+              'notification.read',
+              'notification.manage',
+            ],
+          }
+        ],
+      };
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: ketuaRwWargaRt,
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifManualPushBtn')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsOneWidget);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsOneWidget);
+    });
+
+    testWidgets('Sekretaris RW who is also Ketua RT (RT notification.manage) stays READ-ONLY in RW', (tester) async {
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl]);
+
+      final sekretarisRwKetuaRt = <String, dynamic>{
+        'id': 'u-sek-rw',
+        'email': 'sek@local.com',
+        'name': 'Sek RW',
+        'role': AppRole.pengurus,
+        'jabatan': 'ketua',
+        'effective_permissions': [
+          'finance.read',
+          'notification.read',
+          'notification.manage',
+        ],
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-a',
+            'rw_number': 16,
+            'rw_name': 'RW 016',
+            'jabatan': 'sekretaris',
+            'source': 'explicit',
+            'permissions': [
+              'rw.dashboard.read',
+              'rw.kas.read',
+              'rw.notification.read',
+              'notification.read',
+            ],
+          }
+        ],
+      };
+
+      await tester.pumpWidget(wrap(
+        const RwNotificationScreen(rwId: 'rw-a'),
+        user: sekretarisRwKetuaRt,
+        api: api,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsNothing);
+      expect(find.byKey(const Key('rwNotifManualPushBtn')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplEdit_t1')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplDelete_t1')), findsNothing);
+      expect(find.byKey(const Key('rwNotifTplPreview_t1')), findsOneWidget);
+    });
+  });
+
+  group('RW Notification Template Sub-Tab Counter & Heading Cleanup', () {
+    testWidgets('hides old heading/subtitle and shows live template count next to Template sub-tab', (tester) async {
+      final tmpl2 = RwNotificationTemplate(
+        id: 't2',
+        rwId: 'rw-a',
+        name: 'Template 2',
+        eventType: 'rw_cash_in',
+        channel: 'push',
+        title: 'Kas Masuk',
+        body: 'Masuk {{amount}}',
+        isActive: true,
+      );
+      final api = FakeRwApiClient()
+        ..logsToReturn = Future.value([logA])
+        ..templatesToReturn = Future.value([tmpl, tmpl2]);
+
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (_) => FakeAuthRepo(userFor(superAdmin: true, rwId: 'rw-a', source: 'explicit')),
+              ),
+              rwApiClientProvider.overrideWithValue(api),
+            ],
+            child: MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: const Scaffold(body: RwNotificationScreen(rwId: 'rw-a')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final tabBar = find.byKey(const Key('rwNotifSubTabBar'));
+        expect(find.descendant(of: tabBar, matching: find.byIcon(Icons.bookmark_border_rounded)), findsOneWidget);
+        expect(find.descendant(of: tabBar, matching: find.text('Template')), findsOneWidget);
+        expect(find.descendant(of: tabBar, matching: find.byKey(const Key('rwNotifTemplateCountBadge'))), findsOneWidget);
+        expect(find.descendant(of: tabBar, matching: find.text('(2)')), findsOneWidget);
+
+        // Old duplicated heading and subtitle must not appear
+        expect(find.text('Template Notifikasi (2)'), findsNothing);
+        expect(find.text('Kelola template pesan notifikasi RW'), findsNothing);
+
+        // History tab & CRUD buttons remain intact
+        expect(find.descendant(of: tabBar, matching: find.text('Riwayat Notifikasi Sistem')), findsOneWidget);
+        expect(find.byKey(const Key('rwNotifCreateTemplateBtn')), findsOneWidget);
+        expect(find.byKey(const Key('rwNotifManualPushBtn')), findsOneWidget);
+      }
+    });
+
+    testWidgets('template sub-tab counter updates dynamically after create, delete, and refresh', (tester) async {
+      final serverList = <RwNotificationTemplate>[tmpl];
+      final api = _StatefulFakeRwApiClient(serverList, [logA]);
+
+      await tester.pumpWidget(
+        wrap(
+          const RwNotificationScreen(rwId: 'rw-a'),
+          user: userFor(superAdmin: true, rwId: 'rw-a', source: 'explicit'),
+          api: api,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tabBar = find.byKey(const Key('rwNotifSubTabBar'));
+      expect(find.descendant(of: tabBar, matching: find.text('(1)')), findsOneWidget);
+      expect(find.text('Template Notifikasi (1)'), findsNothing);
+
+      // 1) Create template -> count becomes (2)
+      await tester.tap(find.byKey(const Key('rwNotifCreateTemplateBtn')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('rwTemplateNameField')), 'Template Baru');
+      await tester.enterText(find.byKey(const Key('rwTemplateTitleField')), 'Judul Baru');
+      await tester.enterText(find.byKey(const Key('rwTemplateBodyField')), 'Isi Baru');
+      await tester.tap(find.byKey(const Key('rwTemplateSaveBtn')));
+      await tester.pumpAndSettle();
+
+      expect(find.descendant(of: tabBar, matching: find.text('(2)')), findsOneWidget);
+
+      // 2) Delete first template (visible above SnackBar) -> count returns to (1)
+      await tester.tap(find.byKey(const Key('rwNotifTplDelete_t1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('rwTemplateConfirmDeleteBtn')));
+      await tester.pumpAndSettle();
+
+      expect(find.descendant(of: tabBar, matching: find.text('(1)')), findsOneWidget);
+
+      // 3) Server changes + pull-to-refresh -> count reflects new server data (3)
+      serverList.addAll([
+        RwNotificationTemplate(
+          id: 't-srv-2', rwId: 'rw-a', name: 'Srv 2', eventType: 'rw_cash_in',
+          channel: 'push', title: 'S2', body: 'B2', isActive: true,
+        ),
+        RwNotificationTemplate(
+          id: 't-srv-3', rwId: 'rw-a', name: 'Srv 3', eventType: 'rw_cash_out',
+          channel: 'push', title: 'S3', body: 'B3', isActive: true,
+        ),
+      ]);
+      await tester.drag(find.byType(ListView).first, const Offset(0, 300));
+      await tester.pumpAndSettle();
+
+      expect(find.descendant(of: tabBar, matching: find.text('(3)')), findsOneWidget);
+
+      // 4) Switching to Riwayat Notifikasi Sistem tab still works cleanly
+      await tester.tap(find.descendant(of: tabBar, matching: find.text('Riwayat Notifikasi Sistem')));
+      await tester.pumpAndSettle();
+      expect(find.text('A title'), findsOneWidget);
+    });
+  });
+}
+
+class _StatefulFakeRwApiClient extends FakeRwApiClient {
+  final List<RwNotificationTemplate> _items;
+  final List<RwNotificationLog> _logs;
+  int _seq = 0;
+
+  _StatefulFakeRwApiClient(this._items, this._logs);
+
+  @override
+  Future<RwNotificationLogsPage> getNotifications(String rwId, {int page = 1, int pageSize = 20, String? eventType}) async {
+    return RwNotificationLogsPage(items: List.of(_logs), page: 1, pageSize: 20, total: _logs.length, totalPages: 1);
+  }
+
+  @override
+  Future<List<RwNotificationTemplate>> listNotificationTemplates(String rwId, {String? eventType}) async {
+    return List.of(_items);
+  }
+
+  @override
+  Future<RwNotificationTemplate> createNotificationTemplate(
+    String rwId, {
+    required String name,
+    required String eventType,
+    required String title,
+    required String body,
+    String? imageUrl,
+    String channel = 'push',
+  }) async {
+    _seq++;
+    final created = RwNotificationTemplate(
+      id: 't-created-$_seq',
+      rwId: rwId,
+      name: name,
+      eventType: eventType,
+      channel: channel,
+      title: title,
+      body: body,
+      imageUrl: imageUrl,
+      isActive: true,
+    );
+    _items.add(created);
+    return created;
+  }
+
+  @override
+  Future<void> deleteNotificationTemplate(String rwId, String templateId) async {
+    _items.removeWhere((t) => t.id == templateId);
+  }
 }

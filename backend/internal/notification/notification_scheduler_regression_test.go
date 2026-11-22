@@ -182,6 +182,10 @@ func (r *schedulerRegressionRepo) GetRWTemplateByID(ctx context.Context, rwID, i
 	return nil, nil
 }
 
+func (r *schedulerRegressionRepo) GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
 func (r *schedulerRegressionRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
 	return nil, nil
 }

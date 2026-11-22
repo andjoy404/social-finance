@@ -109,7 +109,7 @@ func (h *Handler) canManageAnnouncements(ctx context.Context, ac *auth.AuthConte
 // strictly only Ketua RT (jabatan == "ketua").
 // Super Admin, Sekretaris, Bendahara, Keamanan, and regular Warga MUST NOT receive contact data.
 func (h *Handler) hasContactPermission(ctx context.Context, ac *auth.AuthContext) bool {
-	if ac == nil {
+	if ac == nil || ac.RTID == "" {
 		return false
 	}
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {

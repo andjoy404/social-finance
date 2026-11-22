@@ -171,7 +171,12 @@ func buildRWContextJSON(memberships []RWMembership) string {
 	if len(memberships) == 0 {
 		return ""
 	}
-	b, err := json.Marshal(memberships)
+	compact := make([]RWMembership, len(memberships))
+	for i, m := range memberships {
+		m.Permissions = nil
+		compact[i] = m
+	}
+	b, err := json.Marshal(compact)
 	if err != nil {
 		return ""
 	}

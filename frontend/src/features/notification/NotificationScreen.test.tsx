@@ -34,6 +34,7 @@ vi.mock('@/app/api', async () => {
     apiGetNotificationLogs: vi.fn(),
     apiGetNotificationManagementHistory: vi.fn(),
     apiUploadNotificationImage: vi.fn(),
+    apiGetNotificationImageBlob: vi.fn(),
     apiTriggerManualPush: vi.fn().mockResolvedValue({ status: 'accepted', message: 'dispatched' }),
     apiTestPush: vi.fn().mockResolvedValue({ status: 'dispatched', message: 'dispatched', dispatched_count: 1 }),
     apiMarkNotificationAsRead: vi.fn().mockResolvedValue(undefined),
@@ -132,6 +133,9 @@ describe('NotificationScreen', () => {
     vi.mocked(api.apiGetNotificationTemplates).mockResolvedValue(mockTemplates)
     vi.mocked(api.apiGetNotificationLogs).mockResolvedValue(mockLogs)
     vi.mocked(api.apiGetNotificationManagementHistory).mockResolvedValue(mockLogs)
+    vi.mocked(api.apiGetNotificationImageBlob).mockResolvedValue(
+      new Blob(['mock-png'], { type: 'image/png' }),
+    )
   })
 
   it('renders correctly with tabs and loads system notification cards', async () => {
@@ -671,7 +675,6 @@ describe('NotificationScreen', () => {
     fireEvent.click(addScheduleBtn)
     expect(screen.getByText('Buat Jadwal Baru')).toBeInTheDocument()
   })
-})
 
   it('deduplicates in-flight mark-read requests for the same log id and still allows different ids in parallel', async () => {
     vi.mocked(AuthModule.useAuth).mockReturnValue({
@@ -800,7 +803,7 @@ describe('NotificationScreen', () => {
     })
     expect(screen.getAllByText('Belum Dibaca').length).toBeGreaterThanOrEqual(1)
 
-    fireEvent.click(screen.getByRole('button', { name: /Detail/i }))
+    fireEvent.click(detailButton)
     await waitFor(() => {
       expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(2)
     })
@@ -863,6 +866,109 @@ describe('NotificationScreen', () => {
     await Promise.resolve()
     await Promise.resolve()
   })
+
+  it('loads uploaded create-template image via authenticated blob loader and revokes on remove', async () => {
+    const uploadedUrl =
+      '/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/upload.png'
+    vi.mocked(api.apiUploadNotificationImage).mockResolvedValue({
+      status: 'uploaded',
+      image_url: uploadedUrl,
+      key: 'notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/upload.png',
+    })
+    const createUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:http://localhost/template-preview-1')
+    const revokeUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    try {
+      render(
+        <MemoryRouter>
+          <NotificationScreen />
+        </MemoryRouter>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Template Kustom/i }))
+      const createBtn = await screen.findByRole('button', { name: /Tambah Template/i })
+      fireEvent.click(createBtn)
+
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+      expect(fileInput).toBeTruthy()
+      const file = new File(['png'], 'banner.png', { type: 'image/png' })
+      fireEvent.change(fileInput, { target: { files: [file] } })
+
+      const previewImg = await screen.findByRole('img', { name: 'Preview Lampiran' })
+      expect(previewImg).toHaveAttribute('src', 'blob:http://localhost/template-preview-1')
+      expect(previewImg.getAttribute('src')).not.toBe(uploadedUrl)
+      expect(vi.mocked(api.apiGetNotificationImageBlob)).toHaveBeenCalledWith(
+        uploadedUrl,
+        expect.any(AbortSignal),
+      )
+
+      // Removing image immediately removes preview and revokes object URL
+      fireEvent.click(screen.getByTitle('Hapus gambar'))
+      await waitFor(() => {
+        expect(screen.queryByRole('img', { name: 'Preview Lampiran' })).not.toBeInTheDocument()
+      })
+      expect(revokeUrlSpy).toHaveBeenCalledWith('blob:http://localhost/template-preview-1')
+    } finally {
+      createUrlSpy.mockRestore()
+      revokeUrlSpy.mockRestore()
+    }
+  })
+
+  it('renders existing saved template image via authenticated loader in edit and preview modals', async () => {
+    const savedImageUrl =
+      '/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/saved.png'
+    vi.mocked(api.apiGetNotificationTemplates).mockResolvedValue([
+      {
+        ...mockTemplates[0],
+        id: 'tmpl-img-1',
+        event_type: 'manual_push',
+        name: 'Pengumuman Kerja Bakti',
+        title: 'Kerja Bakti Minggu',
+        body: 'Mari ikut kerja bakti jam 07.00',
+        image_url: savedImageUrl,
+      },
+    ])
+    const createUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:http://localhost/saved-template-img')
+    const revokeUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    try {
+      render(
+        <MemoryRouter>
+          <NotificationScreen />
+        </MemoryRouter>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Template Kustom/i }))
+      await screen.findByText('Pengumuman Kerja Bakti')
+
+      // Open Preview modal
+      fireEvent.click(screen.getByTitle('Lihat Tampilan Banner'))
+      const bannerImg = await screen.findByRole('img', { name: 'Banner Notifikasi' })
+      expect(bannerImg).toHaveAttribute('src', 'blob:http://localhost/saved-template-img')
+      expect(bannerImg.getAttribute('src')).not.toBe(savedImageUrl)
+      expect(vi.mocked(api.apiGetNotificationImageBlob)).toHaveBeenCalledWith(
+        savedImageUrl,
+        expect.any(AbortSignal),
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Tutup Preview/i }))
+      expect(revokeUrlSpy).toHaveBeenCalledWith('blob:http://localhost/saved-template-img')
+
+      // Open Edit modal without replacing image
+      fireEvent.click(screen.getByTitle('Edit template'))
+      const editImg = await screen.findByRole('img', { name: 'Preview Lampiran' })
+      expect(editImg).toHaveAttribute('src', 'blob:http://localhost/saved-template-img')
+      expect(editImg.getAttribute('src')).not.toBe(savedImageUrl)
+    } finally {
+      createUrlSpy.mockRestore()
+      revokeUrlSpy.mockRestore()
+    }
+  })
+})
 
 
 describe('notificationUrl helpers', () => {

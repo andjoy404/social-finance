@@ -8,6 +8,7 @@ import {
   clearSessionPair,
   getSessionPair,
   type ApiResident,
+  type ApiSpecialResidentUpdateBody,
 } from '@/app/api'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
@@ -21,6 +22,22 @@ const validJabatans: Record<string, boolean> = {
   keamanan: true,
   operasional: true,
   kebersihan: true,
+  anggota_rw: true,
+}
+
+function formatResidentRTDisplay(resident: ApiResident): string {
+  const parts: string[] = []
+  if (resident.rt_number) {
+    parts.push(`RT ${String(resident.rt_number).padStart(3, '0')}`)
+  }
+  if (resident.rw !== undefined && resident.rw !== null) {
+    parts.push(`RW ${String(resident.rw).padStart(3, '0')}`)
+  }
+  const prefix = parts.join(' / ')
+  if (prefix && resident.rt_name) return `${prefix} — ${resident.rt_name}`
+  if (prefix) return prefix
+  if (resident.rt_name) return resident.rt_name
+  return ''
 }
 
 export function SpecialResidentEdit({ mode = 'edit' }: Props) {
@@ -44,15 +61,18 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
     setNotFound(false)
     setSavingError(null)
     try {
-      const data: ApiResident = await getResident(pair.accessToken, id)
-      if (data.jabatan && validJabatans[data.jabatan] && !data.household_id) {
+      const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+      const rtIdParam = searchParams?.get('rt_id') || undefined
+      const data: ApiResident = await getResident(pair.accessToken, id, rtIdParam)
+      const normalizedJabatan = (data.jabatan ?? '').trim().toLowerCase()
+      if (normalizedJabatan && validJabatans[normalizedJabatan] && !data.household_id) {
         setResident(data)
+      } else if (data.household_id) {
+        navigate(`/warga/${data.household_id}/edit`, { replace: true })
       } else {
-        if (data.household_id) {
-          navigate(`/warga/${data.household_id}/edit`, { replace: true })
-        } else {
-          navigate(`/warga/${data.id}/edit`, { replace: true })
-        }
+        // Household-less resident must never be routed to /warga/:id/edit (HouseholdEdit),
+        // because :id there is a household_id and passing a resident_id triggers GET /households/{resident_id} 404.
+        navigate(`/warga/${data.id}`, { replace: true })
       }
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
@@ -145,26 +165,25 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
       return
     }
     try {
-      const body: {
-        full_name: string
-        nik: string
-        phone: string
-        email: string
-        jabatan: JabatanValue
-        is_active: boolean
-        password?: string
-      } = {
+      const body: ApiSpecialResidentUpdateBody = {
         full_name: values.full_name,
-        nik: values.nik,
-        phone: values.phone,
-        email: values.email,
         jabatan: values.jabatan,
         is_active: values.is_active,
+      }
+      if (values.nik.trim()) {
+        body.nik = values.nik.trim()
+      }
+      if (values.phone.trim()) {
+        body.phone = values.phone.trim()
+      }
+      if (values.email.trim()) {
+        body.email = values.email.trim()
       }
       if (values.password.trim()) {
         body.password = values.password.trim()
       }
       await updateSpecialResident(pair.accessToken, id, body)
+      window.dispatchEvent(new CustomEvent('warga:refresh'))
       navigate('/warga')
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
@@ -187,6 +206,7 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
       mode={mode}
       canEdit={canWrite}
       residentId={resident.id}
+      rtDisplay={formatResidentRTDisplay(resident)}
       subtitle={resident.full_name}
       error={savingError}
       initialValues={{
@@ -194,7 +214,7 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
         nik: resident.nik || '',
         phone: resident.phone || '',
         email: resident.email || '',
-        jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
+        jabatan: ((resident.jabatan ?? '').trim().toLowerCase() as JabatanValue) || 'keamanan',
         is_active: resident.is_active,
         rt_id: resident.rt_id || '',
         password: '',

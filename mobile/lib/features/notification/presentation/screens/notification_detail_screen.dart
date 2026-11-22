@@ -12,6 +12,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/error_state.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
@@ -198,7 +199,11 @@ class _NotificationDetailScreenState
   String _formatCategoryLabel(String? eventType) {
     switch ((eventType ?? '').trim()) {
       case 'manual_push':
-        return 'Pengumuman RT';
+        return 'Pengumuman';
+      case 'rw_cash_in':
+        return 'Kas Masuk RW';
+      case 'rw_cash_out':
+        return 'Kas Keluar RW';
       case 'waste_truck_arrival':
         return 'Kedatangan Truk Sampah';
       case 'iuran_bill_created':
@@ -236,10 +241,10 @@ class _NotificationDetailScreenState
                 minScale: 0.8,
                 maxScale: 4.0,
                 child: Center(
-                  child: Image.network(
-                    resolvedImageUrl,
+                  child: AuthenticatedNetworkImage(
+                    imageUrl: resolvedImageUrl,
                     fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const Padding(
+                    errorWidget: const Padding(
                       padding: EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -290,9 +295,13 @@ class _NotificationDetailScreenState
     final effectiveBody = (_fetchedEntry?.body.trim().isNotEmpty == true)
         ? _fetchedEntry!.body.trim()
         : (widget.initialBody?.trim() ?? '');
+    final payloadImage = _fetchedEntry?.payload?['image_url'] as String? ??
+        _fetchedEntry?.payload?['image'] as String?;
     final rawImageUrl = (_fetchedEntry?.imageUrl?.trim().isNotEmpty == true)
         ? _fetchedEntry!.imageUrl!.trim()
-        : (widget.initialImageUrl?.trim());
+        : ((widget.initialImageUrl?.trim().isNotEmpty == true)
+            ? widget.initialImageUrl!.trim()
+            : (payloadImage?.trim().isNotEmpty == true ? payloadImage!.trim() : null));
     final resolvedImageUrl = ApiConfig.resolveImageUrl(
       rawImageUrl,
       fallbackBaseUrl: activeBaseUrl,
@@ -459,30 +468,11 @@ class _NotificationDetailScreenState
                                 child: ClipRRect(
                                   borderRadius:
                                       BorderRadius.circular(AppRadius.base),
-                                  child: Image.network(
-                                    resolvedImageUrl,
+                                  child: AuthenticatedNetworkImage(
+                                    imageUrl: resolvedImageUrl,
                                     width: double.infinity,
                                     fit: BoxFit.cover,
-                                    loadingBuilder:
-                                        (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Container(
-                                        height: 180,
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: isDark
-                                              ? Colors.white
-                                                  .withValues(alpha: 0.04)
-                                              : Colors.black
-                                                  .withValues(alpha: 0.04),
-                                          borderRadius: BorderRadius.circular(
-                                            AppRadius.base,
-                                          ),
-                                        ),
-                                        child: const LoadingIndicator(),
-                                      );
-                                    },
-                                    errorBuilder: (_, _, _) =>
+                                    errorWidget:
                                         _buildImageFallback(theme, isDark),
                                   ),
                                 ),

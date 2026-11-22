@@ -158,6 +158,8 @@ function getJabatanLabel(jabatan: string | null | undefined): string {
     case 'kebersihan':
     case 'kebersihan_rt':
       return 'Kebersihan'
+    case 'anggota_rw':
+      return 'Anggota RW'
     default:
       return jabatan
   }
@@ -507,8 +509,22 @@ export function ResidentList() {
   }, [navigate, residentList])
 
   const handleEdit = useCallback((id: string) => {
+    const selected = residentList.find((item) => item.id === id)
+    if (selected) {
+      const normalizedJabatan = (selected.jabatan ?? '').trim().toLowerCase()
+      if (!selected.household_id || normalizedJabatan === 'anggota_rw') {
+        if (normalizedJabatan) {
+          navigate(`/warga/special/${id}/edit`)
+        } else {
+          navigate(`/warga/${id}`)
+        }
+        return
+      }
+      navigate(`/warga/${selected.household_id}/edit`)
+      return
+    }
     navigate(`/warga/${id}/edit`)
-  }, [navigate])
+  }, [navigate, residentList])
 
   const handleEditSpecial = useCallback((id: string) => {
     navigate(`/warga/special/${id}/edit`)

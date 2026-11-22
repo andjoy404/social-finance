@@ -1070,7 +1070,9 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 		greeting = "Selamat Malam"
 	}
 
-	// 5. Security on-duty info (officers actually on duty now; backed by Security Attendance module)
+	// 5. Security on-duty info (officers actually on duty now; backed by Security Attendance module).
+	// Contact privacy: phone/email are Warga PII and must only be returned to exact RT jabatan ketua.
+	// No bypass via role, generic permission, RW membership, org structure, or Super Admin.
 	securityInfo := SecurityOnDutyInfo{
 		IsAvailable: false,
 		Message:     "Tidak ada petugas keamanan yang sedang bertugas.",
@@ -1078,14 +1080,16 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 	}
 	if s.onDutyReader != nil {
 		if officers, err := s.onDutyReader(ctx, rtID); err == nil && len(officers) > 0 {
-			// Officers who are actually on duty are shown as an emergency
-			// hotline: their phone number is exposed to every authenticated
-			// member of the RT. Callers need not hold
-			// organization.contact.read (that permission only governs the
-			// personal data of the organization structure, not the duty hotline).
+			redacted := make([]SecurityOfficer, 0, len(officers))
+			for _, o := range officers {
+				if !canViewContact {
+					o.PhoneNumber = nil
+				}
+				redacted = append(redacted, o)
+			}
 			securityInfo.IsAvailable = true
 			securityInfo.Message = "Petugas keamanan sedang bertugas."
-			securityInfo.Officers = officers
+			securityInfo.Officers = redacted
 		}
 	}
 

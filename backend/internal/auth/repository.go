@@ -589,7 +589,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 
 	// Load all active RW memberships for this user.
 	if rwMemberships, err := loadRWMemberships(ctx, tx, userID); err == nil {
-		u.RWMemberships = rwMemberships
+		u.RWMemberships = populateRWMembershipPermissions(rwMemberships)
 	}
 
 	return &u, nil
@@ -620,7 +620,7 @@ func GetSystemProfile(ctx context.Context, tx *sql.Tx, userID string) (*UserForM
 
 	// Load all active RW memberships for this user.
 	if rwMemberships, err := loadRWMemberships(ctx, tx, userID); err == nil {
-		u.RWMemberships = rwMemberships
+		u.RWMemberships = populateRWMembershipPermissions(rwMemberships)
 	}
 
 	return &u, nil

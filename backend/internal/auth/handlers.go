@@ -643,10 +643,12 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 					var sName string
 					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:     sID,
-							RWNumber: sNumber,
-							RWName:   sName,
-							Jabatan:  "super_admin",
+							RWID:        sID,
+							RWNumber:    sNumber,
+							RWName:      sName,
+							Jabatan:     "super_admin",
+							Source:      RWMembershipSourceExplicit,
+							Permissions: SuperAdminRWPermissions(),
 						})
 					}
 				}
@@ -813,10 +815,12 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 					var sName string
 					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:     sID,
-							RWNumber: sNumber,
-							RWName:   sName,
-							Jabatan:  "super_admin",
+							RWID:        sID,
+							RWNumber:    sNumber,
+							RWName:      sName,
+							Jabatan:     "super_admin",
+							Source:      RWMembershipSourceExplicit,
+							Permissions: SuperAdminRWPermissions(),
 						})
 					}
 				}

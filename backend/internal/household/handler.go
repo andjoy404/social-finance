@@ -30,12 +30,38 @@ const (
 
 // Handler handles HTTP requests for households and residents.
 type Handler struct {
-	pool *database.Pool
+	pool       *database.Pool
+	scopingCfg *auth.ScopingConfig
 }
 
-// NewHandler creates a new handler.
+// NewHandler creates a new handler without explicit deployment scoping (unit tests).
 func NewHandler(pool *database.Pool) *Handler {
 	return &Handler{pool: pool}
+}
+
+// NewHandlerWithScope creates a new handler enforcing Super Admin administrative
+// RT/RW scoping (SCOPED_RT_IDS and active RTs under SCOPED_RW_IDS).
+func NewHandlerWithScope(pool *database.Pool, cfg auth.ScopingConfig) *Handler {
+	c := cfg
+	return &Handler{pool: pool, scopingCfg: &c}
+}
+
+// verifySuperAdminRTScope ensures targetRT is within Super Admin's configured
+// administrative scope when scopingCfg is wired. Fails closed with 403 Forbidden.
+func (h *Handler) verifySuperAdminRTScope(ctx context.Context, w http.ResponseWriter, targetRT string) bool {
+	if h.scopingCfg == nil {
+		return true
+	}
+	allowed, err := h.scopingCfg.IsRTInAdminScope(ctx, h.pool, targetRT)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to validate target RT scope")
+		return false
+	}
+	if !allowed {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "target RT is outside administrative scope")
+		return false
+	}
+	return true
 }
 
 // parsePagination extracts and validates page/page_size from query parameters.
@@ -141,6 +167,9 @@ func (h *Handler) resolveRTID(w http.ResponseWriter, r *http.Request,
 			} else {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to resolve target RT")
 			}
+			return "", false
+		}
+		if !h.verifySuperAdminRTScope(ctx, w, rtID) {
 			return "", false
 		}
 		return rtID, true
@@ -885,16 +914,15 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 	var rtID string
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		var targetRT string
-		// Always check for explicit rt_id from body first
+		// Check explicit rt_id sources before fallback to ac.RTID
 		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
 			targetRT = strings.TrimSpace(*req.RequestedRTID)
+		} else if xrt := strings.TrimSpace(r.Header.Get("X-RT-ID")); xrt != "" {
+			targetRT = xrt
+		} else if reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id")); reqRT != "" {
+			targetRT = reqRT
 		} else if ac.RTID != "" {
 			targetRT = ac.RTID
-		} else {
-			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
-			if reqRT != "" {
-				targetRT = reqRT
-			}
 		}
 
 		if targetRT == "" && req.HouseholdID != nil && strings.TrimSpace(*req.HouseholdID) != "" {
@@ -909,6 +937,11 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 
 		if targetRT == "" {
 			httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
+			return
+		}
+
+		// Verify target RT is inside Super Admin's administrative scope
+		if !h.verifySuperAdminRTScope(r.Context(), w, targetRT) {
 			return
 		}
 
@@ -1072,17 +1105,20 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
 		targetRT := ""
-		// Always check for explicit rt_id override from query param
+		// Check for explicit rt_id override from query param or header
 		rtQueryPtr := parseStringQuery(r, "rt_id")
 		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
 			targetRT = strings.TrimSpace(*rtQueryPtr)
-		}
-		// Fallback to JWT-pinned RTID
-		if targetRT == "" && ac.RTID != "" {
+		} else if xrt := strings.TrimSpace(r.Header.Get("X-RT-ID")); xrt != "" {
+			targetRT = xrt
+		} else if ac.RTID != "" {
 			targetRT = ac.RTID
 		}
 
 		if targetRT != "" {
+			if !h.verifySuperAdminRTScope(ctx, w, targetRT) {
+				return
+			}
 			residents, err := svc.ListResidents(ctx, tx, targetRT, householdID, isActive, search, offset, pageSize)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
@@ -1177,30 +1213,24 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 		rtQueryPtr := parseStringQuery(r, "rt_id")
 		if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
 			targetRT = strings.TrimSpace(*rtQueryPtr)
-		}
-		if targetRT == "" && ac.RTID != "" {
-			targetRT = ac.RTID
+		} else if xrt := strings.TrimSpace(r.Header.Get("X-RT-ID")); xrt != "" {
+			targetRT = xrt
 		}
 
 		if targetRT != "" {
-			resident, err := svc.GetResidentByID(ctx, tx, id, targetRT)
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					httpx.WriteNotFound(w, "resident not found")
-					return
-				}
-				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
-				return
-			} else if err := tx.Commit(); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+			if !h.verifySuperAdminRTScope(ctx, w, targetRT) {
 				return
 			}
-
-			writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
-			return
 		}
 
-		resident, err := svc.GetAllResidentByID(ctx, tx, id)
+		var resident *Resident
+		var err error
+		if targetRT != "" {
+			resident, err = svc.GetResidentByID(ctx, tx, id, targetRT)
+		}
+		if resident == nil || errors.Is(err, ErrNotFound) {
+			resident, err = svc.GetAllResidentByID(ctx, tx, id)
+		}
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				httpx.WriteNotFound(w, "resident not found")
@@ -1209,13 +1239,16 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
 			return
 		}
+		if !h.verifySuperAdminRTScope(ctx, w, resident.RTID) {
+			return
+		}
 
 		if err := tx.Commit(); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
 			return
 		}
 
-		writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
+		writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, resident.RTID))
 		return
 	}
 
@@ -1597,29 +1630,38 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Resolve RTID: non-super-admin uses their authenticated RT.
-	// Super-admin without RTID must provide rt_id in the body.
+	// Super-admin can specify rt_id via body, X-RT-ID header, query param, or fallback to ac.RTID.
 	ac := auth.GetAuthContext(r)
-	if ac == nil || ac.RTID == "" {
-		if ac == nil || ac.SystemRole != auth.SystemRoleSuperAdmin {
-			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
-			return
+	var rtID string
+	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := strings.TrimSpace(req.RTID)
+		if targetRT == "" {
+			if xrt := strings.TrimSpace(r.Header.Get("X-RT-ID")); xrt != "" {
+				targetRT = xrt
+			} else if qrt := parseStringQuery(r, "rt_id"); qrt != nil && strings.TrimSpace(*qrt) != "" {
+				targetRT = strings.TrimSpace(*qrt)
+			} else if ac.RTID != "" {
+				targetRT = ac.RTID
+			}
 		}
-		// System-level super admin: resolve from body rt_id
-		if req.RTID == "" {
+		if targetRT == "" {
 			httpx.WriteValidationError(w, "rt_id is required for super admin", nil)
 			return
 		}
+		if !h.verifySuperAdminRTScope(r.Context(), w, targetRT) {
+			return
+		}
 		// Validate the RT exists
-		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		defer cancel()
-		tx, err := h.pool.BeginTx(ctx)
-		if err != nil {
+		ctxV, cancelV := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancelV()
+		txV, errV := h.pool.BeginTx(ctxV)
+		if errV != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
 			return
 		}
-		defer tx.Rollback()
+		defer txV.Rollback()
 		var rtName string
-		if err := tx.QueryRowContext(ctx, `SELECT name FROM rts WHERE id = $1 AND is_active = true`, req.RTID).Scan(&rtName); err != nil {
+		if err := txV.QueryRowContext(ctxV, `SELECT name FROM rts WHERE id = $1 AND is_active = true`, targetRT).Scan(&rtName); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				httpx.WriteNotFound(w, "RT not found")
 				return
@@ -1627,16 +1669,25 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify RT")
 			return
 		}
-		if err := tx.Commit(); err != nil {
+		if err := txV.Commit(); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not verify RT")
 			return
 		}
-		ac.RTID = req.RTID
+		rtID = targetRT
+		req.RTID = targetRT
 	} else {
-		// Tenant users: enforce their own RT
+		// Tenant users: enforce their own RT; reject cross-RT manipulation attempts
+		if ac == nil || ac.RTID == "" {
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+			return
+		}
+		if requested := strings.TrimSpace(req.RTID); requested != "" && requested != ac.RTID {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "cannot create resident in another RT")
+			return
+		}
+		rtID = ac.RTID
 		req.RTID = ac.RTID
 	}
-	rtID := ac.RTID
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -1720,6 +1771,10 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	resident.UserID = &userID
+	jab := req.Jabatan
+	resident.Jabatan = &jab
+
 	if err := tx.Commit(); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to commit")
 		return
@@ -1727,7 +1782,7 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, ac.RTID))
+	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, resident.RTID))
 }
 
 // SpecialResidentUpdateRequest is the body for PATCH /api/v1/residents/special/:id.
@@ -1843,8 +1898,12 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Verify RT access: tenant users can only update their own RT
-	if ac.RTID != "" && resident.RTID != ac.RTID {
+	// Verify RT access: tenant users can only update their own RT; Super Admin must be within administrative scope
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		if !h.verifySuperAdminRTScope(ctx, w, resident.RTID) {
+			return
+		}
+	} else if ac.RTID == "" || resident.RTID != ac.RTID {
 		httpx.WriteNotFound(w, "special resident not found")
 		return
 	}
@@ -2315,28 +2374,46 @@ func canViewContact(ac *auth.AuthContext, rtID string) bool {
 	if !isKetua {
 		return false
 	}
-	if rtID != "" {
-		if ac.RTID == "" || ac.RTID != rtID {
-			return false
-		}
+	if rtID == "" || ac.RTID == "" || ac.RTID != rtID {
+		return false
 	}
 	return true
 }
 
+// canViewContactVerified checks both AuthContext exact Ketua RT + matching RT scope
+// AND verifies in PostgreSQL that the caller currently holds an active exact `ketua`
+// RT membership for their own RT (never trusting a client-supplied target RT).
+func canViewContactVerified(ctx context.Context, pool *database.Pool, ac *auth.AuthContext, targetRT string) bool {
+	if !canViewContact(ac, targetRT) {
+		return false
+	}
+	if pool == nil || ac.UserID == "" {
+		return false
+	}
+	var isKetua bool
+	err := pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM user_rt_memberships urm
+			JOIN users u ON u.id = urm.user_id
+			JOIN rts rt ON rt.id = urm.rt_id
+			WHERE urm.user_id = $1
+			  AND urm.rt_id = $2
+			  AND urm.is_active = true
+			  AND u.is_active = true
+			  AND rt.is_active = true
+			  AND LOWER(TRIM(COALESCE(urm.jabatan, ''))) = 'ketua'
+		)
+	`, ac.UserID, ac.RTID).Scan(&isKetua)
+	if err != nil {
+		return false
+	}
+	return isKetua
+}
+
 func redactResidentsNik(residents []*Resident, ac *auth.AuthContext, rtID string) []*Resident {
-	canNik := canViewNik(ac, rtID)
-	canContact := canViewContact(ac, rtID)
 	for _, r := range residents {
-		if r != nil {
-			if !canNik {
-				r.Nik = nil
-			}
-			isSelf := ac != nil && ac.UserID != "" && r.UserID != nil && *r.UserID == ac.UserID
-			if !isSelf && !canContact {
-				r.Phone = nil
-				r.Email = nil
-			}
-		}
+		redactResidentNik(r, ac, rtID)
 	}
 	return residents
 }
@@ -2345,11 +2422,15 @@ func redactResidentNik(resident *Resident, ac *auth.AuthContext, rtID string) *R
 	if resident == nil {
 		return resident
 	}
-	if !canViewNik(ac, rtID) {
+	effectiveRT := rtID
+	if resident.RTID != "" {
+		effectiveRT = resident.RTID
+	}
+	if !canViewNik(ac, effectiveRT) {
 		resident.Nik = nil
 	}
 	isSelf := ac != nil && ac.UserID != "" && resident.UserID != nil && *resident.UserID == ac.UserID
-	if !isSelf && !canViewContact(ac, rtID) {
+	if !isSelf && !canViewContact(ac, effectiveRT) {
 		resident.Phone = nil
 		resident.Email = nil
 	}
@@ -2367,8 +2448,12 @@ func redactHouseholdNik(household *Household, ac *auth.AuthContext, rtID string)
 	if household == nil {
 		return household
 	}
-	canNik := canViewNik(ac, rtID)
-	canContact := canViewContact(ac, rtID)
+	effectiveRT := rtID
+	if household.RTID != "" {
+		effectiveRT = household.RTID
+	}
+	canNik := canViewNik(ac, effectiveRT)
+	canContact := canViewContact(ac, effectiveRT)
 	if !canNik {
 		household.Nik = nil
 		if household.HeadResident != nil {
@@ -2376,9 +2461,11 @@ func redactHouseholdNik(household *Household, ac *auth.AuthContext, rtID string)
 		}
 	}
 	if !canContact {
-		if household.HeadResident != nil {
-			isSelf := ac != nil && ac.UserID != "" && household.HeadResident.UserID != nil && *household.HeadResident.UserID == ac.UserID
-			if !isSelf {
+		isSelf := ac != nil && ac.UserID != "" && household.HeadResident != nil && household.HeadResident.UserID != nil && *household.HeadResident.UserID == ac.UserID
+		if !isSelf {
+			household.Phone = nil
+			household.Email = nil
+			if household.HeadResident != nil {
 				household.HeadResident.Phone = nil
 				household.HeadResident.Email = nil
 			}

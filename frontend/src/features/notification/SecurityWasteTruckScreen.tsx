@@ -11,6 +11,7 @@ import { getSessionPair } from '@/app/api'
 import { Badge } from '@/components/Badge'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { renderNotificationBody } from './notificationUrl'
+import { NotificationImage } from './NotificationImage'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import './SecurityWasteTruckScreen.css'
 import {
@@ -327,12 +328,12 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                       {entry.image_url ? (
                         <div onClick={(e) => e.stopPropagation()}>
-                          <Image
+                          <NotificationImage
                             src={entry.image_url}
                             alt="Foto Truk Sampah"
-                            width={44}
-                            height={44}
-                            style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid var(--sf-border)' }}
+                            compact
+                            style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--sf-border)', cursor: 'pointer' }}
+                            onClick={() => setPreviewEntry(entry)}
                           />
                         </div>
                       ) : (
@@ -453,7 +454,7 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
               {previewEntry.image_url && (
                 <div>
                   <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 4 }}>Lampiran Foto Truk Sampah</div>
-                  <Image
+                  <NotificationImage
                     src={previewEntry.image_url}
                     alt="Lampiran Notifikasi Truk Sampah"
                     style={{ maxWidth: '100%', maxHeight: 300, objectFit: 'contain', borderRadius: 6 }}

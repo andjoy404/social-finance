@@ -12,7 +12,7 @@
  */
 
 // Re-export dari api.ts — dibutuhkan untuk fetch calls
-import type { ApiTransaction } from '@/app/api'
+import { authenticatedApiRequest, ApiError, type ApiTransaction } from '@/app/api'
 
 const BASE = '/api/v1'
 
@@ -581,7 +581,7 @@ export async function apiGetRWMyNotifications(
 export async function apiSendRWManualPush(
   token: string,
   rwId: string,
-  data: { title: string; body: string },
+  data: { title: string; body: string; image_url?: string; target?: string; template_id?: string },
 ): Promise<{ sent_count: number }> {
   const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/manual`
   const res = await authenticatedFetch(url, token, {
@@ -694,7 +694,7 @@ export async function apiUpdateRWNotificationTemplate(
     name?: string
     title?: string
     body?: string
-    image_url?: string
+    image_url?: string | null
     is_active?: boolean
   },
 ): Promise<ApiRWNotificationTemplate> {
@@ -705,6 +705,33 @@ export async function apiUpdateRWNotificationTemplate(
   })
   const body = await res.json()
   return body.data as ApiRWNotificationTemplate
+}
+
+/** POST /api/v1/rw/{rwId}/notifications/upload-image — upload notification template attachment image */
+export async function apiUploadRWNotificationImage(
+  token: string,
+  rwId: string,
+  eventType: string,
+  file: File,
+): Promise<{ status: string; image_url: string; key: string }> {
+  const formData = new FormData()
+  formData.append('event_type', eventType)
+  formData.append('file', file)
+
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/upload-image`
+  const res = await authenticatedApiRequest(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+  const text = await res.text()
+  const body = text ? (JSON.parse(text) as { status?: string; image_url?: string; key?: string; data?: { image_url?: string; key?: string } }) : null
+  const imageUrl = body?.image_url ?? body?.data?.image_url ?? ''
+  const key = body?.key ?? body?.data?.key ?? ''
+  if (!imageUrl) {
+    throw new ApiError('unexpected', 'Gagal mengunggah gambar notifikasi RW')
+  }
+  return { status: body?.status ?? 'uploaded', image_url: imageUrl, key }
 }
 
 /** PATCH /api/v1/rw/{rwId}/notifications/templates/{id}/toggle — toggle active */

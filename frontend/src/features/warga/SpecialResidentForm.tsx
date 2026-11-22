@@ -50,6 +50,7 @@ interface Props {
   mode: Mode
   canEdit?: boolean
   residentId?: string
+  rtDisplay?: string
   initialValues?: Partial<SpecialResidentFormValues>
   onSubmit?: (values: SpecialResidentFormValues) => Promise<void>
   submitLabel?: string
@@ -66,6 +67,7 @@ export function SpecialResidentForm({
   mode,
   canEdit = true,
   residentId,
+  rtDisplay,
   initialValues,
   onSubmit,
   submitLabel,
@@ -178,6 +180,12 @@ export function SpecialResidentForm({
   const title =
     mode === 'create' ? 'Tambah Petugas' : mode === 'detail' ? 'Detail Petugas' : 'Ubah Petugas'
 
+  // In edit mode, non-ketua callers (including SuperAdmin) receive redacted NIK/phone/email (empty).
+  // Require those fields only on create, or on edit when the caller originally received a non-empty value.
+  const nikRequired = mode === 'create' || Boolean(initialValues?.nik?.trim())
+  const phoneRequired = mode === 'create' || Boolean(initialValues?.phone?.trim())
+  const emailRequired = mode === 'create' || Boolean(initialValues?.email?.trim())
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (readOnly || !onSubmit) return
@@ -187,13 +195,13 @@ export function SpecialResidentForm({
     const errs: string[] = []
     if (!form.full_name.trim()) errs.push('Nama harus diisi.')
     if (!form.nik.trim()) {
-      errs.push('NIK harus diisi.')
+      if (nikRequired) errs.push('NIK harus diisi.')
     } else if (!/^[0-9]{16}$/.test(form.nik.trim())) {
       errs.push('NIK harus berupa 16 digit angka.')
     }
-    if (!form.phone.trim()) errs.push('Telepon harus diisi.')
+    if (!form.phone.trim() && phoneRequired) errs.push('Telepon harus diisi.')
     if (!form.email.trim()) {
-      errs.push('Email harus diisi.')
+      if (emailRequired) errs.push('Email harus diisi.')
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       errs.push('Format email tidak valid.')
     }
@@ -303,7 +311,7 @@ export function SpecialResidentForm({
             <div className="sf-form-field">
               <label className="sf-form-label" htmlFor="sr-nik">
                 <IdcardOutlined style={{ marginRight: 4 }} />
-                NIK <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                NIK {nikRequired && <span style={{ color: 'var(--sf-danger)' }}>*</span>}
               </label>
               <input
                 id="sr-nik"
@@ -311,9 +319,9 @@ export function SpecialResidentForm({
                 type="text"
                 value={form.nik}
                 onChange={(e) => handleChange('nik', e.target.value.replace(/\D/g, ''))}
-                placeholder="16 digit NIK"
+                placeholder={!nikRequired && mode === 'edit' ? 'Kosongkan jika tidak mengubah' : '16 digit NIK'}
                 maxLength={16}
-                required={!readOnly}
+                required={!readOnly && nikRequired}
                 disabled={busy || readOnly}
                 readOnly={readOnly}
               />
@@ -321,7 +329,7 @@ export function SpecialResidentForm({
             <div className="sf-form-field">
               <label className="sf-form-label" htmlFor="sr-phone">
                 <PhoneOutlined style={{ marginRight: 4 }} />
-                Telepon <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                Telepon {phoneRequired && <span style={{ color: 'var(--sf-danger)' }}>*</span>}
               </label>
               <input
                 id="sr-phone"
@@ -329,8 +337,8 @@ export function SpecialResidentForm({
                 type="tel"
                 value={form.phone}
                 onChange={(e) => handleChange('phone', e.target.value)}
-                placeholder="Contoh: 08123456789"
-                required={!readOnly}
+                placeholder={!phoneRequired && mode === 'edit' ? 'Kosongkan jika tidak mengubah' : 'Contoh: 08123456789'}
+                required={!readOnly && phoneRequired}
                 disabled={busy || readOnly}
                 readOnly={readOnly}
               />
@@ -340,7 +348,7 @@ export function SpecialResidentForm({
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="sr-email">
               <MailOutlined style={{ marginRight: 4 }} />
-              Email <span style={{ color: 'var(--sf-danger)' }}>*</span>
+              Email {emailRequired && <span style={{ color: 'var(--sf-danger)' }}>*</span>}
             </label>
             <input
               id="sr-email"
@@ -348,12 +356,28 @@ export function SpecialResidentForm({
               type="email"
               value={form.email}
               onChange={(e) => handleChange('email', e.target.value)}
-              placeholder="nama@email.com"
-              required={!readOnly}
+              placeholder={!emailRequired && mode === 'edit' ? 'Kosongkan jika tidak mengubah' : 'nama@email.com'}
+              required={!readOnly && emailRequired}
               disabled={busy || readOnly}
               readOnly={readOnly}
             />
           </div>
+
+          {mode !== 'create' && rtDisplay && (
+            <div className="sf-form-field">
+              <label className="sf-form-label" htmlFor="sr-rt-readonly">
+                RT / RW
+              </label>
+              <input
+                id="sr-rt-readonly"
+                className="sf-form-input"
+                type="text"
+                value={rtDisplay}
+                disabled
+                readOnly
+              />
+            </div>
+          )}
 
           {mode === 'create' && adminMode && !rtLoading && rtOptions.length > 0 && (
             <div className="sf-form-field">

@@ -26,13 +26,17 @@ import {
 function isActive(route: string, pathname: string, itemId?: string): boolean {
   if (route === '/') return pathname === '/'
   if (itemId === 'kas') {
-    return pathname === route || pathname.startsWith(route + '/') || (pathname.includes('/kas') && !pathname.includes('lokasi'))
+    // Match only the item's own route prefix (/kas or /kas/... for RT Kas,
+    // or /rw-view/{rwId}/kas for Humas). Never substring-match '/kas' across
+    // unrelated paths such as Data RW -> Kas (/rw-view/{rwId}/kas).
+    return pathname === route || pathname.startsWith(route + '/')
   }
   if (itemId === 'keuangan') {
-    return pathname === route || (pathname === '/keuangan' || pathname.startsWith('/keuangan/'))
+    return pathname === route || pathname.startsWith(route + '/')
   }
   if (itemId === 'rw-data') {
-    return pathname.startsWith('/rw-view') && !pathname.includes('/kas')
+    // Data RW owns all /rw-view routes (dashboard, kas, notification, etc.).
+    return pathname === '/rw-view' || pathname.startsWith('/rw-view/')
   }
   return pathname === route || pathname.startsWith(route + '/')
 }
@@ -319,7 +323,9 @@ export function Sidebar() {
                   <div style={{ paddingLeft: 24, marginTop: 4 }}>
                     {rwMemberships.map((m) => {
                       const rwPath = `/rw-view/${m.rw_id}/dashboard`
-                      const rwActive = location.pathname.startsWith(`/rw-view/${m.rw_id}`)
+                      const rwActive =
+                        location.pathname === `/rw-view/${m.rw_id}` ||
+                        location.pathname.startsWith(`/rw-view/${m.rw_id}/`)
                       return (
                         <Link
                           key={m.rw_id}

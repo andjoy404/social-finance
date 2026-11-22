@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"social-finance/internal/database"
 	"social-finance/internal/notification"
@@ -41,7 +43,9 @@ func TestGetRWAndRTPengurusUserIDs_JabatanAllowlist(t *testing.T) {
 	}
 
 	testCases := []testCase{
-		// Allowed jabatan-based users
+		// Allowed jabatan-based users:
+		// Per specification: ketua, wakil_ketua, bendahara, sekretaris, anggota_rt, anggota_rw, operasional, and sosial.
+		// ONLY 'keamanan' and 'kebersihan' are strictly excluded.
 		{strPtr("ketua"), "warga", true, "ketua"},
 		{strPtr("wakil_ketua"), "warga", true, "wakil_ketua"},
 		{strPtr("bendahara"), "warga", true, "bendahara_jabatan"},
@@ -50,15 +54,15 @@ func TestGetRWAndRTPengurusUserIDs_JabatanAllowlist(t *testing.T) {
 		{strPtr("anggota_rw"), "warga", true, "anggota_rw"},
 		{strPtr("operasional"), "warga", true, "operasional_warga"},
 		{strPtr("operasional"), "pengurus", true, "operasional_pengurus"},
+		{strPtr("sosial"), "warga", true, "sosial_warga"},
+		{strPtr("sosial"), "pengurus", true, "sosial_pengurus"},
 
-		// Denied jabatan-based users — CRITICAL: these must NOT receive
+		// Denied jabatan-based users — CRITICAL: strictly excluded
 		{strPtr("keamanan"), "warga", false, "keamanan_warga"},
-		{strPtr("sosial"), "warga", false, "sosial_warga"},
 		{strPtr("kebersihan"), "warga", false, "kebersihan_warga"},
 
 		// CRITICAL: role='pengurus' with denied jabatan must NOT receive
 		{strPtr("keamanan"), "pengurus", false, "keamanan_pengurus"},
-		{strPtr("sosial"), "pengurus", false, "sosial_pengurus"},
 		{strPtr("kebersihan"), "pengurus", false, "kebersihan_pengurus"},
 
 		// CRITICAL: role='bendahara' with denied jabatan must NOT receive
@@ -190,10 +194,12 @@ func createTestRTInRW(t *testing.T, pool *database.Pool, rwID string, name strin
 	t.Helper()
 	ctx := context.Background()
 	counter := atomic.AddInt64(&dbRTCounter, 1)
+	rwVal := int((time.Now().UnixNano()/1000000)%90000) + 10000
+	rtVal := fmt.Sprintf("%06d", (time.Now().UnixNano()/1000)%900000+counter%100000)
 	var id string
 	err := pool.Raw().QueryRowContext(ctx,
 		`INSERT INTO rts (name, rw, rw_id, rt, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
-		name, 1, rwID, fmt.Sprintf("%05d", counter),
+		name, rwVal, rwID, rtVal,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("create test RT in RW: %v", err)
@@ -563,4 +569,269 @@ func TestAnggotaRW_NotificationFlow_EndToEnd(t *testing.T) {
 	if kTotal < 1 || len(keamananLogs) < 1 {
 		t.Errorf("keamanan must still receive their own notifications, got total=%d", kTotal)
 	}
+}
+
+func TestNotifyRWCashIn_And_CashOut_EndToEnd(t *testing.T) {
+	pool := notifTestPool(t)
+	ctx := context.Background()
+	n := atomic.AddInt64(&dbRTCounter, 1)
+
+	rwID := createTestRW(t, pool, fmt.Sprintf("RW-KasNotif-%d", n))
+	rtID := createTestRTInRW(t, pool, rwID, fmt.Sprintf("RT-KasNotif-%d", n))
+
+	// 1. Create Ketua RT (allowed recipient) and Keamanan (excluded)
+	ketuaUser := notifTestUser(t, pool, fmt.Sprintf("%d-kas-ketua", n), true)
+	notifTestMembership(t, pool, ketuaUser, rtID, "warga", strPtr("ketua"), true)
+
+	keamananUser := notifTestUser(t, pool, fmt.Sprintf("%d-kas-keamanan", n), true)
+	notifTestMembership(t, pool, keamananUser, rtID, "warga", strPtr("keamanan"), true)
+
+	// 2. Insert active template for rw_cash_in with image_url and variables
+	testImageURL := "/api/v1/notifications/images/notifications/rw-kas/" + rwID + "/test_in.png"
+	_, err := pool.Raw().ExecContext(ctx, `
+		INSERT INTO notification_templates (
+			id, rw_id, name, event_type, channel, title, body, is_active, is_default, image_url, variables, created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, 'Kas RW Masuk Aktif', 'rw_cash_in', 'push',
+			'Kas Masuk {{amount}}', 'Diterima {{amount}} pada {{location}}: {{description}}',
+			true, false, $2, '["amount", "location", "description"]'::jsonb, NOW(), NOW()
+		)
+	`, rwID, testImageURL)
+	if err != nil {
+		t.Fatalf("insert active rw_cash_in template: %v", err)
+	}
+
+	repo := notification.NewRepository(pool)
+	fcm := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, fcm)
+
+	txID := fmt.Sprintf("tx-cash-in-%d", n)
+
+	// 3. Call NotifyRWCashIn
+	svc.NotifyRWCashIn(ctx, rwID, txID, "Rp 1.000.000", "Iuran RT Sukses", "Kas Utama RW")
+	time.Sleep(200 * time.Millisecond)
+
+	// 4. Verify Ketua received notification with interpolated values, image_url, and deep_link
+	logs, total, err := repo.ListLogs(ctx, rtID, ketuaUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for ketua: %v", err)
+	}
+	if total < 1 || len(logs) < 1 {
+		t.Fatalf("expected at least 1 log for ketua, got %d", total)
+	}
+
+	var foundLog *notification.NotificationLogEntry
+	for _, l := range logs {
+		if l.Title == "Kas Masuk Rp 1.000.000" {
+			foundLog = &l
+			break
+		}
+	}
+	if foundLog == nil {
+		t.Fatalf("did not find expected Kas Masuk log in ketua logs: %+v", logs)
+	}
+	if !strings.Contains(foundLog.Body, "Diterima Rp 1.000.000 pada Kas Utama RW: Iuran RT Sukses") {
+		t.Errorf("unexpected body interpolation: %q", foundLog.Body)
+	}
+	expectedDeepLink := fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txID)
+	if foundLog.Payload["deep_link"] != expectedDeepLink {
+		t.Errorf("expected deep_link %q, got %q", expectedDeepLink, foundLog.Payload["deep_link"])
+	}
+	if foundLog.Payload["image_url"] != testImageURL {
+		t.Errorf("expected image_url %q, got %q", testImageURL, foundLog.Payload["image_url"])
+	}
+
+	// 5. Verify Keamanan did NOT receive the notification
+	kLogs, _, err := repo.ListLogs(ctx, rtID, keamananUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for keamanan: %v", err)
+	}
+	for _, l := range kLogs {
+		if strings.Contains(l.Title, "Kas Masuk") {
+			t.Errorf("keamanan must NOT receive Kas RW Masuk notification: %+v", l)
+		}
+	}
+
+	// 6. Test Idempotency: Calling NotifyRWCashIn with same txID does NOT create duplicate log
+	svc.NotifyRWCashIn(ctx, rwID, txID, "Rp 1.000.000", "Duplicate Attempt", "Kas Utama RW")
+	time.Sleep(200 * time.Millisecond)
+	logsAfterDup, _, err := repo.ListLogs(ctx, rtID, ketuaUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs after dup: %v", err)
+	}
+	count := 0
+	for _, l := range logsAfterDup {
+		if l.Title == "Kas Masuk Rp 1.000.000" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 log due to dedup, got %d", count)
+	}
+
+	// 7. Test NotifyRWCashOut (using fallback default template since no custom template active)
+	txOutID := fmt.Sprintf("tx-cash-out-%d", n)
+	svc.NotifyRWCashOut(ctx, rwID, txOutID, "Rp 250.000", "Pembelian Lampu Jalan", "Kas Operasional RW", "Operasional Lingkungan")
+	time.Sleep(200 * time.Millisecond)
+
+	logsOut, _, err := repo.ListLogs(ctx, rtID, ketuaUser, "", "sent", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for cash out: %v", err)
+	}
+	var foundOutLog *notification.NotificationLogEntry
+	for _, l := range logsOut {
+		if strings.Contains(l.Title, "Kas Keluar") || strings.Contains(l.Title, "Kas RW") {
+			foundOutLog = &l
+			break
+		}
+	}
+	if foundOutLog == nil {
+		t.Fatalf("did not find expected Kas RW Keluar log: %+v", logsOut)
+	}
+	expectedOutLink := fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txOutID)
+	if foundOutLog.Payload["deep_link"] != expectedOutLink {
+		t.Errorf("expected cash out deep link %q, got %q", expectedOutLink, foundOutLog.Payload["deep_link"])
+	}
+}
+
+// TestRWKasNotificationRecipients_ExactSpecification tests the full recipient matrix:
+// - Keamanan does NOT receive
+// - Kebersihan does NOT receive
+// - Sosial DOES receive
+// - Anggota RW DOES receive
+// - Anggota RW who is also Ketua RT on a non-SF RT DOES receive
+// - No recipients from other RW
+// - No duplicate recipients
+func TestRWKasNotificationRecipients_ExactSpecification(t *testing.T) {
+	pool := notifTestPool(t)
+	ctx := context.Background()
+	n := atomic.AddInt64(&dbRTCounter, 1)
+
+	// RW A (Target) and RW B (Other RW)
+	rwA := createTestRW(t, pool, fmt.Sprintf("RW-SpecA-%d", n))
+	rwB := createTestRW(t, pool, fmt.Sprintf("RW-SpecB-%d", n))
+
+	// RT in RW A
+	rtA1 := createTestRTInRW(t, pool, rwA, fmt.Sprintf("RT-SpecA1-%d", n))
+	// RT in RW B
+	rtB1 := createTestRTInRW(t, pool, rwB, fmt.Sprintf("RT-SpecB1-%d", n))
+	// Non-SF RT (no RW affiliation, rw_id IS NULL)
+	nonSFRT := createTestRTWithoutRW(t, pool, fmt.Sprintf("RT-NonSF-%d", n))
+
+	// 1. Keamanan in RT A1 (Must NOT receive)
+	keamananUser := notifTestUser(t, pool, fmt.Sprintf("%d-keamanan-spec", n), true)
+	keamananJab := "keamanan"
+	notifTestMembership(t, pool, keamananUser, rtA1, "warga", &keamananJab, true)
+
+	// 2. Kebersihan in RT A1 (Must NOT receive)
+	kebersihanUser := notifTestUser(t, pool, fmt.Sprintf("%d-kebersihan-spec", n), true)
+	kebersihanJab := "kebersihan"
+	notifTestMembership(t, pool, kebersihanUser, rtA1, "warga", &kebersihanJab, true)
+
+	// 3. Sosial in RT A1 (MUST receive)
+	sosialUser := notifTestUser(t, pool, fmt.Sprintf("%d-sosial-spec", n), true)
+	sosialJab := "sosial"
+	notifTestMembership(t, pool, sosialUser, rtA1, "warga", &sosialJab, true)
+
+	// 4. Ketua RT A1 (MUST receive)
+	ketuaUser := notifTestUser(t, pool, fmt.Sprintf("%d-ketua-spec", n), true)
+	ketuaJab := "ketua"
+	notifTestMembership(t, pool, ketuaUser, rtA1, "warga", &ketuaJab, true)
+
+	// 5. Anggota RW (in user_rw_memberships for RW A) (MUST receive)
+	anggotaRWUser := notifTestUser(t, pool, fmt.Sprintf("%d-anggotarw-spec", n), true)
+	_, err := pool.Raw().ExecContext(ctx,
+		`INSERT INTO user_rw_memberships (user_id, rw_id, role, jabatan, is_active)
+		 VALUES ($1, $2, 'pengurus', 'anggota', true)`,
+		anggotaRWUser, rwA,
+	)
+	if err != nil {
+		t.Fatalf("create anggota_rw membership: %v", err)
+	}
+
+	// 6. Anggota RW who is also Ketua RT on a Non-SF RT (MUST receive because RW A membership is valid)
+	dualUser := notifTestUser(t, pool, fmt.Sprintf("%d-dual-spec", n), true)
+	_, err = pool.Raw().ExecContext(ctx,
+		`INSERT INTO user_rw_memberships (user_id, rw_id, role, is_active)
+		 VALUES ($1, $2, 'pengurus', true)`,
+		dualUser, rwA,
+	)
+	if err != nil {
+		t.Fatalf("create dual user RW membership: %v", err)
+	}
+	// Also Ketua in non-SF RT
+	notifTestMembership(t, pool, dualUser, nonSFRT, "warga", &ketuaJab, true)
+
+	// 7. Pengurus in RW B (Must NOT receive)
+	rwBOfficial := notifTestUser(t, pool, fmt.Sprintf("%d-rwB-official", n), true)
+	notifTestMembership(t, pool, rwBOfficial, rtB1, "warga", &ketuaJab, true)
+
+	// Query recipients for RW A
+	repo := notification.NewRepository(pool)
+	recipients, err := repo.GetRWAndRTPengurusUserIDs(ctx, rwA)
+	if err != nil {
+		t.Fatalf("GetRWAndRTPengurusUserIDs: %v", err)
+	}
+
+	recipientMap := make(map[string]bool)
+	hasDuplicates := false
+	for _, id := range recipients {
+		if recipientMap[id] {
+			hasDuplicates = true
+		}
+		recipientMap[id] = true
+	}
+
+	// Verification 1: Keamanan tidak menerima
+	if recipientMap[keamananUser] {
+		t.Errorf("Keamanan user %s MUST NOT receive notification", keamananUser)
+	}
+
+	// Verification 2: Kebersihan tidak menerima
+	if recipientMap[kebersihanUser] {
+		t.Errorf("Kebersihan user %s MUST NOT receive notification", kebersihanUser)
+	}
+
+	// Verification 3: Sosial menerima
+	if !recipientMap[sosialUser] {
+		t.Errorf("Sosial user %s MUST receive notification", sosialUser)
+	}
+
+	// Verification 4: Anggota RW menerima
+	if !recipientMap[anggotaRWUser] {
+		t.Errorf("Anggota RW user %s MUST receive notification", anggotaRWUser)
+	}
+
+	// Verification 5: Anggota RW yang juga Ketua RT non-SF menerima
+	if !recipientMap[dualUser] {
+		t.Errorf("Anggota RW with non-SF RT user %s MUST receive notification", dualUser)
+	}
+
+	// Verification 6: Tidak ada penerima dari RW lain
+	if recipientMap[rwBOfficial] {
+		t.Errorf("Official from RW B %s MUST NOT receive notification for RW A", rwBOfficial)
+	}
+
+	// Verification 7: Tidak ada duplikasi penerima
+	if hasDuplicates || len(recipients) != len(recipientMap) {
+		t.Errorf("Recipients contains duplicates: total %d vs unique %d", len(recipients), len(recipientMap))
+	}
+}
+
+// createTestRTWithoutRW creates an RT without RW affiliation (rw_id IS NULL)
+func createTestRTWithoutRW(t *testing.T, pool *database.Pool, name string) string {
+	t.Helper()
+	ctx := context.Background()
+	counter := atomic.AddInt64(&dbRTCounter, 1)
+	rwVal := int((time.Now().UnixNano()/1000000)%90000) + 10000
+	rtVal := fmt.Sprintf("%06d", (time.Now().UnixNano()/1000)%900000+counter%100000)
+	var id string
+	err := pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO rts (name, rw, rt, is_active) VALUES ($1, $2, $3, true) RETURNING id`,
+		name, rwVal, rtVal,
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("create test RT without RW: %v", err)
+	}
+	return id
 }
