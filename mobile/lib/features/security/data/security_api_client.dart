@@ -42,6 +42,44 @@ class SecurityApiClient {
             ),
           );
 
+  static String? _friendlyMessageForCode(String? code, String? rawMessage) {
+    switch (code) {
+      case 'invalid_qr':
+      case 'qr_invalid':
+        return 'QR absensi tidak valid. Minta QR terbaru dari perangkat pos.';
+      case 'qr_expired':
+        return 'QR absensi sudah kedaluwarsa. Silakan scan ulang QR terbaru dari pos.';
+      case 'qr_already_used':
+      case 'qr_used':
+        return 'QR absensi ini sudah digunakan. Silakan scan QR baru dari pos.';
+      case 'qr_invalidated':
+        return 'QR absensi sudah tidak berlaku. Silakan scan QR baru dari pos.';
+      case 'device_revoked':
+      case 'device_inactive':
+        return 'Perangkat pos sudah dicabut atau nonaktif. Hubungi pengurus RT.';
+      case 'cross_rt_denied':
+        return 'QR ini berasal dari RT lain dan tidak dapat digunakan untuk akun Anda.';
+      case 'no_matching_schedule':
+        return 'Tidak ada jadwal jaga aktif yang cocok untuk Anda saat ini.';
+      case 'check_in_window_closed':
+        return 'Waktu check-in untuk jadwal ini sudah berakhir atau belum dibuka.';
+      case 'already_checked_in':
+        return 'Anda sudah melakukan check-in pada jadwal ini.';
+      case 'already_checked_out':
+        return 'Anda sudah melakukan check-out pada jadwal ini.';
+      case 'active_open_session_exists':
+        return 'Anda masih memiliki sesi shift aktif yang belum check-out. Silakan check-out terlebih dahulu.';
+      case 'internal_error':
+        return 'Terjadi kendala saat memproses absensi di server. Silakan coba lagi beberapa saat.';
+      default:
+        if (rawMessage != null &&
+            rawMessage.toLowerCase().contains('internal security module error')) {
+          return 'Terjadi kendala saat memproses permintaan keamanan. Silakan coba lagi atau hubungi pengurus RT.';
+        }
+        return null;
+    }
+  }
+
   SecurityApiException _extractDioError(DioException e, String fallback) {
     final status = e.response?.statusCode;
     final data = e.response?.data;
@@ -50,11 +88,19 @@ class SecurityApiClient {
       if (err is Map<String, dynamic>) {
         final msg = err['message']?.toString().trim();
         final code = err['code']?.toString().trim();
+        final friendly = _friendlyMessageForCode(code, msg);
+        if (friendly != null) {
+          return SecurityApiException(friendly, code: code, statusCode: status);
+        }
         if (msg != null && msg.isNotEmpty) {
           return SecurityApiException(msg, code: code, statusCode: status);
         }
       }
       final directMsg = data['message']?.toString().trim();
+      final friendlyDirect = _friendlyMessageForCode(null, directMsg);
+      if (friendlyDirect != null) {
+        return SecurityApiException(friendlyDirect, statusCode: status);
+      }
       if (directMsg != null && directMsg.isNotEmpty) {
         return SecurityApiException(directMsg, statusCode: status);
       }

@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/app/app.dart';
-import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/notification/push_notification_service.dart';
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
@@ -15,6 +14,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/error_state.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
@@ -530,12 +530,11 @@ class _NotificationManagementScreenState
                             const SizedBox(height: 10),
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                ApiConfig.resolveImageUrl(imageUrl) ?? imageUrl,
+                              child: AuthenticatedNetworkImage(
+                                imageUrl: imageUrl,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    const SizedBox.shrink(),
+                                errorWidget: const SizedBox.shrink(),
                               ),
                             ),
                           ],
@@ -1111,13 +1110,10 @@ class _NotificationManagementScreenState
                             borderRadius: BorderRadius.circular(AppRadius.base),
                             child: AspectRatio(
                               aspectRatio: 16 / 9,
-                              child: Image.network(
-                                ApiConfig.resolveImageUrl(
-                                      imageController.text,
-                                    ) ??
-                                    imageController.text,
+                              child: AuthenticatedNetworkImage(
+                                imageUrl: imageController.text,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => Container(
+                                errorWidget: Container(
                                   color: Colors.grey.withValues(alpha: 0.1),
                                   alignment: Alignment.center,
                                   child: const Text(

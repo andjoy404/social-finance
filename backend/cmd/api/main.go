@@ -829,6 +829,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	notifProvider.SetProjectID(fcmProject)
 	notifSvc := notification.NewService(notifRepo, notifProvider)
 	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
+	if scopingCfg != nil {
+		notifH.SetScopingConfig(*scopingCfg)
+	}
 
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
@@ -1283,12 +1286,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		return auth.ClientIP(r)
 	})(http.HandlerFunc(securityH.ActivateDevice)).(http.HandlerFunc))
 
-	// Authenticated User endpoints (Ketua RT, Petugas Keamanan, Super Admin).
-	// Strict RT isolation & position-based RBAC enforced via RequireAllowedRT + RequireAccess + Handler permission checks.
+	// Authenticated User endpoints (Super Admin, Ketua RT, Petugas Keamanan, Humas, and any position granted security.* permissions).
+	// Strict RT isolation & position_permissions RBAC are enforced via RequireAllowedRT and per-handler permission checks.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua, auth.JabatanKeamanan, auth.JabatanHumas}))
 
 		r.Get("/api/v1/security/dashboard", securityH.GetDashboard)
 		r.Get("/api/v1/security/officers", securityH.ListOfficers)

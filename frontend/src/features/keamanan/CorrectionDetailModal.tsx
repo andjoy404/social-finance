@@ -109,6 +109,7 @@ interface CorrectionDetailModalProps {
 
 export function CorrectionDetailModal({ open, correction, onClose, onRefresh, canDecide, currentUserId }: CorrectionDetailModalProps) {
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
+  const [confirmAction, setConfirmAction] = useState<'approve' | 'reject' | null>(null)
   const [decisionNote, setDecisionNote] = useState('')
 
   if (!correction) return null
@@ -121,11 +122,16 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
   const origMeta = ATTENDANCE_STATUS_TAG[correction.original_status] ?? { tone: 'neutral' as StatusTone, label: correction.original_status }
   const reqMeta = ATTENDANCE_STATUS_TAG[correction.requested_status] ?? { tone: 'info' as StatusTone, label: correction.requested_status }
 
-  const handleDecide = async (approve: boolean) => {
+  const requesterNote = correction.reason?.trim() || ''
+  const approverNote = correction.decision_note?.trim() || ''
+
+  const handleDecide = async (approve: boolean, noteText?: string) => {
     setDeciding(approve ? 'approve' : 'reject')
     try {
-      await apiDecideSecurityCorrection(correction.id, approve, decisionNote || undefined)
+      const cleanedNote = noteText?.trim()
+      await apiDecideSecurityCorrection(correction.id, approve, cleanedNote ? cleanedNote : undefined)
       message.success(approve ? 'Koreksi disetujui' : 'Koreksi ditolak')
+      setConfirmAction(null)
       setDecisionNote('')
       onRefresh()
       onClose()
@@ -136,104 +142,67 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
     }
   }
 
+  const openDecisionConfirm = (approve: boolean) => {
+    setDecisionNote('')
+    setConfirmAction(approve ? 'approve' : 'reject')
+  }
+
   return (
-    <Modal
-      open={open}
-      title="Detail Koreksi Absensi"
-      onCancel={onClose}
-      width={720}
-      className="sf-correction-detail-modal"
-      styles={{
-        content: {
-          background: 'var(--sf-surface)',
-          color: 'var(--sf-text)',
-          border: '1px solid var(--sf-border)',
-        },
-        header: {
-          background: 'var(--sf-surface)',
-          color: 'var(--sf-text)',
-          borderBottom: '1px solid var(--sf-border-subtle)',
-        },
-        body: {
-          background: 'transparent',
-          color: 'var(--sf-text)',
-        },
-        footer: {
-          background: 'transparent',
-          borderTop: '1px solid var(--sf-border-subtle)',
-        },
-      }}
-      footer={
-        canDecideThis ? (
-          <>
+    <>
+      <Modal
+        open={open}
+        title="Detail Koreksi Absensi"
+        onCancel={onClose}
+        width={720}
+        className="sf-correction-detail-modal"
+        styles={{
+          content: {
+            background: 'var(--sf-surface)',
+            color: 'var(--sf-text)',
+            border: '1px solid var(--sf-border)',
+          },
+          header: {
+            background: 'var(--sf-surface)',
+            color: 'var(--sf-text)',
+            borderBottom: '1px solid var(--sf-border-subtle)',
+          },
+          body: {
+            background: 'transparent',
+            color: 'var(--sf-text)',
+          },
+          footer: {
+            background: 'transparent',
+            borderTop: '1px solid var(--sf-border-subtle)',
+          },
+        }}
+        footer={
+          canDecideThis ? (
+            <>
+              <Button onClick={onClose} disabled={deciding !== null}>Tutup</Button>
+              <Button
+                danger
+                icon={<CloseCircleOutlined />}
+                loading={deciding === 'reject'}
+                disabled={deciding === 'approve'}
+                onClick={() => openDecisionConfirm(false)}
+              >
+                Tolak
+              </Button>
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                loading={deciding === 'approve'}
+                disabled={deciding === 'reject'}
+                onClick={() => openDecisionConfirm(true)}
+              >
+                Setujui
+              </Button>
+            </>
+          ) : (
             <Button onClick={onClose}>Tutup</Button>
-            <Button
-              danger
-              icon={<CloseCircleOutlined />}
-              loading={deciding === 'reject'}
-              onClick={() => {
-                setDecisionNote('')
-                Modal.confirm({
-                  title: 'Tolak Koreksi',
-                  className: 'sf-correction-confirm-modal',
-                  content: (
-                    <Input.TextArea
-                      rows={3}
-                      placeholder="Catatan keputusan (opsional)"
-                      onPressEnter={(e) => {
-                        const target = e.currentTarget as HTMLTextAreaElement
-                        handleDecide(false).then(() => {
-                          target.value = ''
-                        })
-                      }}
-                      onChange={(e) => setDecisionNote(e.target.value)}
-                    />
-                  ),
-                  okText: 'Tolak',
-                  cancelText: 'Batal',
-                  okButtonProps: { danger: true },
-                  onOk: () => handleDecide(false),
-                })
-              }}
-            >
-              Tolak
-            </Button>
-            <Button
-              type="primary"
-              icon={<CheckCircleOutlined />}
-              loading={deciding === 'approve'}
-              onClick={() => {
-                setDecisionNote('')
-                Modal.confirm({
-                  title: 'Setujui Koreksi',
-                  className: 'sf-correction-confirm-modal',
-                  content: (
-                    <Input.TextArea
-                      rows={3}
-                      placeholder="Catatan keputusan (opsional)"
-                      onPressEnter={(e) => {
-                        const target = e.currentTarget as HTMLTextAreaElement
-                        handleDecide(true).then(() => {
-                          target.value = ''
-                        })
-                      }}
-                      onChange={(e) => setDecisionNote(e.target.value)}
-                    />
-                  ),
-                  okText: 'Setujui',
-                  cancelText: 'Batal',
-                  onOk: () => handleDecide(true),
-                })
-              }}
-            >
-              Setujui
-            </Button>
-          </>
-        ) : (
-          <Button onClick={onClose}>Tutup</Button>
-        )
-      }
-    >
+          )
+        }
+      >
       <Descriptions
         bordered
         column={1}
@@ -262,6 +231,54 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
         </Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag style={getToneTagStyle(statusMeta.tone)}>{statusMeta.label}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="Catatan Koreksi">
+          <div
+            data-testid="correction-note-summary"
+            style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--sf-text-muted)' }}>
+                Catatan Pemohon
+              </div>
+              <div
+                data-testid="correction-requester-note"
+                style={{
+                  fontSize: 13,
+                  color: requesterNote ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {requesterNote || '—'}
+              </div>
+            </div>
+            {!isPending && (
+              <div
+                style={{
+                  paddingTop: 6,
+                  borderTop: '1px dashed var(--sf-border)',
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--sf-text-muted)' }}>
+                  Catatan Keputusan / Verifikasi
+                </div>
+                <div
+                  data-testid="correction-approver-note"
+                  style={{
+                    fontSize: 13,
+                    color: approverNote ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {approverNote || '—'}
+                </div>
+              </div>
+            )}
+          </div>
         </Descriptions.Item>
       </Descriptions>
 
@@ -307,7 +324,17 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
             border: '1px solid var(--sf-border)',
           }}
         >
-          <div style={{ fontSize: 13, color: 'var(--sf-text)' }}>Alasan: {correction.reason}</div>
+          <div
+            style={{
+              fontSize: 13,
+              color: 'var(--sf-text)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            Alasan: {requesterNote || '—'}
+          </div>
           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 4 }}>
             Oleh: {correction.requested_by_name || correction.requested_by}
           </div>
@@ -346,13 +373,78 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
             <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--sf-text-muted)' }}>Menunggu Konfirmasi</div>
           ) : (
             <>
-              {correction.decided_by_name && <div style={{ fontSize: 12, color: 'var(--sf-text)' }}>Peninjau: {correction.decided_by_name}</div>}
-              {correction.decision_note && <div style={{ fontSize: 12, marginTop: 2, color: 'var(--sf-text)' }}>Catatan: {correction.decision_note}</div>}
-              {correction.decided_at && <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>Diputuskan: {formatDateTime(correction.decided_at)}</div>}
+              <div style={{ fontSize: 12, color: 'var(--sf-text)' }}>
+                Peninjau: {correction.decided_by_name || correction.decided_by || '—'}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  marginTop: 4,
+                  color: approverNote ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                Catatan: {approverNote || '—'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                Diputuskan: {formatDateTime(correction.decided_at)}
+              </div>
             </>
           )}
         </div>
       </div>
-    </Modal>
+      </Modal>
+
+      <Modal
+        open={confirmAction !== null}
+        title={confirmAction === 'approve' ? 'Setujui Koreksi' : 'Tolak Koreksi'}
+        className="sf-correction-confirm-modal"
+        okText={confirmAction === 'approve' ? 'Setujui' : 'Tolak'}
+        cancelText="Batal"
+        confirmLoading={deciding !== null}
+        okButtonProps={confirmAction === 'reject' ? { danger: true } : undefined}
+        onCancel={() => {
+          if (deciding === null) {
+            setConfirmAction(null)
+            setDecisionNote('')
+          }
+        }}
+        onOk={() => {
+          if (confirmAction) {
+            void handleDecide(confirmAction === 'approve', decisionNote)
+          }
+        }}
+        styles={{
+          content: {
+            background: 'var(--sf-surface)',
+            color: 'var(--sf-text)',
+            border: '1px solid var(--sf-border)',
+          },
+          header: {
+            background: 'var(--sf-surface)',
+            color: 'var(--sf-text)',
+            borderBottom: '1px solid var(--sf-border-subtle)',
+          },
+          body: {
+            background: 'transparent',
+            color: 'var(--sf-text)',
+          },
+          footer: {
+            background: 'transparent',
+            borderTop: '1px solid var(--sf-border-subtle)',
+          },
+        }}
+      >
+        <Input.TextArea
+          rows={3}
+          maxLength={500}
+          value={decisionNote}
+          placeholder="Catatan keputusan (opsional)"
+          onChange={(e) => setDecisionNote(e.target.value)}
+        />
+      </Modal>
+    </>
   )
 }

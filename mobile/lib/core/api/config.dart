@@ -52,8 +52,16 @@ class ApiConfig {
       if (base.endsWith('/')) {
         base = base.substring(0, base.length - 1);
       }
+      if (base.endsWith('/api/v1') &&
+          (trimmed == '/api/v1' || trimmed.startsWith('/api/v1/'))) {
+        base = base.substring(0, base.length - '/api/v1'.length);
+      }
       candidate = '$base$trimmed';
     }
+    candidate = candidate.replaceAll(
+      RegExp(r'(\/api\/v1)(?:\/api\/v1)+(?=\/|$)'),
+      '/api/v1',
+    );
 
     final uri = Uri.tryParse(candidate);
     if (uri == null) return null;

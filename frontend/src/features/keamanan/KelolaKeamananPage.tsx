@@ -151,7 +151,8 @@ export function KelolaKeamananPage() {
     isSuperAdminUser(user) ||
     isKetuaRTUser(user) ||
     hasPermission(user, 'security.schedule.write') ||
-    hasPermission(user, 'security.device.manage')
+    hasPermission(user, 'security.device.manage') ||
+    hasPermission(user, 'security.correction')
 
   const [activeTab, setActiveTab] = useState('dashboard')
   const [msgApi, contextHolder] = message.useMessage()

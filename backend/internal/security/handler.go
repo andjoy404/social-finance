@@ -1798,6 +1798,15 @@ func (h *Handler) MarkReadReceipts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.read", "security.attendance", "security.correction", "patrol.read", "paket.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
 	var input MarkReadReceiptInput
 	if err := decodeJSON(r, &input); err != nil {
 		httpx.WriteValidationError(w, "invalid request body", nil)

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { CorrectionDetailModal } from './CorrectionDetailModal'
+import * as securityApi from './securityApi'
 import type { AttendanceCorrection } from './securityApi'
 
 describe('CorrectionDetailModal', () => {
@@ -180,5 +181,123 @@ describe('CorrectionDetailModal', () => {
     expect(screen.getByText('Catatan: Bukti tidak cukup')).toBeDefined()
     expect(screen.getByTestId('correction-decision-panel').style.background).toContain('var(--sf-danger-soft)')
     expect(document.querySelector('.sf-correction-detail-modal')!.innerHTML.toLowerCase()).not.toContain('#fff2f0')
+  })
+
+  it('displays Catatan Koreksi row separating requester note and approver decision note, and handles empty notes gracefully', () => {
+    document.documentElement.setAttribute('data-theme', 'dark')
+    const longReason = 'HP petugas mati mendadak saat hujan deras sehingga tidak sempat scan QR pos pada shift malam hari.'
+    const approvedWithEmptyDecisionNote: AttendanceCorrection = {
+      ...sampleCorrection,
+      reason: longReason,
+      status: 'approved',
+      decided_by_name: 'Humas RT',
+      decision_note: null,
+      decided_at: '2026-11-20T09:15:00Z',
+    }
+
+    render(
+      <CorrectionDetailModal
+        open={true}
+        correction={approvedWithEmptyDecisionNote}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+        canDecide={false}
+      />
+    )
+
+    expect(screen.getByText('Catatan Koreksi')).toBeDefined()
+    expect(screen.getByText('Catatan Pemohon')).toBeDefined()
+    expect(screen.getByText('Catatan Keputusan / Verifikasi')).toBeDefined()
+    const requesterNode = screen.getByTestId('correction-requester-note')
+    const approverNode = screen.getByTestId('correction-approver-note')
+    expect(requesterNode.textContent).toBe(longReason)
+    expect(requesterNode.style.whiteSpace).toBe('pre-wrap')
+    expect(approverNode.textContent).toBe('—')
+  })
+
+  it('submits typed decision note on Setujui and Tolak without stale closure bug, and handles API error safely', async () => {
+    const decideSpy = vi.spyOn(securityApi, 'apiDecideSecurityCorrection')
+    decideSpy.mockResolvedValueOnce({ ...sampleCorrection, status: 'approved', decision_note: 'Terverifikasi CCTV' })
+
+    const onRefresh = vi.fn()
+    const onClose = vi.fn()
+
+    render(
+      <CorrectionDetailModal
+        open={true}
+        correction={sampleCorrection}
+        onClose={onClose}
+        onRefresh={onRefresh}
+        canDecide={true}
+        currentUserId="usr-humas"
+      />
+    )
+
+    // 1. Approve flow with typed decision note
+    fireEvent.click(screen.getByRole('button', { name: /Setujui/i }))
+    const approveTextarea = await screen.findByPlaceholderText('Catatan keputusan (opsional)')
+    fireEvent.change(approveTextarea, { target: { value: 'Terverifikasi CCTV' } })
+    const confirmButtons = screen.getAllByRole('button', { name: /Setujui/i })
+    fireEvent.click(confirmButtons[confirmButtons.length - 1])
+
+    await waitFor(() => {
+      expect(decideSpy).toHaveBeenCalledWith('corr-1', true, 'Terverifikasi CCTV')
+      expect(onRefresh).toHaveBeenCalledTimes(1)
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    // 2. Reject flow with typed decision note
+    decideSpy.mockResolvedValueOnce({ ...sampleCorrection, status: 'rejected', decision_note: 'Tidak hadir di pos' })
+    cleanup()
+    const onRefresh2 = vi.fn()
+    const onClose2 = vi.fn()
+    render(
+      <CorrectionDetailModal
+        open={true}
+        correction={sampleCorrection}
+        onClose={onClose2}
+        onRefresh={onRefresh2}
+        canDecide={true}
+        currentUserId="usr-ketua"
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Tolak/i }))
+    const rejectTextarea = await screen.findByPlaceholderText('Catatan keputusan (opsional)')
+    fireEvent.change(rejectTextarea, { target: { value: 'Tidak hadir di pos' } })
+    const rejectButtons = screen.getAllByRole('button', { name: /Tolak/i })
+    fireEvent.click(rejectButtons[rejectButtons.length - 1])
+
+    await waitFor(() => {
+      expect(decideSpy).toHaveBeenCalledWith('corr-1', false, 'Tidak hadir di pos')
+      expect(onRefresh2).toHaveBeenCalledTimes(1)
+      expect(onClose2).toHaveBeenCalledTimes(1)
+    })
+
+    // 3. Error state keeps modal open and does not call onClose
+    decideSpy.mockRejectedValueOnce(new Error('Koreksi sudah diputuskan sebelumnya'))
+    cleanup()
+    const onRefresh3 = vi.fn()
+    const onClose3 = vi.fn()
+    render(
+      <CorrectionDetailModal
+        open={true}
+        correction={sampleCorrection}
+        onClose={onClose3}
+        onRefresh={onRefresh3}
+        canDecide={true}
+        currentUserId="usr-ketua"
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Setujui/i }))
+    await screen.findByPlaceholderText('Catatan keputusan (opsional)')
+    const confirmBtns3 = screen.getAllByRole('button', { name: /Setujui/i })
+    fireEvent.click(confirmBtns3[confirmBtns3.length - 1])
+
+    await waitFor(() => {
+      expect(decideSpy).toHaveBeenCalledTimes(3)
+    })
+    expect(onClose3).not.toHaveBeenCalled()
+    expect(onRefresh3).not.toHaveBeenCalled()
+    decideSpy.mockRestore()
   })
 })

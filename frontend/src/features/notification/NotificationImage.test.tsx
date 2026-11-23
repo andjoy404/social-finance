@@ -28,6 +28,15 @@ describe('resolveNotificationImageUrl', () => {
     )
   })
 
+  it('collapses accidental duplicate /api/v1/api/v1 prefixes in relative and absolute URLs', () => {
+    expect(
+      resolveNotificationImageUrl('/api/v1/api/v1/notifications/images/notifications/waste-truck/rt-1/truck.jpg'),
+    ).toBe('/api/v1/notifications/images/notifications/waste-truck/rt-1/truck.jpg')
+    expect(
+      resolveNotificationImageUrl('http://localhost:8081/api/v1/api/v1/notifications/images/notifications/rw-manual/rw-1/a.png'),
+    ).toBe('http://localhost:8081/api/v1/notifications/images/notifications/rw-manual/rw-1/a.png')
+  })
+
   it('rejects empty or unsafe URLs', () => {
     expect(() => resolveNotificationImageUrl('')).toThrow(ApiError)
     expect(() => resolveNotificationImageUrl('javascript:alert(1)')).toThrow(ApiError)

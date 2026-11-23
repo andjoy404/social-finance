@@ -23,10 +23,11 @@ import (
 
 // Handler handles HTTP requests for notifications and device token management.
 type Handler struct {
-	svc     Service
-	pool    *database.Pool
-	storage storage.Service
-	appEnv  string
+	svc        Service
+	pool       *database.Pool
+	storage    storage.Service
+	appEnv     string
+	scopingCfg *auth.ScopingConfig
 }
 
 // NewHandler creates a new Handler instance.
@@ -39,6 +40,12 @@ func NewHandler(svc Service, pool *database.Pool, store storage.Service, appEnv 
 		store = storage.NewMockStorage()
 	}
 	return &Handler{svc: svc, pool: pool, storage: store, appEnv: env}
+}
+
+// SetScopingConfig attaches the platform scoping configuration so SuperAdmin
+// RT image access is validated against administrative scope.
+func (h *Handler) SetScopingConfig(cfg auth.ScopingConfig) {
+	h.scopingCfg = &cfg
 }
 
 // isSecurityOfficer reports whether the authenticated principal holds the
@@ -436,12 +443,18 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		// RT scope check: validate that the image's RT matches the authenticated user's RT scope.
 		userRTID := ac.RTID
 		if ac.SystemRole == auth.SystemRoleSuperAdmin {
-			headerRT := r.Header.Get("X-RT-ID")
+			headerRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
 			if headerRT != "" {
 				userRTID = headerRT
 			}
-		}
-		if userRTID != "" && userRTID == scopeID {
+			if userRTID != "" && userRTID == scopeID {
+				authorized = true
+			} else if h.scopingCfg != nil && h.pool != nil {
+				if inScope, err := h.scopingCfg.IsRTInAdminScope(r.Context(), h.pool, scopeID); err == nil && inScope {
+					authorized = true
+				}
+			}
+		} else if userRTID != "" && userRTID == scopeID {
 			authorized = true
 		}
 	}

@@ -183,7 +183,8 @@ export function Sidebar() {
       jabatan === 'ketua' ||
       jabatan === 'humas' ||
       hasPermission(user, 'security.schedule.write') ||
-      hasPermission(user, 'security.device.manage')
+      hasPermission(user, 'security.device.manage') ||
+      hasPermission(user, 'security.correction')
     if (canManageSecurity) {
       items.push({
         to: '/keamanan-rt',

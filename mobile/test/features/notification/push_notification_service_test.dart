@@ -121,6 +121,51 @@ void main() {
       expect(result['id'], equals(42));
     });
 
+    test('showHeadsUpNotification forwards auth_token and rt_id in-memory for expanded BigPictureStyle image without embedding token in URL', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.example.social_finance/notifications'),
+        (call) async {
+          calls.add(call);
+          if (call.method == 'showHeadsUpNotification') {
+            return {'status': 'ANDROID_DISPLAY_REQUESTED', 'id': call.arguments['id']};
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.example.social_finance/notifications'),
+          null,
+        );
+      });
+
+      const imgUrl =
+          'http://localhost:8081/api/v1/notifications/images/notifications/waste-truck/rt-002/truck.jpg';
+      final result = await service.showHeadsUpNotification(
+        title: 'Truk Sampah Tiba',
+        body: 'Silakan keluarkan sampah.',
+        deepLink: '/home/notifikasi/detail/notif-1',
+        imageUrl: imgUrl,
+        authToken: 'secret-jwt-access-token',
+        rtId: 'rt-002',
+        id: 77,
+      );
+
+      expect(calls.length, equals(1));
+      final args = Map<String, dynamic>.from(calls.first.arguments as Map);
+      expect(args['image_url'], equals(imgUrl));
+      expect(args['image_url'], isNot(contains('secret-jwt-access-token')));
+      expect(args['auth_token'], equals('secret-jwt-access-token'));
+      expect(args['rt_id'], equals('rt-002'));
+      expect(result['status'], equals('ANDROID_DISPLAY_REQUESTED'));
+    });
+
     test('showHeadsUpNotification returns DISPLAY_FAILED on native exception', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);

@@ -1607,6 +1607,52 @@ func (r *Repository) CreateQRToken(ctx context.Context, rtID, deviceID, tokenHas
 	return tokenID, err
 }
 
+func isPgUniqueConstraint(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if constraintName == "" || pgErr.ConstraintName == constraintName {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileExpiredOpenSessionsTx closes any expired past open attendance sessions
+// (status IN ('hadir', 'terlambat'), checked_out_at IS NULL, marked_missing_checkout_at IS NULL)
+// for the given officer whose shift end + missing_checkout_cutoff_minutes has already elapsed.
+// This also reconciles past check-in-only approved corrections (correction_locked = true)
+// so a forgotten checkout from an earlier shift never permanently triggers
+// uniq_security_attendance_user_open_session on future QR check-ins or correction approvals.
+func reconcileExpiredOpenSessionsTx(ctx context.Context, tx *sql.Tx, rtID, userID, excludeAttendanceID string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE security_attendance_records ar
+		SET status = 'belum_absen_pulang',
+		    marked_missing_checkout_at = COALESCE(ar.marked_missing_checkout_at, $4),
+		    updated_at = $4
+		FROM security_schedules s
+		WHERE ar.schedule_id = s.id
+		  AND ar.rt_id = $1
+		  AND ar.user_id = $2
+		  AND ($3 = '' OR ar.id::text <> $3)
+		  AND ar.checked_in_at IS NOT NULL
+		  AND ar.checked_out_at IS NULL
+		  AND ar.marked_missing_checkout_at IS NULL
+		  AND ar.status IN ('hadir', 'terlambat')
+		  AND $4 > CASE
+		        WHEN s.scheduled_end_at IS NOT NULL THEN (s.scheduled_end_at + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute'))
+		        WHEN ar.shift_date IS NOT NULL THEN (
+		            CASE
+		                WHEN s.crosses_midnight_snapshot OR s.end_time_snapshot <= s.start_time_snapshot
+		                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		                ELSE (ar.shift_date + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		            END + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute')
+		        )
+		        ELSE (ar.checked_in_at + INTERVAL '24 hours')
+		      END
+	`, rtID, userID, excludeAttendanceID, now)
+	return err
+}
+
 func (r *Repository) ConsumeQRAndRecordAttendance(
 	ctx context.Context,
 	rtID, userID, rawQRToken, action, shiftConfigID, idemKey string,
@@ -1962,6 +2008,10 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	}
 
 	if resolvedAction == "check_in" {
+		if err := reconcileExpiredOpenSessionsTx(ctx, tx, rtID, userID, chosen.attID.String, now); err != nil {
+			return nil, fmt.Errorf("reconcile expired open sessions before check-in: %w", err)
+		}
+
 		deadline := chosen.schedStart.Add(time.Duration(chosen.tolMin) * time.Minute)
 		status := StatusHadir
 		arrival := StatusHadir
@@ -1986,6 +2036,9 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 			    updated_at = $7
 			WHERE id = $1
 		`, chosen.attID.String, status, arrival, lateMinutes, deviceID, qrID, now); err != nil {
+			if isPgUniqueConstraint(err, "uniq_security_attendance_user_open_session") {
+				return nil, newAppError(409, "active_open_session_exists", "petugas masih memiliki sesi absensi aktif pada shift lain yang belum absen pulang", ErrConflict)
+			}
 			return nil, err
 		}
 	} else {
@@ -2467,18 +2520,22 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 			return nil, err
 		}
 		if !origCin.Valid && origStatus == StatusBelumHadir {
-			_, _ = tx.ExecContext(ctx, `
+			if _, err := tx.ExecContext(ctx, `
 				UPDATE security_attendance_records
 				SET status = 'tidak_hadir',
 				    marked_absent_at = COALESCE(marked_absent_at, $2),
 				    correction_locked = true,
 				    updated_at = $2
 				WHERE id = $1 AND checked_in_at IS NULL AND status = 'belum_hadir'
-			`, attID, now)
+			`, attID, now); err != nil {
+				return nil, fmt.Errorf("finalize absent attendance on correction reject: %w", err)
+			}
 		}
-		_ = insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_rejected", "security_attendance_correction", correctionID,
-			map[string]any{"status": origStatus, "checked_in_at": origCin.Time},
-			map[string]any{"decision": "rejected", "note": note}, ip)
+		if err := insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_rejected", "security_attendance_correction", correctionID,
+			map[string]any{"status": origStatus, "checked_in_at": nullableTimePtr(origCin)},
+			map[string]any{"decision": "rejected", "note": note}, ip); err != nil {
+			return nil, fmt.Errorf("insert rejection audit log: %w", err)
+		}
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
@@ -2487,8 +2544,7 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 
 	// Load current attendance record and schedule to compute final values cleanly.
 	var curStatus string
-	var curCin, curCout sql.NullTime
-	var schedStart time.Time
+	var curCin, curCout, schedStartNull sql.NullTime
 	var tolMin int
 	err = tx.QueryRowContext(ctx, `
 		SELECT ar.status, ar.checked_in_at, ar.checked_out_at,
@@ -2498,9 +2554,13 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		JOIN security_schedules s ON s.id = ar.schedule_id
 		WHERE ar.id = $1 AND ar.rt_id = $2
 		FOR UPDATE OF ar
-	`, attID, rtID).Scan(&curStatus, &curCin, &curCout, &schedStart, &tolMin)
+	`, attID, rtID).Scan(&curStatus, &curCin, &curCout, &schedStartNull, &tolMin)
 	if err != nil {
 		return nil, err
+	}
+	schedStart := now
+	if schedStartNull.Valid {
+		schedStart = schedStartNull.Time
 	}
 
 	finalCin := curCin
@@ -2544,6 +2604,15 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		}
 	}
 
+	// If approving an open check-in status (hadir/terlambat without checkout),
+	// reconcile any expired past open sessions for this officer first so
+	// uniq_security_attendance_user_open_session is not violated by stale shifts.
+	if (reqStatus == StatusHadir || reqStatus == StatusTerlambat) && finalCin.Valid && !finalCout.Valid {
+		if err := reconcileExpiredOpenSessionsTx(ctx, tx, rtID, officerID, attID, now); err != nil {
+			return nil, fmt.Errorf("reconcile expired open sessions before correction approve: %w", err)
+		}
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		UPDATE security_attendance_records
 		SET status = $2,
@@ -2556,6 +2625,9 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		WHERE id = $1
 	`, attID, reqStatus, arrivalStatus, lateMin, finalCin, finalCout, now)
 	if err != nil {
+		if isPgUniqueConstraint(err, "uniq_security_attendance_user_open_session") {
+			return nil, newAppError(409, "active_open_session_exists", "petugas masih memiliki sesi absensi aktif pada shift lain yang belum absen pulang", ErrConflict)
+		}
 		return nil, err
 	}
 
@@ -2569,11 +2641,13 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		return nil, err
 	}
 
-	_ = insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_approved", "security_attendance_correction", correctionID,
+	if err := insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_approved", "security_attendance_correction", correctionID,
 		map[string]any{"status": curStatus, "checked_in_at": nullableTimePtr(curCin), "checked_out_at": nullableTimePtr(curCout)},
-		map[string]any{"status": reqStatus, "checked_in_at": nullableTimePtr(finalCin), "checked_out_at": nullableTimePtr(finalCout), "attendance_record_id": attID},
+		map[string]any{"status": reqStatus, "checked_in_at": nullableTimePtr(finalCin), "checked_out_at": nullableTimePtr(finalCout), "attendance_record_id": attID, "note": note},
 		ip,
-	)
+	); err != nil {
+		return nil, fmt.Errorf("insert approval audit log: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err

@@ -721,12 +721,23 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         final isAndroid =
             !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
         if (isAndroid) {
+          final apiClient = ref.read(apiClientProvider);
+          final activeUser = ref.read(authRepositoryProvider)?.valueOrNull;
+          final activeRtId =
+              (activeUser?['rt_id'] ??
+                      (activeUser?['rt'] is Map
+                          ? activeUser!['rt']['id']
+                          : null))
+                  ?.toString()
+                  .trim();
           // Display true native Android heads-up banner at top of screen with high priority & action button
           notifService.showHeadsUpNotification(
             title: title,
             body: body,
             deepLink: normalizedTarget,
             imageUrl: imageUrl,
+            authToken: apiClient.token,
+            rtId: activeRtId,
             notificationId: message.data['notification_id'] as String?,
             type: message.data['type'] as String?,
             sentAt: message.data['sent_at'] as String?,

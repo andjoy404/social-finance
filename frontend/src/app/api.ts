@@ -2146,22 +2146,24 @@ export function resolveNotificationImageUrl(imageUrl: string): string {
   if (/^(javascript|data|vbscript):/i.test(trimmed)) {
     throw new ApiError('validation_error', 'Skema URL gambar notifikasi tidak didukung')
   }
-  if (trimmed.startsWith(`${BASE}/`) || trimmed === BASE) {
-    return trimmed
+  // Collapse accidental duplicate /api/v1/api/v1 prefixes (both relative and absolute).
+  const normalized = trimmed.replace(/(\/api\/v1)(?:\/api\/v1)+(?=\/|$)/g, '$1')
+  if (normalized.startsWith(`${BASE}/`) || normalized === BASE) {
+    return normalized
   }
-  if (trimmed.startsWith('/notifications/images/')) {
-    return `${BASE}${trimmed}`
+  if (normalized.startsWith('/notifications/images/')) {
+    return `${BASE}${normalized}`
   }
-  if (trimmed.startsWith('notifications/')) {
-    return `${BASE}/notifications/images/${trimmed}`
+  if (normalized.startsWith('notifications/')) {
+    return `${BASE}/notifications/images/${normalized}`
   }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return normalized
   }
-  if (trimmed.startsWith('/')) {
-    return trimmed
+  if (normalized.startsWith('/')) {
+    return normalized
   }
-  return `${BASE}/notifications/images/${trimmed}`
+  return `${BASE}/notifications/images/${normalized}`
 }
 
 export async function apiGetNotificationImageBlob(

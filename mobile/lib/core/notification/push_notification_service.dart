@@ -210,11 +210,20 @@ class PushNotificationService {
 
   /// Posts a native Android heads-up notification banner at the top of the screen.
   /// Returns a map with display status (e.g. `ANDROID_DISPLAY_REQUESTED` or `DISPLAY_FAILED`).
+  ///
+  /// [authToken] and [rtId] are forwarded strictly in-memory over the native
+  /// MethodChannel so the native bitmap fetcher can send `Authorization: Bearer`
+  /// and `X-RT-ID` HTTP headers when downloading authenticated attachment images
+  /// for the expanded `BigPictureStyle` notification popup. They are NEVER
+  /// embedded in URLs, Intent extras, or logs.
   Future<Map<String, dynamic>> showHeadsUpNotification({
     required String title,
     required String body,
     required String deepLink,
     String? imageUrl,
+    String? authToken,
+    String? rtId,
+    Uint8List? imageBytes,
     String? notificationId,
     String? type,
     String? sentAt,
@@ -229,6 +238,10 @@ class PushNotificationService {
         'body': body,
         'deep_link': deepLink,
         'image_url': imageUrl,
+        if (authToken != null && authToken.isNotEmpty) 'auth_token': authToken,
+        if (rtId != null && rtId.isNotEmpty) 'rt_id': rtId,
+        if (imageBytes != null && imageBytes.isNotEmpty)
+          'image_bytes': imageBytes,
         if (notificationId != null && notificationId.isNotEmpty)
           'notification_id': notificationId,
         if (type != null && type.isNotEmpty) 'type': type,

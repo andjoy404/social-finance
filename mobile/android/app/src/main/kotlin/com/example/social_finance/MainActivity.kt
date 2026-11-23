@@ -63,16 +63,22 @@ object NotificationImageHelper {
         if (trimmed.isEmpty()) return null
         if (trimmed.contains("..") || trimmed.contains("\\")) return null
 
-        val candidate = if (trimmed.startsWith("/")) {
+        var candidate = if (trimmed.startsWith("/")) {
             val prefs = context.getSharedPreferences(FLUTTER_PREFS_NAME, Context.MODE_PRIVATE)
-            val savedBase = prefs.getString(KEY_LAST_API_URL, null)?.trim()?.trimEnd('/')
+            var savedBase = prefs.getString(KEY_LAST_API_URL, null)?.trim()?.trimEnd('/')
             if (savedBase.isNullOrEmpty()) {
                 return null
+            }
+            if (savedBase.endsWith("/api/v1") &&
+                (trimmed == "/api/v1" || trimmed.startsWith("/api/v1/"))
+            ) {
+                savedBase = savedBase.removeSuffix("/api/v1")
             }
             "$savedBase$trimmed"
         } else {
             trimmed
         }
+        candidate = candidate.replace(Regex("(/api/v1)(?:/api/v1)+(?=/|$)"), "/api/v1")
 
         return try {
             val uri = Uri.parse(candidate)
@@ -88,7 +94,11 @@ object NotificationImageHelper {
         }
     }
 
-    fun downloadBitmap(urlString: String): Bitmap? {
+    fun downloadBitmap(
+        urlString: String,
+        authToken: String? = null,
+        rtId: String? = null
+    ): Bitmap? {
         var connection: HttpURLConnection? = null
         return try {
             val url = URL(urlString)
@@ -101,6 +111,15 @@ object NotificationImageHelper {
             connection.instanceFollowRedirects = true
             connection.doInput = true
             connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "image/*")
+            val cleanToken = authToken?.trim()
+            if (!cleanToken.isNullOrEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer $cleanToken")
+            }
+            val cleanRtId = rtId?.trim()
+            if (!cleanRtId.isNullOrEmpty()) {
+                connection.setRequestProperty("X-RT-ID", cleanRtId)
+            }
             connection.connect()
 
             val code = connection.responseCode
@@ -172,6 +191,9 @@ class MainActivity : FlutterActivity() {
                         val body = call.argument<String>("body") ?: ""
                         val deepLink = call.argument<String>("deep_link") ?: ""
                         val imageUrl = call.argument<String>("image_url")
+                        val authToken = call.argument<String>("auth_token")
+                        val rtId = call.argument<String>("rt_id")
+                        val imageBytes = call.argument<ByteArray>("image_bytes")
                         val notificationIdStr = call.argument<String>("notification_id")
                         val eventType = call.argument<String>("type")
                         val sentAt = call.argument<String>("sent_at")
@@ -182,6 +204,9 @@ class MainActivity : FlutterActivity() {
                             body = body,
                             deepLink = deepLink,
                             imageUrl = imageUrl,
+                            authToken = authToken,
+                            rtId = rtId,
+                            imageBytes = imageBytes,
                             notificationIdStr = notificationIdStr,
                             eventType = eventType,
                             sentAt = sentAt
@@ -337,6 +362,9 @@ class MainActivity : FlutterActivity() {
         body: String,
         deepLink: String,
         imageUrl: String? = null,
+        authToken: String? = null,
+        rtId: String? = null,
+        imageBytes: ByteArray? = null,
         notificationIdStr: String? = null,
         eventType: String? = null,
         sentAt: String? = null
@@ -430,23 +458,43 @@ class MainActivity : FlutterActivity() {
         }
 
         try {
-            if (!resolvedImageUrl.isNullOrBlank()) {
+            val hasPreloadedBytes = imageBytes != null && imageBytes.isNotEmpty()
+            if (hasPreloadedBytes || !resolvedImageUrl.isNullOrBlank()) {
                 Thread {
                     try {
-                        val bitmap = NotificationImageHelper.downloadBitmap(resolvedImageUrl)
-                        if (bitmap != null) {
-                            val bigPictureStyle = Notification.BigPictureStyle()
-                                .bigPicture(bitmap)
-                                .setBigContentTitle(title)
-                                .setSummaryText(body)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                bigPictureStyle.bigLargeIcon(null as Icon?)
+                        val bitmap = try {
+                            if (hasPreloadedBytes) {
+                                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes!!.size)
+                            } else {
+                                NotificationImageHelper.downloadBitmap(
+                                    urlString = resolvedImageUrl!!,
+                                    authToken = authToken,
+                                    rtId = rtId
+                                )
                             }
-                            builder.setLargeIcon(bitmap)
-                            builder.setStyle(bigPictureStyle)
+                        } catch (imgErr: Exception) {
+                            android.util.Log.w("SocialFinanceNotif", "Image attachment load failed, falling back to text notification: ${imgErr.message}")
+                            null
+                        }
+                        var attachedImage = false
+                        if (bitmap != null) {
+                            try {
+                                val bigPictureStyle = Notification.BigPictureStyle()
+                                    .bigPicture(bitmap)
+                                    .setBigContentTitle(title)
+                                    .setSummaryText(body)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    bigPictureStyle.bigLargeIcon(null as Icon?)
+                                }
+                                builder.setLargeIcon(bitmap)
+                                builder.setStyle(bigPictureStyle)
+                                attachedImage = true
+                            } catch (styleErr: Exception) {
+                                android.util.Log.w("SocialFinanceNotif", "BigPictureStyle attach failed, falling back to text notification: ${styleErr.message}")
+                            }
                         }
                         notificationManager.notify(notificationId, builder.build())
-                        android.util.Log.i("SocialFinanceNotif", "ANDROID_DISPLAY_REQUESTED: id=$notificationId with_image=true")
+                        android.util.Log.i("SocialFinanceNotif", "ANDROID_DISPLAY_REQUESTED: id=$notificationId with_image=$attachedImage")
                     } catch (e: Exception) {
                         android.util.Log.w("SocialFinanceNotif", "DISPLAY_FAILED async image notify: ${e.message}")
                     }
