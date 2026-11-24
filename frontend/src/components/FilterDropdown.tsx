@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { FilterOutlined, DownOutlined } from '@ant-design/icons'
 
 export interface FilterOption<T extends string = string> {
@@ -20,28 +21,69 @@ export function FilterDropdown<T extends string = string>({
   ariaLabel = 'Filter status',
 }: FilterDropdownProps<T>) {
   const [open, setOpen] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const [dropUp, setDropUp] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const isFiltered = Boolean(value && value !== 'semua')
   const triggerLabel = isFiltered ? 'Status' : 'Semua'
 
+  // Open: measure trigger rect, decide up/down
   useEffect(() => {
-    if (!open) {
-      setDropUp(false)
-      return
-    }
-    // Detect if menu would overflow viewport bottom — open upward instead
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect()
-      const menuHeight = 200 // approximate max menu height
+    if (!open) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    // Measure actual menu height after render
+    const estimatedMenuHeight = options.length * 32 + 8 // item height ~32px + padding
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+    const shouldDropUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow
+
+    setDropUp(shouldDropUp)
+    setMenuPosition({
+      top: shouldDropUp
+        ? rect.top - 4
+        : rect.bottom + 4,
+      left: rect.left,
+    })
+  }, [open, options.length])
+
+  // Re-position on scroll/resize (menu is portal'd to body)
+  useEffect(() => {
+    if (!open) return
+    const handleScroll = () => {
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const estimatedMenuHeight = options.length * 32 + 8
       const spaceBelow = window.innerHeight - rect.bottom
       const spaceAbove = rect.top
-      setDropUp(spaceBelow < menuHeight && spaceAbove > spaceBelow)
+      const shouldDropUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow
+      setDropUp(shouldDropUp)
+      setMenuPosition({
+        top: shouldDropUp
+          ? rect.top - 4
+          : rect.bottom + 4,
+        left: rect.left,
+      })
     }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('resize', handleScroll)
+    }
+  }, [open, options.length])
+
+  // Click outside + keyboard
+  useEffect(() => {
+    if (!open) return
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
+        if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+          setOpen(false)
+        }
       }
     }
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -77,26 +119,36 @@ export function FilterDropdown<T extends string = string>({
         />
       </button>
 
-      <div
-        className={`sf-filter-dropdown-menu ${open ? 'sf-filter-dropdown-menu-open' : ''} ${dropUp ? 'sf-filter-dropdown-menu-dropup' : ''}`}
-        role="listbox"
-        aria-label={ariaLabel}
-      >
-        {options.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            className={`sf-filter-dropdown-item ${opt.value === value ? 'sf-filter-dropdown-item-active' : ''}`}
-            onClick={() => {
-              onChange(opt.value)
-              setOpen(false)
-            }}
-            role="button"
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      {/* Menu rendered via portal so it floats above all overflow clipping */}
+      {open && menuPosition && createPortal(
+        <div
+          ref={menuRef}
+          className={`sf-filter-dropdown-menu sf-filter-dropdown-menu-open ${dropUp ? 'sf-filter-dropdown-menu-dropup' : ''}`}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{
+            position: 'fixed',
+            top: menuPosition.top,
+            left: menuPosition.left,
+          }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={`sf-filter-dropdown-item ${opt.value === value ? 'sf-filter-dropdown-item-active' : ''}`}
+              onClick={() => {
+                onChange(opt.value)
+                setOpen(false)
+              }}
+              role="button"
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

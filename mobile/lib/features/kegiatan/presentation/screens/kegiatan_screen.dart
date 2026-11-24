@@ -30,7 +30,7 @@ class KegiatanScreen extends ConsumerStatefulWidget {
 
 class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
   String _selectedFilter =
-      'all'; // all, upcoming, ongoing, completed, cancelled
+      'all'; // all, upcoming, ongoing, completed, cancelled, archived
   List<CommunityActivity> _activities = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
@@ -56,6 +56,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
         return 'completed';
       case 'cancelled':
         return 'cancelled';
+      case 'archived':
+        return 'archived';
       default:
         return null;
     }
@@ -155,6 +157,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   _buildFilterChip('Selesai', 'completed', isDark),
                   const SizedBox(width: 8),
                   _buildFilterChip('Dibatalkan', 'cancelled', isDark),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('Diarsipkan', 'archived', isDark),
                 ],
               ),
             ),
@@ -338,6 +342,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                         backgroundColor: AppColors.infoBlue.withValues(alpha: 0.15),
                         textColor: AppColors.infoBlue,
                       ),
+                    if (act.archivedAt != null)
+                      AppBadge(
+                        label: 'Diarsipkan',
+                        backgroundColor: AppColors.lightTextMuted.withValues(alpha: 0.15),
+                        textColor: AppColors.lightTextMuted,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -423,6 +433,26 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           tooltip: 'Hapus',
                           onPressed: () =>
                               _showDeleteConfirmationDialog(context, act),
+                        ),
+                      if (act.archivedAt == null)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.archive_outlined,
+                            size: 20,
+                            color: AppColors.warning,
+                          ),
+                          tooltip: 'Arsipkan',
+                          onPressed: () => _confirmArchiveDialog(context, act),
+                        ),
+                      if (act.archivedAt != null)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.unarchive_outlined,
+                            size: 20,
+                            color: AppColors.success,
+                          ),
+                          tooltip: 'Buka dari Arsip',
+                          onPressed: () => _confirmUnarchiveDialog(context, act),
                         ),
                     ],
                   ],
@@ -590,25 +620,24 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   ),
                   const SizedBox(height: 8),
                 ],
+                if (canManage && act.status == 'cancelled' && act.archivedAt == null)
+                  const SizedBox(height: 8),
                 if (canManage && act.status != 'cancelled') ...[
+                  if (act.archivedAt != null)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _confirmUnarchiveDialog(context, act),
+                        icon: const Icon(Icons.unarchive_outlined),
+                        label: const Text('Buka dari Arsip'),
+                      ),
+                    ),
+                  if (act.archivedAt != null)
+                    const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        try {
-                          await ref
-                              .read(communityRepositoryProvider)
-                              .cancelActivity(act.id);
-                          _loadActivities();
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal membatalkan: $e')),
-                            );
-                          }
-                        }
-                      },
+                      onPressed: () => _showCancelConfirmationDialog(context, act),
                       icon: const Icon(Icons.cancel_outlined),
                       label: const Text('Batalkan Kegiatan'),
                       style: OutlinedButton.styleFrom(
@@ -616,7 +645,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  if (act.archivedAt == null)
+                    const SizedBox(height: 8),
                 ],
                 SizedBox(
                   width: double.infinity,
@@ -1324,5 +1354,119 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
       'Des',
     ];
     return m >= 1 && m <= 12 ? months[m] : '';
+  }
+
+  void _confirmArchiveDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Arsipkan Kegiatan?'),
+        content: Text(
+          'Apakah Anda yakin ingin mengarsipkan kegiatan "${act.title}"? Kegiatan akan disembunyikan dari daftar aktif.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .archiveActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal mengarsip: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Arsipkan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmUnarchiveDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Buka dari Arsip?'),
+        content: Text(
+          'Apakah Anda yakin ingin membuka kegiatan "${act.title}" dari arsip? Kegiatan akan kembali muncul di daftar aktif.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .unarchiveActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal membuka arsip: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Buka'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCancelConfirmationDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Batalkan Kegiatan?'),
+        content: Text(
+          'Apakah Anda yakin ingin membatalkan kegiatan "${act.title}"? Banner di Beranda akan dinonaktifkan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .cancelActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal membatalkan kegiatan: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Batalkan', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 }

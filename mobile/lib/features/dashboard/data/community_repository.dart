@@ -124,6 +124,14 @@ class CommunityRepository {
     await dio.delete('/api/v1/activities/$id');
   }
 
+  Future<void> archiveActivity(String id) async {
+    await dio.post('/api/v1/activities/$id/archive');
+  }
+
+  Future<void> unarchiveActivity(String id) async {
+    await dio.patch('/api/v1/activities/$id/unarchive');
+  }
+
   Future<CommunityPage<CommunityAnnouncement>> listAnnouncements({
     String? status,
     int page = 1,

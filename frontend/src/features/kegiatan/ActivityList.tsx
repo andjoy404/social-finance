@@ -19,6 +19,8 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   EyeOutlined,
+  InboxOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons'
 import {
   CommunityActivity,
@@ -26,6 +28,8 @@ import {
   apiPublishActivity,
   apiCancelActivity,
   apiDeleteActivity,
+  apiArchiveActivity,
+  apiUnarchiveActivity,
   getSessionPair,
 } from '@/app/api'
 import { CommunityImage } from '@/components/CommunityImage'
@@ -145,6 +149,32 @@ export function ActivityList() {
     }
   }
 
+  const handleArchive = async (id: string) => {
+    const session = getSessionPair()
+    if (!session?.accessToken) return
+    if (!confirm('Arsipkan kegiatan ini? Kegiatan akan disembunyikan dari daftar aktif.')) return
+
+    try {
+      await apiArchiveActivity(session.accessToken, id)
+      loadActivities()
+    } catch (err: any) {
+      setError(err?.message || 'Gagal mengarsip kegiatan')
+    }
+  }
+
+  const handleUnarchive = async (id: string) => {
+    const session = getSessionPair()
+    if (!session?.accessToken) return
+    if (!confirm('Buka kegiatan dari arsip? Kegiatan akan kembali muncul di daftar.')) return
+
+    try {
+      await apiUnarchiveActivity(session.accessToken, id)
+      loadActivities()
+    } catch (err: any) {
+      setError(err?.message || 'Gagal membuka dari arsip')
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'upcoming':
@@ -159,6 +189,8 @@ export function ActivityList() {
         return <Badge variant="default">{status}</Badge>
     }
   }
+
+  const isArchived = (act: CommunityActivity): boolean => act.archived_at != null && act.archived_at !== null && act.archived_at !== ''
 
   const filteredActivities = useMemo(() => {
     let result = activities
@@ -211,6 +243,7 @@ export function ActivityList() {
                 { value: 'ongoing', label: 'Berlangsung' },
                 { value: 'completed', label: 'Selesai' },
                 { value: 'cancelled', label: 'Dibatalkan' },
+                { value: 'archived', label: 'Diarsipkan' },
               ]}
               onChange={(v) => handleStatusFilter(v === 'semua' ? 'all' : v)}
               ariaLabel="Status kegiatan"
@@ -342,6 +375,7 @@ export function ActivityList() {
                         <td className="col-status">
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                             {getStatusBadge(act.status)}
+                            {isArchived(act) && <Badge variant="gray">Diarsipkan</Badge>}
                             {canManage && isDraft && <Badge variant="amber">DRAF</Badge>}
                             {act.show_on_banner && <Badge variant="blue">BANNER</Badge>}
                           </div>
@@ -408,6 +442,30 @@ export function ActivityList() {
                                   aria-label="Hapus"
                                 >
                                   <DeleteOutlined />
+                                </button>
+                              )}
+                              {!isArchived(act) && !isDraft && (
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  onClick={() => handleArchive(act.id)}
+                                  style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-warning)' }}
+                                  title="Arsipkan"
+                                  aria-label="Arsipkan"
+                                >
+                                  <InboxOutlined />
+                                </button>
+                              )}
+                              {isArchived(act) && (
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  onClick={() => handleUnarchive(act.id)}
+                                  style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-success)' }}
+                                  title="Buka dari Arsip"
+                                  aria-label="Buka dari Arsip"
+                                >
+                                  <FolderOpenOutlined />
                                 </button>
                               )}
                             </div>

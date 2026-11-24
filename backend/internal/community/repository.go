@@ -42,7 +42,7 @@ func (r *Repository) BeginTx(ctx context.Context) (*sql.Tx, error) {
 // Activities
 // -----------------------------------------------------------------------------
 
-func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubStatus, status string, limit, offset int) ([]Activity, int, error) {
+func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubStatus, status string, includeArchived bool, limit, offset int) ([]Activity, int, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -60,16 +60,24 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		argIdx++
 	}
 	if status != "" {
-		// Filter by DYNAMIC execution status (single source of truth):
-		// cancelled is stored; upcoming/ongoing/completed derive from starts_at/ends_at.
-		whereClause += fmt.Sprintf(` AND CASE
-			WHEN status = 'cancelled' THEN 'cancelled'
-			WHEN ends_at IS NOT NULL AND ends_at <= NOW() THEN 'completed'
-			WHEN starts_at <= NOW() THEN 'ongoing'
-			ELSE 'upcoming'
-		END = $%d`, argIdx)
-		args = append(args, status)
-		argIdx++
+		if status == "archived" {
+			// Archived filter: only show activities with archived_at set
+			whereClause += fmt.Sprintf(" AND archived_at IS NOT NULL")
+		} else {
+			// Filter by DYNAMIC execution status (single source of truth):
+			// cancelled is stored; upcoming/ongoing/completed derive from starts_at/ends_at.
+			whereClause += fmt.Sprintf(` AND CASE
+				WHEN status = 'cancelled' THEN 'cancelled'
+				WHEN ends_at IS NOT NULL AND ends_at <= NOW() THEN 'completed'
+				WHEN starts_at <= NOW() THEN 'ongoing'
+				ELSE 'upcoming'
+			END = $%d`, argIdx)
+			args = append(args, status)
+			argIdx++
+		}
+	}
+	if !includeArchived && status == "" {
+		whereClause += fmt.Sprintf(" AND archived_at IS NULL")
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM activities %s", whereClause)
@@ -81,7 +89,7 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 	query := fmt.Sprintf(`
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       created_by, updated_by, created_at, updated_at
+		       archived_at, created_by, updated_by, created_at, updated_at
 		FROM activities
 		%s
 		ORDER BY starts_at ASC, created_at DESC
@@ -100,10 +108,11 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		var a Activity
 		var desc, poster, loc, org, cBy, uBy sql.NullString
 		var endsAt sql.NullTime
+		var archivedAt sql.NullTime
 		if err := rows.Scan(
 			&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 			&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-			&cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+			&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan activity: %w", err)
 		}
@@ -122,6 +131,9 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		if org.Valid {
 			a.Organizer = &org.String
 		}
+		if archivedAt.Valid {
+			a.ArchivedAt = &archivedAt.Time
+		}
 		if cBy.Valid {
 			a.CreatedBy = &cBy.String
 		}
@@ -138,17 +150,17 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	query := `
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       created_by, updated_by, created_at, updated_at
+		       archived_at, created_by, updated_by, created_at, updated_at
 		FROM activities
 		WHERE rt_id = $1 AND id = $2
 	`
 	var a Activity
 	var desc, poster, loc, org, cBy, uBy sql.NullString
-	var endsAt sql.NullTime
+	var endsAt, archivedAt sql.NullTime
 	err := r.db(tx).QueryRowContext(ctx, query, rtID, id).Scan(
 		&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 		&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-		&cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+		&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -171,6 +183,9 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	if org.Valid {
 		a.Organizer = &org.String
 	}
+	if archivedAt.Valid {
+		a.ArchivedAt = &archivedAt.Time
+	}
 	if cBy.Valid {
 		a.CreatedBy = &cBy.String
 	}
@@ -185,16 +200,16 @@ func (r *Repository) CreateActivity(ctx context.Context, tx *sql.Tx, a *Activity
 		INSERT INTO activities (
 			rt_id, title, description, poster_url, starts_at, ends_at,
 			location, organizer, status, publication_status, show_on_banner,
-			created_by, updated_by, created_at, updated_at
+			archived_at, created_by, updated_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		a.RTID, a.Title, a.Description, a.PosterURL, a.StartsAt, a.EndsAt,
 		a.Location, a.Organizer, a.Status, a.PublicationStatus, a.ShowOnBanner,
-		a.CreatedBy,
+		a.ArchivedAt, a.CreatedBy,
 	).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt)
 }
 
@@ -249,6 +264,40 @@ func (r *Repository) CancelActivity(ctx context.Context, tx *sql.Tx, rtID, id, u
 func (r *Repository) DeleteActivity(ctx context.Context, tx *sql.Tx, rtID, id string) error {
 	query := "DELETE FROM activities WHERE rt_id = $1 AND id = $2"
 	res, err := r.db(tx).ExecContext(ctx, query, rtID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repository) ArchiveActivity(ctx context.Context, tx *sql.Tx, rtID, id, userID string) error {
+	query := `
+		UPDATE activities
+		SET archived_at = NOW(), updated_by = $3, updated_at = NOW()
+		WHERE rt_id = $1 AND id = $2
+	`
+	res, err := r.db(tx).ExecContext(ctx, query, rtID, id, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repository) UnarchiveActivity(ctx context.Context, tx *sql.Tx, rtID, id, userID string) error {
+	query := `
+		UPDATE activities
+		SET archived_at = NULL, updated_by = $3, updated_at = NOW()
+		WHERE rt_id = $1 AND id = $2 AND archived_at IS NOT NULL
+	`
+	res, err := r.db(tx).ExecContext(ctx, query, rtID, id, userID)
 	if err != nil {
 		return err
 	}

@@ -1260,6 +1260,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.With(auth.RequirePermission(pool, "activities.update")).Put("/api/v1/activities/{id}", communityH.UpdateActivity)
 		r.With(auth.RequirePermission(pool, "activities.publish")).Post("/api/v1/activities/{id}/publish", communityH.PublishActivity)
 		r.With(auth.RequirePermission(pool, "activities.cancel")).Post("/api/v1/activities/{id}/cancel", communityH.CancelActivity)
+		r.With(auth.RequirePermission(pool, "activities.archive")).Post("/api/v1/activities/{id}/archive", communityH.ArchiveActivity)
+		r.With(auth.RequirePermission(pool, "activities.archive")).Patch("/api/v1/activities/{id}/unarchive", communityH.UnarchiveActivity)
 		r.With(auth.RequirePermission(pool, "activities.delete")).Delete("/api/v1/activities/{id}", communityH.DeleteActivity)
 		r.With(auth.RequirePermission(pool, "announcements.create")).Post("/api/v1/announcements", communityH.CreateAnnouncement)
 		r.With(auth.RequirePermission(pool, "announcements.update")).Put("/api/v1/announcements/{id}", communityH.UpdateAnnouncement)

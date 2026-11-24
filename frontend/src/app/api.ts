@@ -3481,6 +3481,7 @@ export interface CommunityActivity {
   status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
   publication_status: 'draft' | 'published'
   show_on_banner: boolean
+  archived_at?: string | null
   created_by?: string | null
   updated_by?: string | null
   created_at: string
@@ -3698,6 +3699,22 @@ export async function apiCancelActivity(token: string, id: string): Promise<void
 export async function apiDeleteActivity(token: string, id: string): Promise<void> {
   await authenticatedApiRequest(BASE + `/activities/${id}`, {
     method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiArchiveActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/archive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiUnarchiveActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/unarchive`, {
+    method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })

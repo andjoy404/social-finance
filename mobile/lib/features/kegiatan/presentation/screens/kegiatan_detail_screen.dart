@@ -272,6 +272,13 @@ class _KegiatanDetailScreenState extends ConsumerState<KegiatanDetailScreen> {
                   ],
                 _statusBadge(a.status),
                 const SizedBox(height: 8),
+                if (a.archivedAt != null)
+                  AppBadge(
+                    label: 'Diarsipkan',
+                    backgroundColor: AppColors.lightTextMuted.withValues(alpha: 0.15),
+                    textColor: AppColors.lightTextMuted,
+                  ),
+                const SizedBox(height: 8),
                 Text(
                   a.title,
                   style: theme.textTheme.headlineSmall?.copyWith(
@@ -312,6 +319,13 @@ class _KegiatanDetailScreenState extends ConsumerState<KegiatanDetailScreen> {
                     Icons.people_outline,
                     'Penyelenggara',
                     a.organizer!,
+                  ),
+                if (a.archivedAt != null)
+                  _infoRow(
+                    context,
+                    Icons.archive_outlined,
+                    'Diaripkan pada',
+                    _formatDateTime(a.archivedAt!),
                   ),
               ],
             ),

@@ -203,6 +203,7 @@ export function ActivityDetail() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {getStatusBadge(activity.status)}
           {isCancelled && <Badge variant="red">Kegiatan Dibatalkan</Badge>}
+          {activity.archived_at && <Badge variant="gray">Diarsipkan</Badge>}
         </div>
 
         {activity.description && (
@@ -240,6 +241,17 @@ export function ActivityDetail() {
               <div>
                 <div style={{ fontWeight: 600 }}>Penyelenggara</div>
                 <div style={{ color: 'var(--sf-text-muted)' }}>{activity.organizer}</div>
+              </div>
+            </div>
+          )}
+          {activity.archived_at && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <ClockCircleOutlined style={{ color: 'var(--sf-accent)', marginTop: 2 }} />
+              <div>
+                <div style={{ fontWeight: 600 }}>Diaripkan pada</div>
+                <div style={{ color: 'var(--sf-text-muted)' }}>
+                  {new Date(activity.archived_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                </div>
               </div>
             </div>
           )}

@@ -81,6 +81,7 @@ class CommunityActivity {
   final String? posterUrl;
   final String status; // upcoming, ongoing, completed, cancelled
   final String publicationStatus; // draft, published
+  final DateTime? archivedAt;
   final DateTime startDate;
   final DateTime? endDate;
   final String? budgetPlanned;
@@ -103,6 +104,7 @@ class CommunityActivity {
     this.posterUrl,
     required this.status,
     required this.publicationStatus,
+    this.archivedAt,
     required this.startDate,
     this.endDate,
     this.budgetPlanned,
@@ -129,6 +131,9 @@ class CommunityActivity {
       posterUrl: json['poster_url'] as String?,
       status: json['status']?.toString() ?? 'upcoming',
       publicationStatus: json['publication_status']?.toString() ?? 'draft',
+      archivedAt: json['archived_at'] != null
+          ? DateTime.tryParse(json['archived_at'].toString())
+          : null,
       startDate: startsAt != null
           ? DateTime.tryParse(startsAt.toString()) ?? DateTime.now()
           : DateTime.now(),

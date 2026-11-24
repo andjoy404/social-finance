@@ -378,6 +378,78 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ArchiveActivity archives an existing activity.
+func (h *Handler) ArchiveActivity(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.RTID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !h.hasPermission(r.Context(), ac, "activities.archive") {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteValidationError(w, "activity id is required", nil)
+		return
+	}
+
+	err := h.svc.ArchiveActivity(r.Context(), ac.RTID, id, ac.UserID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "activity not found")
+			return
+		}
+		if errors.Is(err, ErrValidation) {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+}
+
+// UnarchiveActivity unarchives an archived activity.
+func (h *Handler) UnarchiveActivity(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.RTID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !h.hasPermission(r.Context(), ac, "activities.archive") {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteValidationError(w, "activity id is required", nil)
+		return
+	}
+
+	err := h.svc.UnarchiveActivity(r.Context(), ac.RTID, id, ac.UserID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "activity not found")
+			return
+		}
+		if errors.Is(err, ErrValidation) {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unarchived"})
+}
+
 // -----------------------------------------------------------------------------
 // Announcements Handlers
 // -----------------------------------------------------------------------------

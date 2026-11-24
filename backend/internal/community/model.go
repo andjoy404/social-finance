@@ -35,6 +35,7 @@ type Activity struct {
 	Status            string     `json:"status"`             // 'upcoming', 'ongoing', 'completed', 'cancelled'
 	PublicationStatus string     `json:"publication_status"` // 'draft', 'published'
 	ShowOnBanner      bool       `json:"show_on_banner"`
+	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
 	CreatedBy         *string    `json:"created_by,omitempty"`
 	UpdatedBy         *string    `json:"updated_by,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`

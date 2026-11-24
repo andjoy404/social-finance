@@ -641,10 +641,6 @@ input { font-family: inherit; }
 }
 
 .sf-filter-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 50;
   min-width: 120px;
   padding: 4px;
   background: var(--sf-surface);
@@ -654,27 +650,15 @@ input { font-family: inherit; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+  z-index: 1000;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition: opacity 150ms ease;
 }
 
 .sf-filter-dropdown-menu-open {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
-}
-
-/* Open upward when near viewport bottom */
-.sf-filter-dropdown-menu.sf-filter-dropdown-menu-dropup {
-  top: auto;
-  bottom: calc(100% + 4px);
-  transform: translateY(4px);
-}
-
-.sf-filter-dropdown-menu.sf-filter-dropdown-menu-dropup.sf-filter-dropdown-menu-open {
-  transform: translateY(0);
 }
 
 .sf-filter-dropdown-item {
