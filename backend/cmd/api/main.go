@@ -1131,6 +1131,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/notifications/templates/{id}", notifH.GetTemplate)
 		r.Put("/api/v1/notifications/templates/{id}", notifH.UpdateTemplate)
 		r.Patch("/api/v1/notifications/templates/{id}/toggle-active", notifH.ToggleTemplateActive)
+		r.Post("/api/v1/notifications/templates/{id}/reset", notifH.ResetTemplate)
 		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
 		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/test-push", notifH.TestPush)

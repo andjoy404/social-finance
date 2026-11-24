@@ -547,7 +547,7 @@ class _ResidentCard extends ConsumerWidget {
         ? const Color(0xFFFBBF24)
         : const Color(0xFFD97706);
     final phoneIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
-    final emailIconColor = isDark ? AppColors.info : const Color(0xFF2563EB);
+    final emailIconColor = isDark ? AppColors.infoBlue : const Color(0xFF2563EB);
 
     // Warga can see phone only from residents whose jabatan is 'keamanan'.
     // Warga can NEVER see email — only pengurus/bendahara/super_admin.
@@ -587,7 +587,7 @@ class _ResidentCard extends ConsumerWidget {
     // OWNER ('Pemilik'): violet accent
     // TENANT ('Penyewa'): blue info
     final isOwner = resident.occupancyStatus == 'Pemilik';
-    final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
+    final occupancyColor = isOwner ? AppColors.accent : AppColors.infoBlue;
 
     // Determine if this resident qualifies as Petugas Khusus for edit routing.
     // Only 'keamanan', 'operasional', and 'kebersihan' get the edit-petugas button;

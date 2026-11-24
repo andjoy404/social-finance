@@ -382,8 +382,8 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
                     if (a.imageUrl != null && a.imageUrl!.isNotEmpty)
                       AppBadge(
                         label: 'Gambar Terlampir',
-                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
-                        textColor: AppColors.info,
+                        backgroundColor: AppColors.infoBlue.withValues(alpha: 0.15),
+                        textColor: AppColors.infoBlue,
                       ),
                     if (a.deepLink != null &&
                         a.deepLink!.isNotEmpty &&
@@ -432,7 +432,7 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
                       icon: const Icon(
                         Icons.visibility_outlined,
                         size: 20,
-                        color: AppColors.info,
+                        color: AppColors.infoBlue,
                       ),
                       tooltip: 'Detail',
                       onPressed: () => context.push('/home/pengumuman/${a.id}'),

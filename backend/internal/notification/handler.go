@@ -796,6 +796,48 @@ func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ResetTemplate resets a notification template to its system defaults.
+func (h *Handler) ResetTemplate(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if strings.TrimSpace(id) == "" {
+		httpx.WriteValidationError(w, "template id is required", nil)
+		return
+	}
+
+	var in ResetTemplateInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	result, err := h.svc.ResetTemplate(r.Context(), rtID, id, in)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			httpx.WriteNotFound(w, err.Error())
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": result,
+	})
+}
+
 // ListLogs returns paginated delivery logs from notification_logs.
 func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)

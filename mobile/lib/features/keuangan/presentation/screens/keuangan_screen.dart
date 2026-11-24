@@ -840,7 +840,7 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                                     ),
                                   if (cashVal > 0)
                                     PieChartSectionData(
-                                      color: AppColors.info,
+                                      color: AppColors.infoBlue,
                                       value: cashVal,
                                       radius: 16,
                                       showTitle: false,
@@ -889,7 +889,7 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                               theme: theme,
                               isDark: isDark,
                               label: 'Tunai',
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               amount: breakdown.cashAmount,
                               percentage: breakdown.cashPercentage,
                               count: breakdown.cashCount,

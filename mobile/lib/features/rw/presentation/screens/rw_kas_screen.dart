@@ -465,10 +465,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           _buildSummaryCard(
             'Saldo Awal',
             RupiahFormatter.format(openingBal),
-            AppColors.info,
+            AppColors.infoBlue,
             Icons.flag_outlined,
             onTap: canCreate ? () => _showEditOpeningBalanceDialog(context, openingBal) : null,
-            trailing: canCreate ? const Icon(Icons.edit_outlined, size: 16, color: AppColors.info) : null,
+            trailing: canCreate ? const Icon(Icons.edit_outlined, size: 16, color: AppColors.infoBlue) : null,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
@@ -1933,7 +1933,7 @@ class RwKasTransactionCard extends StatelessWidget {
       'CASH' || 'TUNAI' => (
         label: 'Tunai',
         icon: Icons.payments_outlined,
-        color: AppColors.info,
+        color: AppColors.infoBlue,
       ),
       'TRANSFER' || 'BANK' || 'BANK_TRANSFER' || 'QRIS' => (
         label: 'Transfer',
@@ -2095,7 +2095,7 @@ class RwKasTransactionCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.info.withValues(alpha: isDark ? 0.15 : 0.08),
+                            color: AppColors.infoBlue.withValues(alpha: isDark ? 0.15 : 0.08),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -2103,7 +2103,7 @@ class RwKasTransactionCard extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w500,
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

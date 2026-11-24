@@ -1489,8 +1489,8 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                 if (hasImage)
                   AppBadge(
                     label: 'Gambar Terlampir',
-                    backgroundColor: AppColors.info.withValues(alpha: isDark ? 0.2 : 0.14),
-                    textColor: AppColors.info,
+                    backgroundColor: AppColors.infoBlue.withValues(alpha: isDark ? 0.2 : 0.14),
+                    textColor: AppColors.infoBlue,
                   ),
               ],
             ),
@@ -1531,7 +1531,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                 children: [
                   IconButton(
                     key: Key('rwNotifTplPreview_${t.id}'),
-                    icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.info),
+                    icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.infoBlue),
                     tooltip: 'Preview',
                     onPressed: () => _previewTemplate(t, canWrite),
                   ),
@@ -1541,7 +1541,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                       icon: Icon(
                         Icons.send_rounded,
                         size: 20,
-                        color: (!t.isActive || _sending) ? muted : AppColors.info,
+                        color: (!t.isActive || _sending) ? muted : AppColors.infoBlue,
                       ),
                       tooltip: 'Kirim',
                       onPressed: (!t.isActive || _sending) ? null : () => _sendTemplate(t),

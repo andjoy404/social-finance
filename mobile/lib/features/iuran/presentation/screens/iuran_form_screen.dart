@@ -1332,11 +1332,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   width: double.maxFinite,
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   decoration: BoxDecoration(
-                    color: AppColors.info.withValues(
+                    color: AppColors.infoBlue.withValues(
                       alpha: isDark ? 0.15 : 0.08,
                     ),
                     border: Border.all(
-                      color: AppColors.info.withValues(
+                      color: AppColors.infoBlue.withValues(
                         alpha: isDark ? 0.3 : 0.2,
                       ),
                     ),
@@ -1345,7 +1345,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: AppColors.info),
+                      Icon(Icons.info_outline, size: 16, color: AppColors.infoBlue),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(

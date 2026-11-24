@@ -57,7 +57,7 @@ class DataChoiceDialog extends StatelessWidget {
               icon: Icons.work_outline,
               title: 'Petugas',
               subtitle: 'Tambahkan petugas khusus (keamanan/kebersihan)',
-              color: AppColors.info,
+              color: AppColors.infoBlue,
               isDark: isDark,
               onTap: () => onChoice('petugas'),
             ),

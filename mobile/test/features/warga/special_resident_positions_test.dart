@@ -55,7 +55,7 @@ void main() {
       expect(keamanan.jabatanColor, equals(AppColors.danger));
       expect(operasional.jabatanColor, equals(AppColors.teal));
       expect(kebersihan.jabatanColor, equals(AppColors.chartreuse));
-      expect(anggotaRW.jabatanColor, equals(AppColors.info));
+      expect(anggotaRW.jabatanColor, equals(AppColors.infoBlue));
     });
 
     testWidgets('SpecialResidentCreateScreen dropdown displays Keamanan, Kebersihan, and Anggota RW', (tester) async {

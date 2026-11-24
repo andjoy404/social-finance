@@ -242,7 +242,7 @@ void main() {
                       children: [
                         TextSpan(
                           text: 'Bank Mandiri (Persero) Tbk.  •  ',
-                          style: TextStyle(fontSize: 12, color: AppColors.info),
+                          style: TextStyle(fontSize: 12, color: AppColors.infoBlue),
                         ),
                         TextSpan(
                           text: '1234567890123456',

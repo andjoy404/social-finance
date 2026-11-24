@@ -335,8 +335,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     if (act.posterUrl != null && act.posterUrl!.isNotEmpty)
                       AppBadge(
                         label: 'Gambar Terlampir',
-                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
-                        textColor: AppColors.info,
+                        backgroundColor: AppColors.infoBlue.withValues(alpha: 0.15),
+                        textColor: AppColors.infoBlue,
                       ),
                   ],
                 ),
@@ -398,7 +398,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                       icon: const Icon(
                         Icons.visibility_outlined,
                         size: 20,
-                        color: AppColors.info,
+                        color: AppColors.infoBlue,
                       ),
                       tooltip: 'Detail',
                       onPressed: () => context.push('/home/kegiatan/${act.id}'),

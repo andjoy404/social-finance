@@ -61,6 +61,7 @@ import {
   getNotificationBadgeVariant,
   sortSystemTypesLast,
 } from './notificationSeverity'
+import { apiResetNotificationTemplate } from '@/app/api'
 import { SystemEventSelect } from './SystemEventSelect'
 import { TriggerCategoryBadge } from './TriggerCategoryBadge'
 
@@ -182,6 +183,7 @@ export function NotificationScreen() {
     is_active: true,
   })
   const [deletingTemplate, setDeletingTemplate] = useState<ApiNotificationTemplate | null>(null)
+  const [resettingTemplate, setResettingTemplate] = useState<ApiNotificationTemplate | null>(null)
   const [previewItem, setPreviewItem] = useState<{
     id?: string
     title: string
@@ -805,6 +807,41 @@ const knownEventNames: Record<string, string> = {
     }
   }
 
+  const handleResetSubmit = async () => {
+    if (!resettingTemplate) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    setFormSubmitting(true)
+    try {
+      const result = await apiResetNotificationTemplate(token, resettingTemplate.id)
+      setSuccessMsg(result.message || 'Template berhasil direset ke pengaturan default')
+      setResettingTemplate(null)
+      // Update templates list with new defaults
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === resettingTemplate.id
+            ? { ...t, title: result.title, body: result.body, image_url: result.image_url, variables: result.allowed_variables }
+            : t
+        )
+      )
+      // Also update editing form if editing this template
+      if (editingTemplate?.id === resettingTemplate.id) {
+        setEditForm((prev) => ({
+          ...prev,
+          title: result.title,
+          body: result.body,
+          image_url: result.image_url || '',
+        }))
+      }
+      await loadData()
+    } catch (err: any) {
+      setError(err?.message || 'Gagal mereset template')
+    } finally {
+      setFormSubmitting(false)
+    }
+  }
+
   // Active variables for create form
   const createAllowedVars = useMemo(() => {
     const found = systemTypes.find((t) => t.event_type === createForm.event_type)
@@ -993,7 +1030,6 @@ const knownEventNames: Record<string, string> = {
                           {st.name}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                          <Badge variant="blue">FCM PUSH</Badge>
                           <TriggerCategoryBadge eventType={st.event_type} />
                         </div>
                       </div>
@@ -1056,33 +1092,18 @@ const knownEventNames: Record<string, string> = {
                             Kustomisasi
                           </button>
                         )}
-                      </div>
-                      {(st.event_type === 'waste_truck_arrival' || st.event_type === 'manual_push') && (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                          {isSuperAdmin && (
-                            <button
-                              type="button"
-                              className="sf-btn-outline"
-                              style={{ flex: 1, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                              onClick={() => handleTestPush(st.event_type, st.default_title, st.default_body)}
-                              disabled={testPushSubmitting}
-                              title="Uji kirim hanya ke perangkat Super Admin"
-                            >
-                              <ExperimentOutlined /> {testPushSubmitting ? 'Menguji...' : 'Test Notifikasi'}
-                            </button>
-                          )}
+                        {isBySystemTriggerEvent(st.event_type) && isAdmin && (
                           <button
                             type="button"
                             className="sf-btn-primary"
-                            style={{ flex: 1, fontSize: 12, background: 'var(--sf-success)', borderColor: 'var(--sf-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                            onClick={() => setConfirmBroadcastItem({ event_type: st.event_type, title: st.default_title, body: st.default_body })}
-                            disabled={broadcastSubmitting}
-                            title="Kirim notifikasi siaran ke seluruh warga RT"
+                            style={{ flex: 1 }}
+                            onClick={() => handleOpenCreate(st.event_type)}
                           >
-                            <SendOutlined /> Kirim Notifikasi
+                            Kustomisasi
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
+
                     </div>
                   </div>
                 ))}
@@ -1911,6 +1932,32 @@ const knownEventNames: Record<string, string> = {
                   </div>
                 </div>
               )}
+              {/* Reset button in Create Modal */}
+              {createForm.event_type && (
+                <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    style={{ background: '#f59e0b', borderColor: '#f59e0b', fontSize: 12 }}
+                    onClick={() => {
+                      const found = systemTypes.find((t) => t.event_type === createForm.event_type)
+                      if (found) {
+                        setCreateForm({
+                          event_type: createForm.event_type,
+                          name: '',
+                          title: found.default_title,
+                          body: found.default_body,
+                          image_url: '',
+                        })
+                      }
+                    }}
+                    disabled={formSubmitting}
+                    title="Kembalikan template ke pengaturan default sistem"
+                  >
+                    <ReloadOutlined style={{ marginRight: 4 }} /> Atur Ulang
+                  </button>
+                </div>
+              )}
             </ModalBody>
             <ModalFooter>
               <button
@@ -1927,7 +1974,7 @@ const knownEventNames: Record<string, string> = {
                 className="sf-btn-primary"
                 disabled={formSubmitting}
               >
-                {formSubmitting ? 'Menyimpan...' : 'Simpan Template'}
+                {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
             </ModalFooter>
           </form>
@@ -2096,30 +2143,13 @@ const knownEventNames: Record<string, string> = {
                   <ExperimentOutlined /> {testPushSubmitting ? 'Menguji...' : 'Test Notifikasi'}
                 </button>
               )}
-              {(editingTemplate.event_type === 'waste_truck_arrival' || editingTemplate.event_type === 'manual_push') && (
-                <button
-                  type="button"
-                  className="sf-btn-primary"
-                  style={{ background: 'var(--sf-success)', borderColor: 'var(--sf-success)' }}
-                  onClick={() => {
-                    setConfirmBroadcastItem({
-                      event_type: editingTemplate.event_type,
-                      title: editForm.title,
-                      body: editForm.body,
-                      image_url: editForm.image_url || undefined,
-                    })
-                  }}
-                  disabled={formSubmitting}
-                >
-                  <SendOutlined /> Kirim Notifikasi
-                </button>
-              )}
+
               <button
                 type="submit"
                 className="sf-btn-primary"
                 disabled={formSubmitting}
               >
-                {formSubmitting ? 'Menyimpan...' : 'Simpan Template'}
+                {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
             </ModalFooter>
           </form>
@@ -2155,6 +2185,48 @@ const knownEventNames: Record<string, string> = {
               disabled={formSubmitting}
             >
               {formSubmitting ? 'Menghapus...' : 'Ya, Hapus'}
+            </button>
+          </ModalFooter>
+        </Modal>
+      )}
+
+      {/* MODAL: Reset Template */}
+      {resettingTemplate && (
+        <Modal open={!!resettingTemplate} onClose={() => setResettingTemplate(null)}>
+          <ModalHeader title="Reset Template" onClose={() => setResettingTemplate(null)} />
+          <ModalBody>
+            <div style={{ fontSize: 14, color: 'var(--sf-text)', marginBottom: 12 }}>
+              Apakah Anda yakin ingin mereset template <strong>"{resettingTemplate.name}"</strong>?
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--sf-text)', marginBottom: 10 }}>
+              Template ini akan dikembalikan ke pengaturan default sistem:
+            </div>
+            <ul style={{ fontSize: 13, color: 'var(--sf-text-muted)', paddingLeft: 20, marginBottom: 12, lineHeight: 1.6 }}>
+              <li>Judul dan isi pesan akan dikembalikan ke default</li>
+              <li>Gambar notifikasi akan dihapus</li>
+              <li>Variabel kustom akan dihapus</li>
+            </ul>
+            <div style={{ fontSize: 12, color: 'var(--sf-warning)', fontStyle: 'italic' }}>
+              Nama template tetap dipertahankan. Perubahan ini tidak dapat dibatalkan.
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <button
+              type="button"
+              className="sf-btn-outline"
+              onClick={() => setResettingTemplate(null)}
+              disabled={formSubmitting}
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              className="sf-btn-primary"
+              style={{ background: 'var(--sf-warning)', borderColor: 'var(--sf-warning)', color: '#000' }}
+              onClick={handleResetSubmit}
+              disabled={formSubmitting}
+            >
+              {formSubmitting ? 'Merestor...' : 'Ya, Reset'}
             </button>
           </ModalFooter>
         </Modal>

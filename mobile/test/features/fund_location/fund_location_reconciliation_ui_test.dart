@@ -200,7 +200,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify the reconciliation card has a blue-tinted border.
-      // The code uses `AppColors.info.withValues(alpha: 0.5)` which
+      // The code uses `AppColors.infoBlue.withValues(alpha: 0.5)` which
       // produces a Color with different numeric value, so we check
       // the red component is lower than green/blue (blue-dominant).
       final containers = tester.widgetList<Container>(find.byType(Container));

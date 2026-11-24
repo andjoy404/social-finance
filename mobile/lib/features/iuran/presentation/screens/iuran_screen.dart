@@ -1050,8 +1050,8 @@ class _IuranCard extends StatelessWidget {
                     children: [
                       AppBadge(
                         label: bill.iuranType,
-                        textColor: AppColors.info,
-                        backgroundColor: AppColors.info
+                        textColor: AppColors.infoBlue,
+                        backgroundColor: AppColors.infoBlue
                             .withValues(alpha: isDark ? 0.25 : 0.12),
                       ),
                       const SizedBox(height: 6),

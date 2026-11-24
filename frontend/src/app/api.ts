@@ -2023,6 +2023,41 @@ export async function apiDeleteNotificationTemplate(token: string, id: string): 
   }
 }
 
+export async function apiResetNotificationTemplate(
+  token: string,
+  id: string,
+): Promise<{
+  id: string
+  name: string
+  title: string
+  body: string
+  allowed_variables: string[]
+  image_url: string | null
+  message: string
+}> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}/reset`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep_name: true }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to reset template')
+  }
+  const body = await json<{ data: {
+    id: string
+    name: string
+    title: string
+    body: string
+    allowed_variables: string[]
+    image_url: string | null
+    message: string
+  } }>(res)
+  if (!body) throw new Error('Invalid API response')
+  return body.data
+}
+
 export async function apiGetNotificationLogs(
   token: string,
   page = 1,

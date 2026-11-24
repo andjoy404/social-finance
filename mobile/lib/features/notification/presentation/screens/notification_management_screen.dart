@@ -706,6 +706,51 @@ class _NotificationManagementScreenState
     }
   }
 
+  void _showResetTemplateDialog(NotificationTemplate template) {
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Atur Ulang Template'),
+          content: Text(
+            'Apakah Anda yakin ingin mengatur ulang template "${template.name}" ke pengaturan default sistem? Perubahan ini akan mengembalikan pesan ke format asli.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  final repo = ref.read(notificationRepositoryProvider);
+                  await repo.deleteTemplate(template.id);
+                  ref.invalidate(notificationTemplatesProvider);
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Template berhasil diatur ulang ke default'),
+                    ),
+                  );
+                } catch (e) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal mengatur ulang template: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Atur Ulang'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _showAddEditTemplateDialog({
     NotificationTemplate? template,
     String? defaultEventType,
@@ -1379,6 +1424,53 @@ class _NotificationManagementScreenState
                         const SizedBox(height: 16),
                       ],
 
+                      // Reset button (create mode only)
+                      if (!isEditing && selectedEvent.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              final match = systemTypes?.firstWhere(
+                                (s) => s.eventType == selectedEvent,
+                                orElse: () => const SystemNotificationType(
+                                  eventType: '',
+                                  name: '',
+                                  trigger: '',
+                                  recipientsRule: '',
+                                  defaultTitle: '',
+                                  defaultBody: '',
+                                  allowedVariables: [],
+                                ),
+                              );
+                              if (match != null && match.eventType.isNotEmpty) {
+                                setSheetState(() {
+                                  nameController.text = 'Template ${match.name}';
+                                  titleController.text = match.defaultTitle;
+                                  bodyController.text = match.defaultBody;
+                                  imageController.text = '';
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Template berhasil direset ke default sistem'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('Atur Ulang'),
+                            style: TextButton.styleFrom(
+                              backgroundColor: AppColors.warning,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+
                       // Actions
                       Row(
                         children: [
@@ -1780,13 +1872,6 @@ class _NotificationManagementScreenState
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.end,
                                             children: [
-                                              const AppBadge(
-                                                label: 'FCM PUSH',
-                                                backgroundColor:
-                                                    AppColors.accent,
-                                                textColor: Colors.white,
-                                              ),
-                                              const SizedBox(height: 4),
                                               _buildTriggerCategoryBadge(
                                                 st.eventType,
                                                 isDark,
@@ -1925,12 +2010,10 @@ class _NotificationManagementScreenState
                                         ),
                                       ],
                                       const SizedBox(height: 12),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          SizedBox(
-                                            width: 135,
+                                          Expanded(
                                             child: ElevatedButton(
                                               onPressed: () =>
                                                   _showPreviewBanner(
@@ -1939,7 +2022,7 @@ class _NotificationManagementScreenState
                                                     eventName: st.name,
                                                   ),
                                               style: ElevatedButton.styleFrom(
-                                                backgroundColor: AppColors.info,
+                                                backgroundColor: AppColors.infoBlue,
                                                 foregroundColor: Colors.white,
                                                 padding:
                                                     const EdgeInsets.symmetric(
@@ -1948,17 +2031,14 @@ class _NotificationManagementScreenState
                                                     ),
                                               ),
                                               child: const Text(
-                                                'Preview Banner',
+                                                'Preview',
                                               ),
                                             ),
                                           ),
-                                          if (!isBySystemTriggerEvent(
-                                            st.eventType,
-                                            apiTriggerCategory:
-                                                st.triggerCategory,
-                                          ))
-                                            SizedBox(
-                                              width: 135,
+                                          const SizedBox(width: 8),
+                                          // Kustomisasi: show for all events if isAdmin
+                                          if (isAdmin)
+                                            Expanded(
                                               child: ElevatedButton(
                                                 onPressed: () =>
                                                     _showAddEditTemplateDialog(
@@ -1985,69 +2065,39 @@ class _NotificationManagementScreenState
                                             ),
                                         ],
                                       ),
-                                      if (st.eventType == 'manual_push' ||
-                                          (isSuperAdmin &&
-                                              st.supportsTest)) ...[
+                                      // Test Notifikasi: only for super_admin + supportsTest
+                                      if (isSuperAdmin && st.supportsTest) ...[
                                         const SizedBox(height: 8),
                                         Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
-                                            if (isSuperAdmin && st.supportsTest)
-                                              SizedBox(
-                                                width: 135,
-                                                child: OutlinedButton.icon(
-                                                  onPressed: () =>
-                                                      _handleTestPush(
-                                                        eventType: st.eventType,
-                                                        title: st.defaultTitle,
-                                                        body: st.defaultBody,
-                                                      ),
-                                                  icon: const Icon(
-                                                    Icons.send_outlined,
-                                                    size: 16,
-                                                  ),
-                                                  label: const Text(
-                                                    'Test Notifikasi',
-                                                  ),
-                                                  style:
-                                                      OutlinedButton.styleFrom(
-                                                        foregroundColor:
-                                                            AppColors.info,
-                                                        side: const BorderSide(
-                                                          color: AppColors.info,
-                                                        ),
-                                                      ),
+                                            SizedBox(
+                                              width: 135,
+                                              child: OutlinedButton.icon(
+                                                onPressed: () =>
+                                                    _handleTestPush(
+                                                      eventType: st.eventType,
+                                                      title: st.defaultTitle,
+                                                      body: st.defaultBody,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.send_outlined,
+                                                  size: 16,
                                                 ),
-                                              ),
-                                            if (st.eventType == 'manual_push')
-                                              SizedBox(
-                                                width: 135,
-                                                child: ElevatedButton.icon(
-                                                  onPressed: () =>
-                                                      _confirmSendBroadcastDialog(
-                                                        eventType: st.eventType,
-                                                        title: st.defaultTitle,
-                                                        body: st.defaultBody,
-                                                      ),
-                                                  icon: const Icon(
-                                                    Icons.campaign_outlined,
-                                                    size: 16,
-                                                  ),
-                                                  label: const Text(
-                                                    'Kirim Notifikasi',
-                                                    softWrap: true,
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                        backgroundColor:
-                                                            AppColors.success,
-                                                        foregroundColor:
-                                                            Colors.white,
-                                                      ),
+                                                label: const Text(
+                                                  'Test Notifikasi',
                                                 ),
+                                                style:
+                                                    OutlinedButton.styleFrom(
+                                                      foregroundColor:
+                                                          AppColors.infoBlue,
+                                                      side: const BorderSide(
+                                                        color: AppColors.infoBlue,
+                                                      ),
+                                                    ),
                                               ),
+                                            ),
                                           ],
                                         ),
                                       ],
@@ -2294,11 +2344,11 @@ class _NotificationManagementScreenState
                                                   AppBadge(
                                                     label: 'Gambar Terlampir',
                                                     backgroundColor: AppColors
-                                                        .info
+                                                        .infoBlue
                                                         .withValues(
                                                           alpha: 0.15,
                                                         ),
-                                                    textColor: AppColors.info,
+                                                    textColor: AppColors.infoBlue,
                                                   ),
                                               ],
                                             ),
@@ -2344,7 +2394,7 @@ class _NotificationManagementScreenState
                                                     icon: const Icon(
                                                       Icons.send_outlined,
                                                       size: 20,
-                                                      color: AppColors.info,
+                                                      color: AppColors.infoBlue,
                                                     ),
                                                     tooltip:
                                                         'Test Notifikasi (Super Admin)',
@@ -2382,9 +2432,9 @@ class _NotificationManagementScreenState
                                                   icon: const Icon(
                                                     Icons.preview_rounded,
                                                     size: 20,
-                                                    color: AppColors.info,
+                                                    color: AppColors.infoBlue,
                                                   ),
-                                                  tooltip: 'Preview Banner',
+                                                  tooltip: 'Preview',
                                                   onPressed: () =>
                                                       _showPreviewBanner(
                                                         title: tmpl.title,
@@ -2770,7 +2820,7 @@ class _NotificationManagementScreenState
                             icon: const Icon(
                               Icons.preview_rounded,
                               size: 20,
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                             ),
                             tooltip: 'Preview Notifikasi',
                             onPressed: () {

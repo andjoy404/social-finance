@@ -683,7 +683,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       text: '${loc.bankName}  •  ',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppColors.info,
+                        color: AppColors.infoBlue,
                       ),
                     ),
                     TextSpan(
@@ -2176,7 +2176,7 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
     }
     if (widget.report.status == 'MATCH_WITH_NOTES' ||
         widget.report.status == 'Cocok dengan catatan') {
-      return AppColors.info;
+      return AppColors.infoBlue;
     }
     return AppColors.danger;
   }

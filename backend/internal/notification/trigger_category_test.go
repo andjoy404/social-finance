@@ -27,10 +27,6 @@ func TestTriggerCategoryClassification(t *testing.T) {
 		EventBillCreated:       "Tagihan Iuran Baru",
 		EventPaymentSubmitted:  "Pembayaran Iuran Masuk",
 		EventPaymentVerified:   "Verifikasi Pembayaran Iuran",
-		EventActivityCreated:   "Kegiatan Baru Diterbitkan",
-		EventActivityUpdated:   "Kegiatan Diperbarui",
-		EventActivityCancelled: "Kegiatan Dibatalkan",
-		EventActivityCompleted: "Kegiatan Selesai",
 	}
 	terjadwal := map[string]string{
 		EventPaymentReminder:    "Pengingat Pembayaran Iuran",
@@ -41,6 +37,16 @@ func TestTriggerCategoryClassification(t *testing.T) {
 	manualTrigger := map[string]string{
 		EventWasteTruckArrival: "Kedatangan Mobil Pengangkut Sampah",
 		EventManualPush:        "Pengumuman Warga Manual",
+		EventActivityCreated:   "Kegiatan Baru Diterbitkan",
+		EventActivityUpdated:   "Kegiatan Diperbarui",
+		EventActivityCancelled: "Kegiatan Dibatalkan",
+		EventActivityCompleted: "Kegiatan Selesai",
+		EventPaketReceived:     "Titipan Paket Masuk",
+		EventPaketPickedUp:     "Paket Telah Diambil",
+		EventPatrolBundleSent:  "Laporan Patroli Wilayah",
+		EventCorrectionSubmitted: "Pengajuan Koreksi Absensi",
+		EventRWCashIn:          "Kas Masuk RW",
+		EventRWCashOut:         "Kas Keluar RW",
 	}
 
 	for eventType, name := range bySystem {
@@ -71,6 +77,9 @@ func TestTriggerCategoryClassification(t *testing.T) {
 			require.False(t, IsFixedSystemEvent(eventType))
 			st := map[string]SystemNotificationType{}
 			for _, tp := range SystemNotificationTypes {
+				st[tp.EventType] = tp
+			}
+			for _, tp := range RWSystemNotificationTypes {
 				st[tp.EventType] = tp
 			}
 			require.Equal(t, TriggerCategoryManualTrigger, st[eventType].TriggerCategory)

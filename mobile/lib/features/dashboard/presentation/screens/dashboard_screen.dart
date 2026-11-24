@@ -909,7 +909,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return AppColors.accent;
       case 'wakil_ketua':
       case 'wakil_ketua_rt':
-        return AppColors.info;
+        return AppColors.infoBlue;
       case 'sekretaris':
       case 'sekretaris_rt':
         return AppColors.success;

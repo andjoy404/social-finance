@@ -55,13 +55,6 @@ const TRIGGER_CATEGORY_BY_SYSTEM_EVENTS = [
   'iuran_bill_created',
   'iuran_payment_submitted',
   'iuran_payment_verified',
-  'activity_created',
-  'activity_updated',
-  'activity_cancelled',
-  'activity_completed',
-  'paket_received',
-  'paket_picked_up',
-  'patrol_bundle_submitted',
 ] as const
 
 const TRIGGER_CATEGORY_TERJADWAL_EVENTS = [
@@ -77,6 +70,13 @@ const TRIGGER_CATEGORY_MANUAL_EVENTS = [
   'rw_cash_in',
   'rw_cash_out',
   'correction_submitted',
+  'activity_created',
+  'activity_updated',
+  'activity_cancelled',
+  'activity_completed',
+  'paket_received',
+  'paket_picked_up',
+  'patrol_bundle_submitted',
 ] as const
 
 /**
@@ -116,10 +116,10 @@ export function getNotificationTriggerCategoryLabel(category: NotificationTrigge
 
 export function getNotificationTriggerCategoryVariant(
   category: NotificationTriggerCategory,
-): 'blue' | 'amber' | 'violet' {
+): 'red' | 'amber' | 'violet' {
   switch (category) {
     case 'by_system':
-      return 'blue'
+      return 'red'
     case 'terjadwal':
       return 'amber'
     case 'manual_trigger':

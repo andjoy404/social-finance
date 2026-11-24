@@ -167,7 +167,7 @@ class PublicRekeningList extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                           ),
                         ),
                         const SizedBox(height: 2),

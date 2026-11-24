@@ -283,7 +283,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(msg),
-              backgroundColor: isPending ? AppColors.info : AppColors.success,
+              backgroundColor: isPending ? AppColors.infoBlue : AppColors.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.base),
@@ -680,12 +680,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       backgroundColor: currentBill.isMultiMonthDues
                           ? AppColors.accent.withValues(alpha: 0.15)
                           : (currentBill.isVoluntaryDues
-                                ? AppColors.info.withValues(alpha: 0.15)
+                                ? AppColors.infoBlue.withValues(alpha: 0.15)
                                 : AppColors.lightSuccessSoft),
                       textColor: currentBill.isMultiMonthDues
                           ? AppColors.accent
                           : (currentBill.isVoluntaryDues
-                                ? AppColors.info
+                                ? AppColors.infoBlue
                                 : AppColors.success),
                     ),
                   ],
@@ -760,7 +760,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                               label: const Text('Tunai'),
                               icon: const Icon(
                                 Icons.payments_outlined,
-                                color: AppColors.info,
+                                color: AppColors.infoBlue,
                               ),
                             ),
                             ButtonSegment(
@@ -1185,7 +1185,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 bill.isVoluntaryDues ? 'Sukarela' : formatRupiah(totalAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: bill.isVoluntaryDues
-                      ? AppColors.info
+                      ? AppColors.infoBlue
                       : AppColors.accent,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1462,7 +1462,7 @@ class _RekeningBar extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                           ),
                         ),
                         const SizedBox(height: 2),

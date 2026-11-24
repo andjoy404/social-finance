@@ -1634,7 +1634,7 @@ class _HouseholdCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final isOwner = household.occupancyType.trim().toUpperCase() == 'OWNER';
-    final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
+    final occupancyColor = isOwner ? AppColors.accent : AppColors.infoBlue;
     final occupiedCount = household.residentCount;
     final occupancyLabel = isOwner ? 'Pemilik' : 'Penyewa';
     final homeIconColor = isDark

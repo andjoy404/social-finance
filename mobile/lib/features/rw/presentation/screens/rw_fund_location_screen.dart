@@ -426,7 +426,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                   context,
                   'Rekening Bank',
                   RupiahFormatter.format(totals['rekening']?.toInt() ?? 0),
-                  AppColors.info,
+                  AppColors.infoBlue,
                   Icons.account_balance,
                   '${_locations.where((l) => l.category == 'rekening' && l.isActive).length} lokasi',
                 ),
@@ -1076,7 +1076,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
               _buildReconcileRow(
                 'Nama Bank:',
                 loc.bankName ?? '—',
-                valueColor: AppColors.info,
+                valueColor: AppColors.infoBlue,
               ),
               _buildReconcileRow(
                 'No. Rekening:',
@@ -2293,7 +2293,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                             badgeColor = AppColors.danger;
                             break;
                           default:
-                            badgeColor = AppColors.info;
+                            badgeColor = AppColors.infoBlue;
                         }
                         final badgeStyle = RwBadgeStyle(
                           background: badgeColor.withValues(

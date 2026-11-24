@@ -676,7 +676,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
             label: 'SALDO BERSIH',
             period: periodLabel,
             value: _isLoading && _data == null ? '...' : netStr,
-            color: AppColors.info,
+            color: AppColors.infoBlue,
             icon: Icons.account_balance_outlined,
             isSaldoBersih: true,
           ),
@@ -975,7 +975,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
           child: _buildStatItem(context, (_data?.totalRts ?? 0).toString(), 'Total RT', AppColors.accent),
         ),
         Expanded(
-          child: _buildStatItem(context, (_data?.transactionCount ?? 0).toString(), 'Transaksi', AppColors.info,
+          child: _buildStatItem(context, (_data?.transactionCount ?? 0).toString(), 'Transaksi', AppColors.infoBlue,
               onTap: () => context.push('/rw/${widget.rwId}/keuangan?tab=kas')),
         ),
         Expanded(

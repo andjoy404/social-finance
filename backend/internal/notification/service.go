@@ -37,6 +37,7 @@ type Service interface {
 	UpdateTemplate(ctx context.Context, rtID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
+	ResetTemplate(ctx context.Context, rtID, id string, in ResetTemplateInput) (*ResetTemplateResult, error)
 	ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, eventType, status string, page, pageSize int) ([]NotificationLogEntry, int, error)
 	ListManagementHistory(ctx context.Context, ac *auth.AuthContext, rtID, category string, page, pageSize int) ([]NotificationLogEntry, int, error)
 	GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string, canManage bool) (*NotificationLogEntry, error)
@@ -1068,7 +1069,13 @@ func orderedSystemTypes(types []SystemNotificationType) []SystemNotificationType
 }
 
 func (s *service) GetSystemTypes() []SystemNotificationType {
-	return orderedSystemTypes(SystemNotificationTypes)
+	allTypes := make([]SystemNotificationType, 0, len(SystemNotificationTypes)+len(RWSystemNotificationTypes))
+	allTypes = append(allTypes, SystemNotificationTypes...)
+	allTypes = append(allTypes, RWSystemNotificationTypes...)
+	for i := range allTypes {
+		allTypes[i].TriggerCategory = TriggerCategoryForEvent(allTypes[i].EventType)
+	}
+	return orderedSystemTypes(allTypes)
 }
 
 func findSystemType(eventType string) *SystemNotificationType {
@@ -1252,6 +1259,58 @@ func (s *service) DeleteTemplate(ctx context.Context, rtID, id string) error {
 		return errors.New("template notifikasi sistem tetap tidak dapat dihapus")
 	}
 	return s.repo.DeleteTemplate(ctx, rtID, id)
+}
+
+func (s *service) ResetTemplate(ctx context.Context, rtID, id string, in ResetTemplateInput) (*ResetTemplateResult, error) {
+	existing, err := s.repo.GetTemplateByID(ctx, rtID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("template tidak ditemukan")
+	}
+
+	// Only customizable templates can be reset
+	if IsFixedSystemEvent(existing.EventType) {
+		return nil, errors.New("template notifikasi sistem tetap tidak dapat direset")
+	}
+
+	sysType := findSystemType(existing.EventType)
+	if sysType == nil {
+		return nil, errors.New("jenis event tidak valid")
+	}
+
+	// Build new UpdateTemplateInput from system defaults
+	title := sysType.DefaultTitle
+	body := sysType.DefaultBody
+	var imageURL *string
+
+	// If the system type supports image, reset image_url to nil
+	if sysType.SupportsImage {
+		imageURL = nil
+	} else {
+		imageURL = nil // always reset image for non-image events too
+	}
+
+	_, err = s.repo.UpdateTemplate(ctx, rtID, id, UpdateTemplateInput{
+		Title:    title,
+		Body:     body,
+		ImageURL: imageURL,
+		Name:     existing.Name, // preserve user-assigned name
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ResetTemplateResult{
+		ID:               id,
+		Name:             existing.Name,
+		Title:            title,
+		Body:             body,
+		AllowedVariables: sysType.AllowedVariables,
+		ImageURL:         imageURL,
+		Message:          "Template berhasil direset ke pengaturan default",
+	}, nil
 }
 
 // ListRWTemplates lists notification templates scoped to an RW.

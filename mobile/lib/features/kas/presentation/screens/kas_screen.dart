@@ -682,17 +682,17 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     Container(
                       padding: const EdgeInsets.all(AppSpacing.sm),
                       decoration: BoxDecoration(
-                        color: AppColors.info.withValues(alpha: 0.12),
+                        color: AppColors.infoBlue.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
-                          color: AppColors.info.withValues(alpha: 0.3),
+                          color: AppColors.infoBlue.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Text(
                         'Mengubah saldo awal memengaruhi saldo akhir dan riwayat neraca periode ini.',
                         style: Theme.of(
                           context,
-                        ).textTheme.bodySmall?.copyWith(color: AppColors.info),
+                        ).textTheme.bodySmall?.copyWith(color: AppColors.infoBlue),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -1446,7 +1446,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                           child: SummaryChip(
                             label: 'Saldo Awal',
                             value: RupiahFormatter.format(openingBalance),
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                             icon: Icons.flag_outlined,
                             isEditable: canWrite,
                             onEdit: () =>
@@ -1455,7 +1455,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                               context: context,
                               label: 'Saldo Awal',
                               value: RupiahFormatter.format(openingBalance),
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               icon: Icons.flag_outlined,
                               subtitle: 'Saldo awal pada periode aktif.',
                             ),
@@ -1522,7 +1522,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             label: 'Mutasi Bersih',
                             value:
                                 '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                             icon: netMovement >= 0
                                 ? Icons.arrow_downward
                                 : Icons.arrow_upward,
@@ -1530,7 +1530,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                               context: context,
                               label: 'Mutasi Bersih',
                               value: '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               icon: netMovement >= 0 ? Icons.arrow_downward : Icons.arrow_upward,
                               subtitle: 'Selisih total penerimaan dikurangi total pengeluaran.',
                             ),
@@ -1821,7 +1821,7 @@ class KasTransactionCard extends StatelessWidget {
       'CASH' || 'TUNAI' => (
         label: 'Tunai',
         icon: Icons.payments_outlined,
-        color: AppColors.info,
+        color: AppColors.infoBlue,
       ),
       'TRANSFER' || 'BANK' || 'BANK_TRANSFER' || 'QRIS' => (
         label: 'Transfer',
@@ -2029,7 +2029,7 @@ class KasTransactionCard extends StatelessWidget {
                       if (showIplBadge) ...[
                         _SmallBadge(
                           label: 'IPL',
-                          color: AppColors.info,
+                          color: AppColors.infoBlue,
                           isDark: isDark,
                         ),
                         const SizedBox(width: 4),
@@ -2038,7 +2038,7 @@ class KasTransactionCard extends StatelessWidget {
                       if (isSukarela && sukarelaName.isNotEmpty) ...[
                         _SmallBadge(
                           label: sukarelaName,
-                          color: AppColors.info,
+                          color: AppColors.infoBlue,
                           isDark: isDark,
                         ),
                         const SizedBox(width: 4),
