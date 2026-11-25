@@ -44,8 +44,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
         final now = DateTime.now();
         final currentWarga = ref.read(iuranSelectedPeriodeProvider);
         if (currentWarga.isEmpty) {
-          ref.read(iuranSelectedPeriodeProvider.notifier).state =
-              '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+          ref.read(iuranSelectedPeriodeProvider.notifier).state = '${now.year}';
         }
         final currentSaya = ref.read(iuranSayaSelectedPeriodeProvider);
         if (currentSaya.isEmpty) {
@@ -534,7 +533,7 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
                             : AppColors.lightSurface,
                         items: [
                           const DropdownMenuItem(value: null, child: Text('Semua')),
-                          const DropdownMenuItem(value: 'pending', child: Text('Menunggu')),
+                          const DropdownMenuItem(value: 'pending', child: Text('Tertunda')),
                           const DropdownMenuItem(value: 'approved', child: Text('Disetujui')),
                           const DropdownMenuItem(value: 'rejected', child: Text('Ditolak')),
                         ],
@@ -733,6 +732,7 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
                         return _IuranCard(
                           bill: filtered[index],
                           showHouseholdName: _shouldShowHouseholdName(ref),
+                          highlightPending: !widget.isMyBills,
                         );
                       },
                     ),
@@ -984,13 +984,19 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
 class _IuranCard extends StatelessWidget {
   final IuranBill bill;
   final bool showHouseholdName;
+  final bool highlightPending;
 
-  const _IuranCard({required this.bill, required this.showHouseholdName});
+  const _IuranCard({
+    required this.bill,
+    required this.showHouseholdName,
+    this.highlightPending = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final hasPending = highlightPending && bill.pendingAmount > 0;
 
     return Material(
       color: Colors.transparent,
@@ -999,6 +1005,14 @@ class _IuranCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.base),
         child: AppCard(
           padding: const EdgeInsets.all(AppSpacing.base),
+          cardColor: hasPending
+              ? (isDark
+                  ? AppColors.warning.withValues(alpha: 0.10)
+                  : AppColors.warning.withValues(alpha: 0.06))
+              : null,
+          borderColor: hasPending
+              ? AppColors.warning.withValues(alpha: isDark ? 0.55 : 0.45)
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

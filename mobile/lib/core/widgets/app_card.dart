@@ -10,6 +10,7 @@ class AppCard extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final bool useEmphasis;
   final Color? cardColor;
+  final Color? borderColor;
 
   const AppCard({
     super.key,
@@ -17,6 +18,7 @@ class AppCard extends StatelessWidget {
     this.padding,
     this.useEmphasis = false,
     this.cardColor,
+    this.borderColor,
   });
 
   @override
@@ -25,7 +27,8 @@ class AppCard extends StatelessWidget {
     final defaultColor = isDark
         ? AppColors.darkSurface
         : AppColors.lightSurface;
-    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final resolvedBorderColor =
+        borderColor ?? (isDark ? AppColors.darkBorder : AppColors.lightBorder);
 
     return Card(
       color: cardColor ?? (useEmphasis ? defaultColor : null),
@@ -33,9 +36,12 @@ class AppCard extends StatelessWidget {
       shape: useEmphasis
           ? RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.lg),
+              side: borderColor != null
+                  ? BorderSide(color: resolvedBorderColor, width: 1)
+                  : BorderSide.none,
             )
           : RoundedRectangleBorder(
-              side: BorderSide(color: borderColor, width: 1),
+              side: BorderSide(color: resolvedBorderColor, width: 1),
               borderRadius: BorderRadius.circular(AppRadius.base),
             ),
       clipBehavior: Clip.antiAlias,
