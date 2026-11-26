@@ -1285,9 +1285,9 @@ func (h *Handler) UploadNotificationImage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 5MB max upload (allow 10MB for multipart body + form headers)
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	// 5MB max upload limit — standard per-file limit for all photo uploads.
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			httpx.ErrorJSON(w, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large (max 5 MB)")
