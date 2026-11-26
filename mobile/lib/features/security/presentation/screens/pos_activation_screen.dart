@@ -33,8 +33,8 @@ class _PosActivationScreenState extends ConsumerState<PosActivationScreen> {
     if (!mounted) return;
     if (lastUrl != null && lastUrl.isNotEmpty) {
       _serverCtrl.text = lastUrl;
-    } else if (ApiConfig.hasBaseUrl) {
-      _serverCtrl.text = ApiConfig.normalizedBaseUrl;
+    } else {
+      _serverCtrl.text = ApiConfig.effectiveDefaultBaseUrl;
     }
   }
 

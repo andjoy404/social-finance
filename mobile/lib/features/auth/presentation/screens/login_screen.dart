@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/storage/app_storage.dart';
@@ -15,6 +16,7 @@ import 'package:social_finance/core/utils/phone_utils.dart';
 import 'package:social_finance/core/utils/url_utils.dart';
 import 'package:social_finance/core/widgets/one_shot_animated_gif.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/auth/presentation/widgets/gitops_login_background.dart';
 
 enum LoginMethod { email, phone }
 
@@ -28,7 +30,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _serverUrlController = TextEditingController();
+  final _serverUrlController = TextEditingController(
+    text: ApiConfig.effectiveDefaultBaseUrl,
+  );
   final _serverUrlFocus = FocusNode();
 
   final _emailController = TextEditingController();
@@ -40,12 +44,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   final _passwordFocus = FocusNode();
 
+  String _activeServerUrl = ApiConfig.effectiveDefaultBaseUrl;
+  bool _isEditingServerUrl = false;
+  bool _savingServerUrl = false;
+  String? _serverUrlError;
+
   LoginMethod _loginMethod = LoginMethod.email;
   bool _obscurePassword = true;
   bool _rememberMe = true;
   bool _updatingRememberMe = false;
   StoredLoginCredentials? _restoredLoginCredentials;
   String _error = '';
+
+  bool get _isCustomServerUrl => !UrlUtils.isOfficialServer(_activeServerUrl);
 
   @override
   void initState() {
@@ -71,12 +82,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           await ref.read(secureAuthStorageProvider).clearLoginCredentials();
         }
 
-        final rememberedServerUrl = lastUrl ?? storedCredentials?.serverUrl;
+        final effectiveServerUrl =
+            (lastUrl != null && lastUrl.trim().isNotEmpty)
+            ? lastUrl.trim()
+            : (storedCredentials?.serverUrl ?? ApiConfig.effectiveDefaultBaseUrl);
         final storedServerMatches =
             storedCredentials != null &&
-            rememberedServerUrl != null &&
             UrlUtils.normalizeUrl(storedCredentials.serverUrl) ==
-                UrlUtils.normalizeUrl(rememberedServerUrl);
+                UrlUtils.normalizeUrl(effectiveServerUrl);
         if (storedCredentials != null && !storedServerMatches) {
           await ref.read(secureAuthStorageProvider).clearLoginCredentials();
         }
@@ -111,15 +124,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               }
             }
             final startupUrl = storedServerMatches
-                ? rememberedServerUrl
+                ? effectiveServerUrl
                 : lastUrl;
-            if (startupUrl != null && startupUrl.isNotEmpty) {
-              _serverUrlController.text = startupUrl;
+            if (startupUrl != null && startupUrl.trim().isNotEmpty) {
               final urlErr = UrlUtils.validateUrl(startupUrl);
               if (urlErr != null) {
+                _serverUrlController.text = startupUrl;
+                _isEditingServerUrl = true;
+                _serverUrlError = urlErr;
                 _error =
                     'URL server tersimpan tidak valid: $urlErr Silakan perbaiki.';
+              } else {
+                final normalized = UrlUtils.normalizeUrl(startupUrl);
+                _activeServerUrl = normalized;
+                _serverUrlController.text = normalized;
+                _isEditingServerUrl = false;
+                _serverUrlError = null;
+                final apiClient = ref.read(apiClientProvider);
+                if (apiClient.baseUrl != normalized) {
+                  apiClient.setBaseUrl(normalized);
+                }
               }
+            } else {
+              _activeServerUrl = ApiConfig.effectiveDefaultBaseUrl;
+              _serverUrlController.text = ApiConfig.effectiveDefaultBaseUrl;
+              _isEditingServerUrl = false;
+              _serverUrlError = null;
             }
           });
         }
@@ -201,6 +231,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleServerUrlChanged(String value) async {
+    if (_serverUrlError != null) {
+      setState(() => _serverUrlError = null);
+    }
     if (_passwordController.text.isNotEmpty) {
       _passwordController.clear();
     }
@@ -209,6 +242,132 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         UrlUtils.normalizeUrl(value) !=
             UrlUtils.normalizeUrl(credentials.serverUrl)) {
       await _invalidateRestoredCredentials();
+    }
+  }
+
+  void _toggleServerUrlEdit() {
+    if (_savingServerUrl) return;
+    if (_isEditingServerUrl) {
+      _cancelServerUrlEdit();
+    } else {
+      setState(() {
+        _isEditingServerUrl = true;
+        _serverUrlError = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _serverUrlFocus.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _cancelServerUrlEdit() {
+    _serverUrlFocus.unfocus();
+    setState(() {
+      _serverUrlController.text = _activeServerUrl;
+      _isEditingServerUrl = false;
+      _serverUrlError = null;
+      if (_error.startsWith('URL server tersimpan tidak valid')) {
+        _error = '';
+      }
+    });
+  }
+
+  Future<bool> _saveServerUrlEdit() async {
+    if (_savingServerUrl) return false;
+    final raw = _serverUrlController.text.trim();
+    if (raw.isEmpty) {
+      setState(() {
+        _serverUrlError = 'URL API / Server wajib diisi.';
+        _error = 'URL API / Server wajib diisi.';
+      });
+      return false;
+    }
+
+    final urlErr = UrlUtils.validateUrl(raw);
+    if (urlErr != null) {
+      setState(() {
+        _serverUrlError = urlErr;
+        _error = urlErr;
+      });
+      return false;
+    }
+
+    final normalized = UrlUtils.normalizeUrl(raw);
+    final serverChanged =
+        UrlUtils.normalizeUrl(_activeServerUrl) != normalized;
+
+    setState(() {
+      _savingServerUrl = true;
+      _serverUrlError = null;
+      _error = '';
+    });
+
+    try {
+      await ref.read(authRepositoryProvider.notifier).changeServer(normalized);
+      if (serverChanged) {
+        _passwordController.clear();
+        _restoredLoginCredentials = null;
+      }
+      _serverUrlFocus.unfocus();
+      if (mounted) {
+        setState(() {
+          _activeServerUrl = normalized;
+          _serverUrlController.text = normalized;
+          _isEditingServerUrl = false;
+          _savingServerUrl = false;
+          _serverUrlError = null;
+        });
+      }
+      return true;
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _savingServerUrl = false;
+          _serverUrlError = 'Gagal menyimpan URL server. Coba lagi.';
+          _error = 'Gagal menyimpan URL server. Coba lagi.';
+        });
+      }
+      return false;
+    }
+  }
+
+  Future<void> _resetServerUrlToOfficial() async {
+    if (_savingServerUrl) return;
+    const official = ApiConfig.defaultOfficialBaseUrl;
+    final serverChanged =
+        UrlUtils.normalizeUrl(_activeServerUrl) != official;
+
+    setState(() {
+      _savingServerUrl = true;
+      _serverUrlError = null;
+      _error = '';
+    });
+
+    try {
+      await ref.read(authRepositoryProvider.notifier).changeServer(official);
+      if (serverChanged) {
+        _passwordController.clear();
+        _restoredLoginCredentials = null;
+      }
+      _serverUrlFocus.unfocus();
+      if (mounted) {
+        setState(() {
+          _activeServerUrl = official;
+          _serverUrlController.text = official;
+          _isEditingServerUrl = false;
+          _savingServerUrl = false;
+          _serverUrlError = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _savingServerUrl = false;
+          _serverUrlError = 'Gagal mengatur ulang ke server resmi. Coba lagi.';
+        });
+      }
     }
   }
 
@@ -234,8 +393,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _handleLogin() {
-    final serverUrl = _serverUrlController.text.trim();
+  Future<void> _handleLogin() async {
+    if (_isEditingServerUrl) {
+      final saved = await _saveServerUrlEdit();
+      if (!saved || !mounted) return;
+    }
+
+    final serverUrl = _activeServerUrl.trim();
     if (serverUrl.isEmpty) {
       setState(() => _error = 'URL API / Server wajib diisi.');
       return;
@@ -303,62 +467,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF07060B),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFF0E0C15),
-              const Color(0xFF0A0910),
-              const Color(0xFF07060B),
-            ],
-            stops: const [0.0, 0.55, 1.0],
+      backgroundColor: GitOpsLoginBackground.bg,
+      body: GitOpsLoginBackground(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 24,
+            ),
+            child: _buildCard(context, isLoading),
           ),
-        ),
-        child: Stack(
-          children: [
-            // Vignette overlay for depth
-            Container(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.5, 0.42),
-                  radius: 0.95,
-                  colors: [
-                    Colors.transparent,
-                    const Color(0xFF020105).withValues(alpha: 0.58),
-                    const Color(0xFF010003).withValues(alpha: 0.82),
-                  ],
-                  stops: const [0.4, 0.8, 1.0],
-                ),
-              ),
-            ),
-            // Violet ambient glow
-            Container(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.5, 0.41),
-                  radius: 0.42,
-                  colors: [
-                    const Color(0xFF7C5AC7).withValues(alpha: 0.16),
-                    Colors.transparent,
-                  ],
-                  stops: const [0.0, 0.72],
-                ),
-              ),
-            ),
-            // Main content
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 24,
-                ),
-                child: _buildCard(context, isLoading),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -475,26 +593,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 12),
             ],
 
-            // 2. Input URL API / Server
-            _buildField(
-              context,
-              label: 'URL API / Server',
-              controller: _serverUrlController,
-              focusNode: _serverUrlFocus,
-              hintText: 'https://api.socialfinance.com',
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.next,
-              onChanged: _handleServerUrlChanged,
-              onFieldSubmitted: (_) {
-                if (_loginMethod == LoginMethod.email) {
-                  FocusScope.of(context).requestFocus(_emailFocus);
-                } else {
-                  FocusScope.of(context).requestFocus(_phoneFocus);
-                }
-              },
-              prefixIcon: Icons.dns_outlined,
-              enabled: !isLoading,
-            ),
+            // 2. Input URL API / Server (locked by default to official server)
+            _buildServerUrlSection(context, isLoading),
             const SizedBox(height: 12),
 
             // 3. Choice for login method: Email or Nomor HP
@@ -739,8 +839,225 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+  Widget _buildServerUrlSection(BuildContext context, bool isLoading) {
+    final isLocked = !_isEditingServerUrl;
+    final canInteract = !isLoading && !_savingServerUrl;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildField(
+          context,
+          fieldKey: const Key('login-api-url-field'),
+          label: 'URL API / Server',
+          controller: _serverUrlController,
+          focusNode: _serverUrlFocus,
+          hintText: ApiConfig.defaultOfficialBaseUrl,
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          readOnly: isLocked,
+          isLockedAppearance: isLocked,
+          onChanged: _handleServerUrlChanged,
+          onFieldSubmitted: (_) {
+            if (_isEditingServerUrl) {
+              _saveServerUrlEdit();
+            } else if (_loginMethod == LoginMethod.email) {
+              FocusScope.of(context).requestFocus(_emailFocus);
+            } else {
+              FocusScope.of(context).requestFocus(_phoneFocus);
+            }
+          },
+          prefixIcon: Icons.dns_outlined,
+          suffixIcon: Tooltip(
+            message: isLocked
+                ? 'Buka kunci untuk mengubah URL server'
+                : 'Batal ubah URL server',
+            child: InkWell(
+              key: const Key('login-api-url-lock-btn'),
+              borderRadius: BorderRadius.circular(6),
+              onTap: canInteract ? _toggleServerUrlEdit : null,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  isLocked ? Icons.lock_outline : Icons.lock_open_outlined,
+                  size: 16,
+                  color: isLocked
+                      ? GitOpsLoginBackground.muted
+                      : GitOpsLoginBackground.accent,
+                ),
+              ),
+            ),
+          ),
+          enabled: !isLoading,
+        ),
+        if (_serverUrlError != null && _serverUrlError!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            _serverUrlError!,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xFFFF98A6),
+            ),
+          ),
+        ],
+        if (_isEditingServerUrl) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: ElevatedButton(
+                    key: const Key('login-api-url-save-btn'),
+                    onPressed: canInteract ? _saveServerUrlEdit : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GitOpsLoginBackground.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      visualDensity: VisualDensity.compact,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: _savingServerUrl
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Simpan',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: OutlinedButton(
+                    key: const Key('login-api-url-cancel-btn'),
+                    onPressed: canInteract ? _cancelServerUrlEdit : null,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: GitOpsLoginBackground.label,
+                      side: const BorderSide(
+                        color: GitOpsLoginBackground.inputBorder,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      visualDensity: VisualDensity.compact,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text(
+                      'Batal',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 32,
+            child: OutlinedButton.icon(
+              key: const Key('login-api-url-reset-btn'),
+              onPressed: canInteract ? _resetServerUrlToOfficial : null,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.warning,
+                side: BorderSide(
+                  color: AppColors.warning.withValues(alpha: 0.5),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                visualDensity: VisualDensity.compact,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.base),
+                ),
+              ),
+              icon: const Icon(Icons.restore, size: 14),
+              label: const Text(
+                'Reset ke Server Resmi',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+        ],
+        if (_isCustomServerUrl) ...[
+          const SizedBox(height: 6),
+          Container(
+            key: const Key('login-custom-server-indicator'),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(
+                color: AppColors.warning.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 14,
+                      color: AppColors.warning,
+                    ),
+                    SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        'Mode Server Kustom (Non-Resmi)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.warning,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (!_isEditingServerUrl)
+                  InkWell(
+                    key: const Key('login-api-url-quick-reset-btn'),
+                    onTap: canInteract ? _resetServerUrlToOfficial : null,
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                      child: Text(
+                        'Reset ke Server Resmi',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: GitOpsLoginBackground.accent,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildField(
     BuildContext context, {
+    Key? fieldKey,
     required String label,
     required TextEditingController controller,
     required String hintText,
@@ -753,8 +1070,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     Widget? suffixIcon,
     bool autoFocus = false,
     bool enabled = true,
+    bool readOnly = false,
+    bool isLockedAppearance = false,
     void Function(String)? onChanged,
   }) {
+    final textColor = isLockedAppearance
+        ? GitOpsLoginBackground.muted
+        : GitOpsLoginBackground.text;
+    final fillColor = isLockedAppearance
+        ? const Color(0x268E8A9C)
+        : GitOpsLoginBackground.inputBg;
+    final borderColor = isLockedAppearance
+        ? const Color(0x4D8E8A9C)
+        : GitOpsLoginBackground.inputBorder;
+    final focusedBorderColor = isLockedAppearance
+        ? const Color(0x668E8A9C)
+        : GitOpsLoginBackground.accent;
+    final iconColor = isLockedAppearance
+        ? GitOpsLoginBackground.placeholder
+        : GitOpsLoginBackground.icon;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -762,7 +1097,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           label,
           style: const TextStyle(
             fontSize: 12,
-            color: Color(0xFFCFC9DE),
+            color: GitOpsLoginBackground.label,
             height: 1.35,
           ),
         ),
@@ -770,6 +1105,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         SizedBox(
           height: 38,
           child: TextField(
+            key: fieldKey,
             controller: controller,
             focusNode: focusNode,
             obscureText: obscureText,
@@ -779,16 +1115,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             onChanged: onChanged,
             autofocus: autoFocus,
             enabled: enabled,
-            style: const TextStyle(
+            readOnly: readOnly,
+            style: TextStyle(
               fontSize: 12,
-              color: Color(0xFFF2EFF9),
+              color: textColor,
               fontFamily: 'sans-serif',
             ),
             decoration: InputDecoration(
               hintText: hintText,
               hintStyle: const TextStyle(
                 fontSize: 12,
-                color: Color(0xFF7A7292),
+                color: GitOpsLoginBackground.placeholder,
                 fontFamily: 'sans-serif',
               ),
               prefixIcon: prefixIcon != null
@@ -797,7 +1134,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: Icon(
                         prefixIcon,
                         size: 15,
-                        color: const Color(0xFF8D82AB),
+                        color: iconColor,
                       ),
                     )
                   : null,
@@ -808,20 +1145,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     )
                   : null,
               filled: true,
-              fillColor: const Color(0x0F09070F),
+              fillColor: fillColor,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
-                borderSide: const BorderSide(color: Color(0x38A970FF)),
+                borderSide: BorderSide(color: borderColor),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
-                borderSide: const BorderSide(color: Color(0x38A970FF)),
+                borderSide: BorderSide(color: borderColor),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
-                borderSide: const BorderSide(
-                  color: Color(0xFFA970FF),
-                  width: 2,
+                borderSide: BorderSide(
+                  color: focusedBorderColor,
+                  width: isLockedAppearance ? 1 : 2,
                 ),
               ),
               contentPadding: const EdgeInsets.symmetric(
@@ -892,8 +1229,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _showResetPasswordDialog() {
-    final serverUrl = _serverUrlController.text.trim();
-    if (serverUrl.isNotEmpty) {
+    final serverUrl = _activeServerUrl.trim();
+    if (serverUrl.isNotEmpty && UrlUtils.validateUrl(serverUrl) == null) {
       ref.read(apiClientProvider).setBaseUrl(serverUrl);
     }
 

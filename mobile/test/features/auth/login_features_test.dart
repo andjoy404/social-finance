@@ -573,7 +573,7 @@ void main() {
 
   group('6. LoginScreen UI & Widgets', () {
     testWidgets(
-      'Fresh install shows empty URL API, Email tab active, and Remember Me checked',
+      'Fresh install shows locked official URL API, Email tab active, and Remember Me checked',
       (tester) async {
         final prefStorage = InMemoryPreferencesStorage(); // empty initial URL
         final secureStorage = InMemorySecureAuthStorage();
@@ -600,13 +600,15 @@ void main() {
         // Three text fields: Server URL, Email, Password
         expect(find.byType(TextField), findsNWidgets(3));
 
-        // 1. First textfield (Server URL) is empty on fresh install
+        // 1. First textfield (Server URL) defaults to official server and is locked
         final urlField = tester.widget<TextField>(find.byType(TextField).at(0));
-        expect(urlField.controller?.text, isEmpty);
+        expect(urlField.controller?.text, equals(ApiConfig.defaultOfficialBaseUrl));
+        expect(urlField.readOnly, isTrue);
         expect(
           urlField.decoration?.hintText,
-          equals('https://api.socialfinance.com'),
+          equals(ApiConfig.defaultOfficialBaseUrl),
         );
+        expect(find.byIcon(Icons.lock_outline), findsWidgets);
 
         // 2. Email method tab active
         expect(find.text('Email'), findsWidgets);
@@ -735,7 +737,7 @@ void main() {
       expect(hiddenPassField.obscureText, isTrue);
     });
 
-    testWidgets('Validation error is shown when URL API is empty', (
+    testWidgets('Validation error is shown when URL API is cleared in edit mode', (
       tester,
     ) async {
       final prefStorage = InMemoryPreferencesStorage();
@@ -760,13 +762,19 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Unlock API endpoint field and clear it
+      await tester.tap(find.byKey(const Key('login-api-url-lock-btn')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), '');
+
       // Enter email and password without server URL
       await tester.enterText(find.byType(TextField).at(1), 'user@example.com');
       await tester.enterText(find.byType(TextField).at(2), 'password');
+      await tester.ensureVisible(find.text('Masuk'));
       await tester.tap(find.text('Masuk'));
       await tester.pumpAndSettle();
 
-      expect(find.text('URL API / Server wajib diisi.'), findsOneWidget);
+      expect(find.text('URL API / Server wajib diisi.'), findsWidgets);
     });
 
     testWidgets('Saved last API URL is remembered on startup', (tester) async {

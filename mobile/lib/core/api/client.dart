@@ -236,10 +236,7 @@ class ApiClient {
   }
 
   static String _resolveInitialBaseUrl() {
-    if (ApiConfig.hasBaseUrl) {
-      return ApiConfig.normalizedBaseUrl;
-    }
-    return '';
+    return ApiConfig.effectiveDefaultBaseUrl;
   }
 
   /// Current configured base URL.

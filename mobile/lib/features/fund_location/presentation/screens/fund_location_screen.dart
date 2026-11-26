@@ -1442,7 +1442,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (statefulCtx, setDialogState) {
             final fromLoc = activeLocs.firstWhere(
               (l) => l.id == fromId,
               orElse: () => activeLocs.first,
@@ -1464,23 +1464,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     ],
                     DropdownButtonFormField<String>(
                       value: fromId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Dari Lokasi',
                       ),
                       items: activeLocs.map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${l.name} (${formatRupiah(l.balanceRupiah)})',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }).toList(),
@@ -1500,13 +1494,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: toId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Ke Lokasi Tujuan',
                       ),
                       items: activeLocs.where((l) => l.id != fromId).map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Text(l.name),
+                          child: Text(
+                            l.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -1600,15 +1599,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                           idempotencyKey: _generateUuid(),
                                         );
 
-                                        if (context.mounted) {
+                                        if (dialogCtx.mounted) {
                                           Navigator.pop(dialogCtx);
+                                        }
+                                        if (mounted) {
                                           ref.invalidate(fundLocationsProvider);
                                           ref.invalidate(fundTransfersProvider);
                                           ref.invalidate(
                                             fundReconciliationProvider,
                                           );
                                           ScaffoldMessenger.of(
-                                            context,
+                                            this.context,
                                           ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
@@ -1632,6 +1633,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.accent,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1680,6 +1686,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1687,11 +1698,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                 ),
                               ),
                               child: const Row(
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.close, size: 18),
                                   SizedBox(width: 6),
-                                  Text('Batal'),
+                                  Flexible(
+                                    child: Text(
+                                      'Batal',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),

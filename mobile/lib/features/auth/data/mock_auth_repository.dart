@@ -183,9 +183,12 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   /// Returns `true` if session was successfully restored, `false` otherwise.
   Future<bool> restoreSession() async {
     try {
-      // 1. Ensure API URL is initialized on ApiClient before any auth or network action
+      // 1. Ensure API URL is initialized on ApiClient before any auth or network action.
+      // Persisted custom/last API URL takes precedence over the default official URL
+      // so user-selected development/staging endpoints survive app restarts and updates.
       var currentUrl = apiClient.baseUrl;
-      if (currentUrl.isEmpty) {
+      if (currentUrl.isEmpty ||
+          currentUrl == ApiConfig.effectiveDefaultBaseUrl) {
         final lastSavedUrl = await preferencesStorage.getLastApiUrl();
         if (lastSavedUrl != null && lastSavedUrl.isNotEmpty) {
           if (UrlUtils.validateUrl(lastSavedUrl) == null) {
@@ -306,7 +309,12 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         UrlUtils.normalizeUrl(storedLogin.serverUrl) != normalized) {
       await secureAuthStorage.clearLoginCredentials();
     }
-    if (apiClient.baseUrl == normalized) return;
+    if (apiClient.baseUrl == normalized) {
+      if (normalized.isNotEmpty) {
+        await preferencesStorage.setLastApiUrl(normalized);
+      }
+      return;
+    }
 
     // 1. Reset client (clears tokens and in-flight refresh)
     apiClient.resetServer(normalized);

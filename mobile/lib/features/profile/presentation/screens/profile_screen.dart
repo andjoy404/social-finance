@@ -385,6 +385,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
         actions: [
           TextButton(
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Batal'),
           ),

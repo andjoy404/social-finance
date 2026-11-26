@@ -1,9 +1,16 @@
 class ApiConfig {
-  // Optional environment fallback, NOT mandatory.
+  /// Permanent default official Social Finance server URL.
+  static const String defaultOfficialBaseUrl = 'https://api.urena0216.id';
+
+  // Optional compile-time override via `--dart-define=API_BASE_URL=...`.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: '',
   );
+
+  /// Effective default base URL used when no user override is stored.
+  static String get effectiveDefaultBaseUrl =>
+      hasBaseUrl ? normalizedBaseUrl : defaultOfficialBaseUrl;
 
   static String _runtimeBaseUrl = '';
 
