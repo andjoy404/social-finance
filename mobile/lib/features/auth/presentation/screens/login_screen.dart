@@ -942,14 +942,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: SizedBox(
                   height: 32,
-                  child: OutlinedButton(
+                  child: ElevatedButton(
                     key: const Key('login-api-url-cancel-btn'),
                     onPressed: canInteract ? _cancelServerUrlEdit : null,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: GitOpsLoginBackground.label,
-                      side: const BorderSide(
-                        color: GitOpsLoginBackground.inputBorder,
-                      ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       visualDensity: VisualDensity.compact,
                       shape: RoundedRectangleBorder(
@@ -958,7 +957,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     child: const Text(
                       'Batal',
-                      style: TextStyle(fontSize: 11),
+                      style: TextStyle(fontSize: 11, color: Colors.white),
                     ),
                   ),
                 ),
@@ -1484,11 +1483,12 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: ElevatedButton(
                     onPressed: _loading ? null : () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFCFC9DE),
-                      side: const BorderSide(color: Color(0x40A970FF)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),

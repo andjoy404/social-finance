@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -495,12 +496,10 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -1127,6 +1126,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1333,8 +1333,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
-                                // side removed for solid style
-                                // foregroundColor: AppColors.danger removed
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1373,7 +1372,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
           'Apakah Anda yakin ingin menonaktifkan lokasi "${loc.name}"?',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Batal'),
           ),
@@ -1686,6 +1690,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
+                                elevation: 0,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                   vertical: 10,
@@ -1796,7 +1801,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1908,7 +1918,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),

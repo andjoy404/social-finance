@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Button, Modal, Popconfirm, message } from 'antd'
 import { CameraOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useAuth, hasPermission } from '@/app/AuthContext'
-import { apiUploadResidentPhoto, apiDeleteResidentPhoto, getSessionPair } from '@/app/api'
+import { apiUploadResidentPhoto, apiDeleteResidentPhoto, getSessionPair, ApiError } from '@/app/api'
 
 type ResidentPhotoManageProps = {
   residentId: string
@@ -16,6 +16,44 @@ type ResidentPhotoManageProps = {
 
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MiB (backend enforces same limit and re-sniffs magic bytes)
 const ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp'
+/** Image types accepted by the backend (extension sanity check mirrors backend switch). */
+const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const ACCEPTED_EXTENSION_RE = /\.(jpe?g|png|webp)$/i
+
+/** True when the picked file is an image format the backend accepts. */
+function isAcceptedImageFile(file: File): boolean {
+  if (ACCEPTED_MIME_TYPES.has(file.type)) return true
+  return ACCEPTED_EXTENSION_RE.test(file.name)
+}
+
+/** Map any upload/delete failure to a user-friendly Indonesian message. */
+function toUploadErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.status) {
+      case 400:
+        // Backend validation_error — invalid multipart, oversized or unsupported content.
+        // Backend messages are English/internal; surface a user-friendly Indonesian text.
+        return 'File foto tidak valid (format atau ukuran).'
+      case 401:
+        return 'Sesi berakhir, silakan masuk ulang.'
+      case 403:
+        return 'Anda tidak berwenang mengubah foto ini.'
+      case 413:
+        return 'File terlalu besar (maksimal 5 MB).'
+      case 415:
+        return 'Format file tidak didukung. Gunakan JPG, PNG, atau WebP.'
+      case 500:
+        return 'Gagal mengunggah foto. Silakan coba lagi.'
+      default:
+        return err.message || 'Gagal mengunggah foto.'
+    }
+  }
+  // Network error / timeout (fetch rejects with TypeError on network failure, AbortError on timeout).
+  const isAbort = typeof (err as { name?: string })?.name === 'string' && ((err as { name?: string }).name) === 'AbortError'
+  if (isAbort) return 'Permintaan upload timeout. Silakan coba lagi.'
+  if (err instanceof TypeError) return 'Jaringan bermasalah, gagal mengunggah foto. Silakan coba lagi.'
+  return err instanceof Error && err.message ? err.message : 'Gagal mengunggah foto.'
+}
 
 /**
  * "Ubah Foto" / "Hapus Foto" actions for a Warga/Petugas profile photo.
@@ -51,6 +89,11 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
       message.error('Ukuran maksimum foto profil adalah 5 MB.')
       return
     }
+    // Client-side guard — mirrors the backend's accepted content types.
+    if (!isAcceptedImageFile(file)) {
+      message.error('Format foto tidak didukung. Gunakan JPG, PNG, atau WebP.')
+      return
+    }
     revokePreview()
     const url = URL.createObjectURL(file)
     objectUrlRef.current = url
@@ -60,6 +103,8 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
   }
 
   const handleSave = async () => {
+    // Prevent double submission while an upload is already in flight.
+    if (saving) return
     if (!pendingFile) return
     const session = getSessionPair()
     if (!session?.accessToken) {
@@ -76,8 +121,7 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
       message.success('Foto tersimpan')
     } catch (err) {
       // Keep the old photo visible until the server confirms success.
-      const text = err instanceof Error ? err.message : 'Gagal mengunggah foto.'
-      message.error(text || 'Gagal mengunggah foto.')
+      message.error(toUploadErrorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -95,8 +139,7 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
       onChanged(null, null)
       message.success('Foto dihapus')
     } catch (err) {
-      const text = err instanceof Error ? err.message : 'Gagal menghapus foto.'
-      message.error(text || 'Gagal menghapus foto.')
+      message.error(toUploadErrorMessage(err))
     } finally {
       setDeleting(false)
     }
@@ -129,8 +172,9 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
             inputRef.current.click()
           }
         }}
+        style={{ marginRight: 8 }}
       >
-        Ubah Foto
+        Ubah
       </Button>
       {avatarPath ? (
         <Popconfirm

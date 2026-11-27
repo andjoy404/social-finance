@@ -15,7 +15,7 @@ import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { ResidentAvatar } from '@/components/ResidentAvatar'
-import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
+
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
@@ -409,10 +409,6 @@ export function ResidentList() {
       }
     }
   }, [filterType, statusValue, search, isSuperAdmin, selectedRtId])
-
-  const reloadResidents = useCallback(() => {
-    void fetchResidents(page, pageSize)
-  }, [fetchResidents, page, pageSize])
 
   useEffect(() => {
     void fetchResidents(page, pageSize)
@@ -841,7 +837,6 @@ export function ResidentList() {
                     onEditSpecial={handleEditSpecial}
                     canSeePhone={canSeePhone}
                     canSeeEmail={canSeeEmail}
-                    onRefresh={reloadResidents}
                   />
                 ))}
               </tbody>
@@ -875,10 +870,9 @@ interface ResidentRowProps {
   onEditSpecial: (id: string) => void
   canSeePhone: boolean
   canSeeEmail: boolean
-  onRefresh: () => void
 }
 
-function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, onRefresh }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -939,18 +933,7 @@ function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, on
               size={32}
             />
           </span>
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>{resident.full_name}</span>
-            <ResidentPhotoManage
-              residentId={resident.id}
-              fullName={resident.full_name}
-              avatarPath={resident.avatar_path ?? null}
-              onChanged={() => {
-                void onRefresh()
-              }}
-              compact
-            />
-          </span>
+          <span>{resident.full_name}</span>
         </div>
       </td>
 

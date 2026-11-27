@@ -2407,13 +2407,14 @@ func (r *pgRepository) ListManagementHistory(
 				SELECT
 					nl.id, nl.rt_id, NULL::uuid AS rw_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
 					nl.title, nl.body, 'RECORDED'::text AS status, nl.created_at, nl.image_url,
-					FALSE AS is_read, NULL::timestamptz AS read_at,
+					(nr.read_at IS NOT NULL) AS is_read, nr.read_at,
 					nl.payload,
 					0::int AS recipients_count,
 					0::int AS sent_count,
 					0::int AS failed_count,
 					FALSE AS delivery_counts_available
 				FROM notification_logs nl
+				LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
 				WHERE nl.rt_id = $1
 				  AND nl.user_id = $2
 				  AND nl.event_type = 'manual_push'
@@ -2423,11 +2424,12 @@ func (r *pgRepository) ListManagementHistory(
 				SELECT
 				  nl.id, nl.rt_id, NULL::uuid AS rw_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
 				  nl.title, nl.body, nl.status, nl.created_at, nl.image_url,
-				  FALSE AS is_read, NULL::timestamptz AS read_at,
+				  (nr.read_at IS NOT NULL) AS is_read, nr.read_at,
 				  nl.payload,
 				  0::int AS recipients_count, 0::int AS sent_count, 0::int AS failed_count,
 				  FALSE AS delivery_counts_available
 				FROM notification_logs nl
+				LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
 				WHERE nl.rt_id = $1
 				  AND nl.sender_user_id = $2
 				  AND nl.event_type = 'waste_truck_arrival'

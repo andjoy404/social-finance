@@ -1086,7 +1086,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           'Tagihan lama dan riwayat pembayaran yang sudah ada tidak akan diubah.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -1779,8 +1784,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                           }
                         },
                   style: OutlinedButton.styleFrom(
-                    backgroundColor: AppColors.danger,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.danger,
                     side: const BorderSide(color: AppColors.danger),
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                     visualDensity: VisualDensity.compact,

@@ -11,6 +11,7 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -648,12 +649,10 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   if (act.archivedAt == null)
                     const SizedBox(height: 8),
                 ],
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -916,30 +915,51 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Batal'),
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            child: const Text('Batal'),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (titleCtrl.text.trim().isEmpty ||
-                                locationCtrl.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Judul dan lokasi wajib diisi'),
-                                ),
-                              );
-                              return;
-                            }
-                            final messenger = ScaffoldMessenger.of(context);
-                            Navigator.pop(ctx);
-                            try {
-                              await ref
-                                  .read(communityRepositoryProvider)
-                                  .createActivity({
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            onPressed: () async {
+                              if (titleCtrl.text.trim().isEmpty ||
+                                  locationCtrl.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Judul dan lokasi wajib diisi'),
+                                  ),
+                                );
+                                return;
+                              }
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.pop(ctx);
+                              try {
+                                await ref
+                                    .read(communityRepositoryProvider)
+                                    .createActivity({
                                     'title': titleCtrl.text.trim(),
                                     'location': locationCtrl.text.trim(),
                                     'description': descCtrl.text.trim(),
@@ -966,7 +986,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           child: const Text('Simpan'),
                         ),
                       ),
-                    ],
+                    ),
+                  ],
                   ),
                 ],
               ),
@@ -1228,30 +1249,51 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Batal'),
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            child: const Text('Batal'),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (titleCtrl.text.trim().isEmpty ||
-                                locationCtrl.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Judul dan lokasi wajib diisi'),
-                                ),
-                              );
-                              return;
-                            }
-                            final messenger = ScaffoldMessenger.of(context);
-                            Navigator.pop(ctx);
-                            try {
-                              await ref
-                                  .read(communityRepositoryProvider)
-                                  .updateActivity(act.id, {
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            onPressed: () async {
+                              if (titleCtrl.text.trim().isEmpty ||
+                                  locationCtrl.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Judul dan lokasi wajib diisi'),
+                                  ),
+                                );
+                                return;
+                              }
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.pop(ctx);
+                              try {
+                                await ref
+                                    .read(communityRepositoryProvider)
+                                    .updateActivity(act.id, {
                                     'title': titleCtrl.text.trim(),
                                     'location': locationCtrl.text.trim(),
                                     'description': descCtrl.text.trim(),
@@ -1277,7 +1319,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           child: const Text('Simpan Perubahan'),
                         ),
                       ),
-                    ],
+                    ),
+                  ],
                   ),
                 ],
               ),
@@ -1300,7 +1343,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           'Apakah Anda yakin ingin menghapus kegiatan "${act.title}"? Tindakan ini tidak dapat dibatalkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),
@@ -1365,7 +1413,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           'Apakah Anda yakin ingin mengarsipkan kegiatan "${act.title}"? Kegiatan akan disembunyikan dari daftar aktif.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),
@@ -1403,7 +1456,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           'Apakah Anda yakin ingin membuka kegiatan "${act.title}" dari arsip? Kegiatan akan kembali muncul di daftar aktif.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),
@@ -1441,7 +1499,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           'Apakah Anda yakin ingin membatalkan kegiatan "${act.title}"? Banner di Beranda akan dinonaktifkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),

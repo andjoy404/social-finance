@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
@@ -546,12 +547,10 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -1100,9 +1099,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
             },
             child: const Text('Lihat Mutasi'),
           ),
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1202,7 +1201,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1347,7 +1351,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1426,9 +1435,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
             'Saldo harus Rp 0 terlebih dahulu sebelum dapat dinonaktifkan.',
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
             ),
           ],
         ),
@@ -1446,7 +1455,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
               : 'Aktifkan kembali lokasi "${loc.name}"?',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -1599,7 +1613,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1850,7 +1869,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                                             ],
                                           ),
                                           actions: [
-                                            TextButton(
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: AppColors.danger,
+                                                foregroundColor: Colors.white,
+                                                elevation: 0,
+                                              ),
                                               onPressed: () =>
                                                   Navigator.pop(cCtx, false),
                                               child: const Text('Batal'),
@@ -1944,9 +1968,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                AppButton.danger(
+                  text: 'Tutup',
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Tutup'),
                 ),
               ],
             );
@@ -2024,9 +2048,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
             ),
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
             ),
           ],
         );
@@ -2155,7 +2179,12 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -2379,9 +2408,9 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
             ),
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
             ),
           ],
         );

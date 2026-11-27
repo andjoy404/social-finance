@@ -557,34 +557,18 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.md;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBayarButton(
-                        currentBill,
-                        isMultiMonth,
-                        isRegularDues,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildBayarButton(
+                    currentBill,
+                    isMultiMonth,
+                    isRegularDues,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildBatalButton()),
+              ],
             ),
           ),
         ),
@@ -1383,15 +1367,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
   Widget _buildBatalButton() => SizedBox(
     height: 48,
-    child: OutlinedButton(
+    child: ElevatedButton(
       key: const Key('btn_cancel'),
       onPressed: _saving
           ? null
           : () => KasFormNavigationGuard.requestFormCancel(context),
-      style: OutlinedButton.styleFrom(
+      style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.danger),
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),

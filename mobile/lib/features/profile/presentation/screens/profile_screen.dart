@@ -384,8 +384,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         title: const Text('Konfirmasi Keluar'),
         content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
         actions: [
-          TextButton(
-            style: TextButton.styleFrom(
+          FilledButton(
+            style: FilledButton.styleFrom(
               backgroundColor: AppColors.accent,
               foregroundColor: Colors.white,
             ),
@@ -393,7 +393,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: const Text('Batal'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.expense),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.expense,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               await authRepo.logout();
@@ -653,11 +656,20 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(
@@ -797,11 +809,20 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(
@@ -943,11 +964,20 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(

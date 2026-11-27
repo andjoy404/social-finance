@@ -102,7 +102,12 @@ class _ResidentPhotoManageState extends ConsumerState<ResidentPhotoManage> {
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -154,7 +159,12 @@ class _ResidentPhotoManageState extends ConsumerState<ResidentPhotoManage> {
         title: const Text('Hapus Foto?'),
         content: Text('Foto ${widget.fullName} akan dihapus.'),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -214,14 +224,14 @@ class _ResidentPhotoManageState extends ConsumerState<ResidentPhotoManage> {
         const SizedBox(height: 8),
         if (canManage)
           Wrap(
-            spacing: 8,
+            spacing: 16,
             alignment: WrapAlignment.center,
             children: [
               OutlinedButton.icon(
                 key: const Key('resident-photo-upload'),
                 onPressed: _isBusy ? null : _pickAndUpload,
                 icon: const Icon(Icons.photo_camera_outlined, size: 16),
-                label: const Text('Ubah Foto'),
+                label: const Text('Ubah'),
               ),
               if ((widget.avatarPath ?? '').trim().isNotEmpty)
                 TextButton.icon(

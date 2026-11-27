@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 import '../../data/security_models.dart';
@@ -223,7 +224,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('Batal'),
             ),
@@ -347,7 +353,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('Batal'),
             ),
@@ -445,7 +456,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
             ],
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('Batal'),
             ),
@@ -799,13 +815,28 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            OutlinedButton(
+                            ElevatedButton(
                               onPressed: () => _respondSwap(sw, false),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                ),
+                              ),
                               child: const Text('Tolak'),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
                               onPressed: () => _respondSwap(sw, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.success,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                ),
+                              ),
                               child: const Text('Setujui Tukar'),
                             ),
                           ],

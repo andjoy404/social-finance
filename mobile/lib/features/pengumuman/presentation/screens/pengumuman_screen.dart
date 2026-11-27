@@ -137,7 +137,12 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),

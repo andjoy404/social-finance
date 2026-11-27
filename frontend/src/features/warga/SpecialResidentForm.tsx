@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiListRTs,
@@ -7,9 +7,11 @@ import {
   getSessionPair,
   type ApiRT,
 } from '@/app/api'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { SearchableSelect } from '@/components/SearchableSelect'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
+import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
 import {
   IdcardOutlined,
   MailOutlined,
@@ -17,6 +19,7 @@ import {
   UserOutlined,
   LockOutlined,
 } from '@ant-design/icons'
+
 
 export type JabatanValue = 'keamanan' | 'kebersihan' | 'anggota_rw' | 'operasional'
 
@@ -57,6 +60,9 @@ interface Props {
   loading?: boolean
   error?: ApiErrorType | null
   subtitle?: string
+  avatarPath?: string | null
+  avatarThumbPath?: string | null
+  onAvatarChange?: (newAvatarPath: string | null, newThumbPath: string | null) => void
 }
 
 function isSuperAdmin(systemRole: string | null): boolean {
@@ -74,9 +80,14 @@ export function SpecialResidentForm({
   loading: externalLoading,
   error: externalError,
   subtitle,
+  avatarPath,
+  avatarThumbPath,
+  onAvatarChange: externalOnAvatarChange,
 }: Props) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { id: routeId } = useParams<{ id: string }>()
+  const effectiveResidentId = residentId ?? routeId
   const adminMode = isSuperAdmin(user?.systemRole ?? null)
   const readOnly = mode === 'detail'
   const [saving, setSaving] = useState(false)
@@ -171,6 +182,15 @@ export function SpecialResidentForm({
 
   const handleClose = () => navigate('/warga')
 
+  const handleAvatarChange = useCallback(
+    (newPath: string | null, newThumb: string | null | undefined) => {
+      if (externalOnAvatarChange) {
+        externalOnAvatarChange(newPath, newThumb ?? null)
+      }
+    },
+    [externalOnAvatarChange],
+  )
+
   const handleChange = (field: keyof SpecialResidentFormValues, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [field]: value as never }))
     if (validationErrors.length > 0) setValidationErrors([])
@@ -249,6 +269,8 @@ export function SpecialResidentForm({
   const busy = saving || !!externalLoading
   const shownError = localError || externalError?.message || rtError?.message
 
+  const showAvatar = mode !== 'create' && effectiveResidentId != null
+
   return (
     <Modal open onClose={handleClose} width={560}>
       <ModalHeader
@@ -256,6 +278,31 @@ export function SpecialResidentForm({
         subtitle={subtitle || (mode === 'create' ? 'Data petugas keamanan / operasional / kebersihan' : form.full_name || '')}
         onClose={handleClose}
       />
+      {showAvatar && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            padding: '16px 20px 0',
+          }}
+        >
+          <ResidentAvatar
+            name={form.full_name}
+            avatarPath={avatarPath ?? null}
+            avatarThumbPath={avatarThumbPath ?? null}
+            size={84}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ResidentPhotoManage
+              residentId={effectiveResidentId!}
+              fullName={form.full_name}
+              avatarPath={avatarPath ?? null}
+              onChanged={handleAvatarChange}
+            />
+          </div>
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
         <ModalBody>
           {validationErrors.length > 0 && (

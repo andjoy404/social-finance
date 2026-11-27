@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
 
 /// Generic form navigation guard for pages with unsaved changes.
 ///
@@ -87,7 +88,7 @@ class FormNavigationGuard {
               child: ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(true),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
+                  backgroundColor: AppColors.danger,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

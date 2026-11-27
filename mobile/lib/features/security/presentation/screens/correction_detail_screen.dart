@@ -130,7 +130,12 @@ class CorrectionDetailScreen extends ConsumerWidget {
             maxLines: 3,
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Batal'),
             ),
@@ -356,12 +361,13 @@ class CorrectionDetailScreen extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.close, color: AppColors.danger),
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.close, color: Colors.white),
                     label: const Text('Tolak'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.danger,
-                      side: const BorderSide(color: AppColors.danger),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
                     ),
                     onPressed: () => _decideCorrection(context, ref, false),
                   ),
@@ -369,6 +375,10 @@ class CorrectionDetailScreen extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                    ),
                     icon: const Icon(Icons.check),
                     label: const Text('Setujui'),
                     onPressed: () => _decideCorrection(context, ref, true),

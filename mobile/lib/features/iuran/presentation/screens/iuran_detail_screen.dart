@@ -1111,7 +1111,12 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Batal'),
             ),
@@ -1172,7 +1177,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.warning,
+                backgroundColor: AppColors.danger,
                 foregroundColor: Colors.white,
               ),
               child: const Text('Tolak'),

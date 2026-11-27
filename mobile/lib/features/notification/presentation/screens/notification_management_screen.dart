@@ -637,7 +637,12 @@ class _NotificationManagementScreenState
             ],
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Batal'),
             ),
@@ -717,7 +722,12 @@ class _NotificationManagementScreenState
             'Apakah Anda yakin ingin mengatur ulang template "${template.name}" ke pengaturan default sistem? Perubahan ini akan mengembalikan pesan ke format asli.',
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Batal'),
             ),
@@ -1475,13 +1485,17 @@ class _NotificationManagementScreenState
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.of(ctx).pop(),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.danger,
-                                foregroundColor: Colors.white,
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.danger,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                child: const Text('Batal'),
                               ),
-                              child: const Text('Batal'),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1555,7 +1569,7 @@ class _NotificationManagementScreenState
                                 }
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.accent,
+                                backgroundColor: AppColors.success,
                                 foregroundColor: Colors.white,
                               ),
                               child: Text(isEditing ? 'Simpan' : 'Buat'),
@@ -1585,11 +1599,21 @@ class _NotificationManagementScreenState
             'Setelah dihapus, sistem akan otomatis menggunakan pesan default bawaan.',
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Batal'),
             ),
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () async {
                 Navigator.of(ctx).pop();
                 final messenger = ScaffoldMessenger.of(context);
@@ -1606,7 +1630,6 @@ class _NotificationManagementScreenState
                   messenger.showSnackBar(SnackBar(content: Text(e.toString())));
                 }
               },
-              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
               child: const Text('Hapus'),
             ),
           ],
@@ -2879,7 +2902,12 @@ class _NotificationManagementScreenState
               : 'Apakah Anda yakin ingin mengaktifkan jadwal "${schedule.name}"? Notifikasi akan dikirim sesuai jadwal yang ditetapkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Batal'),
           ),
@@ -2930,13 +2958,22 @@ class _NotificationManagementScreenState
           'Hapus jadwal "${schedule.name}"? Tindakan tidak dapat dibatalkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Batal'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             child: const Text('Hapus'),
           ),
         ],
@@ -3334,11 +3371,12 @@ class _NotificationManagementScreenState
               ),
               actions: [
                 ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,
+                    elevation: 0,
                   ),
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -3484,7 +3522,7 @@ class _NotificationManagementScreenState
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
+                    backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
                   ),
                   child: _isSavingSchedule

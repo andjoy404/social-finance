@@ -10,6 +10,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -594,12 +595,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -1038,7 +1037,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, null),
             child: const Text('Batal'),
           ),
@@ -1080,7 +1084,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, null),
             child: const Text('Batal'),
           ),
@@ -1304,9 +1313,9 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           ],
         ),
         actions: [
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1342,9 +1351,9 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           },
         ),
         actions: [
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1426,7 +1435,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                 ],
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1552,6 +1566,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                     else ...[
                       DropdownButtonFormField<String>(
                         value: selectedLocationId,
+                        isExpanded: true,
                         decoration: InputDecoration(
                           labelText: isIncome ? 'Lokasi Dana Tujuan *' : 'Lokasi Dana Sumber *',
                         ),
@@ -1560,7 +1575,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                           final catLabel = _formatFundLocationCategory(loc.category);
                           return DropdownMenuItem(
                             value: loc.id,
-                            child: Text('$catLabel - ${loc.name} (${RupiahFormatter.format(bal.toInt())})'),
+                            child: Text(
+                              '$catLabel - ${loc.name} (${RupiahFormatter.format(bal.toInt())})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (val) {
@@ -1577,15 +1595,16 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       if (isIncome) ...[
                         DropdownButtonFormField<String?>(
                           value: selectedSourceRtId,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Jenis Kas Masuk',
                             hintText: 'Pilih: Kas Masuk atau Setoran RT',
                           ),
                           items: [
-                            const DropdownMenuItem<String?>(value: null, child: Text('Kas Masuk')),
+                            const DropdownMenuItem<String?>(value: null, child: Text('Kas Masuk', overflow: TextOverflow.ellipsis)),
                             ...rts.map((rt) => DropdownMenuItem<String?>(
                               value: rt.id,
-                              child: Text('Setoran RT — ${rt.label}'),
+                              child: Text('Setoran RT — ${rt.label}', overflow: TextOverflow.ellipsis),
                             )),
                           ],
                           onChanged: (val) {
@@ -1596,13 +1615,14 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       ] else ...[
                         DropdownButtonFormField<String>(
                           value: selectedExpenseCategory,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Kategori Kas Keluar *',
                           ),
                           items: expenseCategories.map((cat) {
                             return DropdownMenuItem(
                               value: cat.id,
-                              child: Text(cat.name),
+                              child: Text(cat.name, overflow: TextOverflow.ellipsis),
                             );
                           }).toList(),
                           onChanged: (val) {
@@ -1643,8 +1663,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Bukti Transaksi (Opsional)',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          const Expanded(
+                            child: Text(
+                              'Bukti Transaksi (Opsional)',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                           if (proofBytes != null)
                             TextButton(
                               onPressed: () => setDialogState(() {
@@ -1698,7 +1723,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         Row(
                           children: [
                             Expanded(
-                              child: OutlinedButton.icon(
+                              child: AppButton.accentSoft(
+                                buttonKey: const Key('rwKasProofCameraBtn'),
+                                text: 'Kamera',
+                                icon: Icons.camera_alt_outlined,
+                                size: AppButtonSize.medium,
+                                fullWidth: true,
                                 onPressed: () async {
                                   final picker = ImagePicker();
                                   final picked = await picker.pickImage(
@@ -1715,13 +1745,16 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                                     });
                                   }
                                 },
-                                icon: const Icon(Icons.camera_alt, size: 16),
-                                label: const Text('Kamera', style: TextStyle(fontSize: 12)),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: AppSpacing.sm),
                             Expanded(
-                              child: OutlinedButton.icon(
+                              child: AppButton.accentSoft(
+                                buttonKey: const Key('rwKasProofGalleryBtn'),
+                                text: 'Galeri',
+                                icon: Icons.photo_library_outlined,
+                                size: AppButtonSize.medium,
+                                fullWidth: true,
                                 onPressed: () async {
                                   final picker = ImagePicker();
                                   final picked = await picker.pickImage(
@@ -1738,8 +1771,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                                     });
                                   }
                                 },
-                                icon: const Icon(Icons.photo_library, size: 16),
-                                label: const Text('Galeri', style: TextStyle(fontSize: 12)),
                               ),
                             ),
                           ],
@@ -1750,11 +1781,15 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                AppButton.danger(
+                  text: 'Batal',
+                  size: AppButtonSize.medium,
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                  child: const Text('Batal'),
                 ),
-                ElevatedButton(
+                AppButton.primary(
+                  text: 'Simpan',
+                  size: AppButtonSize.medium,
+                  isLoading: saving,
                   onPressed: saving || locations.isEmpty ? null : () async {
                     if (selectedLocationId == null) {
                       setDialogState(() => error = 'Pilih lokasi dana');
@@ -1837,13 +1872,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       });
                     }
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isIncome ? AppColors.success : AppColors.danger,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Simpan'),
                 ),
               ],
             );

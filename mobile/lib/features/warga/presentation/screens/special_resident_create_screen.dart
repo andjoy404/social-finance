@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -159,7 +160,19 @@ class _SpecialResidentCreateScreenState
             backgroundColor: AppColors.success,
           ),
         );
-        context.pop();
+        // Successful save — allow the subsequent pop through the route guard.
+        final routePath = GoRouterState.of(context).uri.path;
+        KasFormNavigationGuard.allowExitFor(routePath);
+        try {
+          if (context.canPop()) {
+            context.pop();
+          } else {
+            context.go('/home/warga');
+          }
+        } catch (_) {
+          KasFormNavigationGuard.revokeExitFor(routePath);
+          rethrow;
+        }
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -174,54 +187,7 @@ class _SpecialResidentCreateScreenState
   /// Show confirmation dialog before canceling the form.
   /// Used by AppBar back, Android system back, and the Batal button.
   Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8B5CF6),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Ya, Batalkan'),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
-    }
+    await KasFormNavigationGuard.requestFormCancel(context);
   }
 
   @override
@@ -240,30 +206,12 @@ class _SpecialResidentCreateScreenState
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.md;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildSimpanButton(),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(child: _buildSimpanButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildBatalButton()),
+              ],
             ),
           ),
         ),
@@ -590,6 +538,7 @@ class _SpecialResidentCreateScreenState
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),

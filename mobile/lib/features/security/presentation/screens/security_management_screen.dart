@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 
 import 'correction_detail_screen.dart';
@@ -547,7 +548,12 @@ class _SecurityManagementScreenState
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -627,7 +633,12 @@ class _SecurityManagementScreenState
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -672,7 +683,12 @@ class _SecurityManagementScreenState
         title: const Text('Hapus Titik Kontrol?'),
         content: Text('Apakah Anda yakin ingin menghapus "${t.name}"?'),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -956,9 +972,9 @@ class _SecurityManagementScreenState
                 ),
         ),
         actions: [
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1167,7 +1183,12 @@ class _SecurityManagementScreenState
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Batal'),
             ),
@@ -1301,9 +1322,9 @@ class _SecurityManagementScreenState
                 ),
         ),
         actions: [
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1502,9 +1523,9 @@ class _SecurityManagementScreenState
           ),
         ),
         actions: [
-          TextButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -1612,7 +1633,12 @@ class _SecurityManagementScreenState
           ],
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -1733,7 +1759,12 @@ class _SecurityManagementScreenState
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Batal'),
             ),
@@ -1845,7 +1876,12 @@ class _SecurityManagementScreenState
           decoration: const InputDecoration(labelText: 'Catatan keputusan'),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -1883,7 +1919,12 @@ class _SecurityManagementScreenState
         title: const Text('Nonaktifkan perangkat?'),
         content: Text('${d.deviceName} — ${d.locationLabel}'),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -1922,7 +1963,12 @@ class _SecurityManagementScreenState
           'Perangkat perlu diaktifkan ulang dengan token baru.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Batal'),
           ),
@@ -1983,9 +2029,9 @@ class _SecurityManagementScreenState
           ],
         ),
         actions: [
-          FilledButton(
+          AppButton.danger(
+            text: 'Tutup',
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
           ),
         ],
       ),
@@ -2402,9 +2448,9 @@ class _SecurityManagementScreenState
                                   'Jabatan: Keamanan\nStatus: ${o.isActive ? 'Aktif' : 'Tidak Aktif'}${o.email.isEmpty ? '' : '\nEmail: ${o.email}'}',
                                 ),
                                 actions: [
-                                  TextButton(
+                                  AppButton.danger(
+                                    text: 'Tutup',
                                     onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Tutup'),
                                   ),
                                 ],
                               ),
@@ -2444,9 +2490,9 @@ class _SecurityManagementScreenState
                               'Penugasan: ${s.shiftName} ${s.startTime}–${s.endTime}\nStatus: ${(s.isActive && s.status == 'scheduled') ? 'Aktif' : 'Nonaktif'}',
                             ),
                             actions: [
-                              TextButton(
+                              AppButton.danger(
+                                text: 'Tutup',
                                 onPressed: () => Navigator.pop(ctx),
-                                child: const Text('Tutup'),
                               ),
                             ],
                           ),
@@ -2623,9 +2669,9 @@ class _SecurityManagementScreenState
                                   'Periode tugas: ${s.shiftName} (${s.startTime}–${s.endTime})\nStatus: ${(s.isActive && s.status == 'scheduled') ? 'Aktif' : 'Nonaktif'}\nAbsensi: ${s.attendanceStatusLabel ?? '-'}${s.notes != null && s.notes!.isNotEmpty ? '\nCatatan: ${s.notes}' : ''}',
                                 ),
                                 actions: [
-                                  TextButton(
+                                  AppButton.danger(
+                                    text: 'Tutup',
                                     onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Tutup'),
                                   ),
                                 ],
                               ),
@@ -2733,9 +2779,9 @@ class _SecurityManagementScreenState
                                   'Status: ${a.statusLabel}\nWaktu server masuk: ${a.checkedInAt ?? '-'}\nWaktu server keluar: ${a.checkedOutAt ?? '-'}\nPerangkat masuk: ${a.checkInDeviceName ?? '-'}\nPerangkat keluar: ${a.checkOutDeviceName ?? '-'}\nKoreksi terkunci: ${a.correctionLocked ? 'Ya' : 'Tidak'}',
                                 ),
                                 actions: [
-                                  TextButton(
+                                  AppButton.danger(
+                                    text: 'Tutup',
                                     onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Tutup'),
                                   ),
                                 ],
                               ),
@@ -4414,7 +4460,12 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _isSubmitting ? null : () => Navigator.pop(context, null),
           child: const Text('Batal'),
         ),

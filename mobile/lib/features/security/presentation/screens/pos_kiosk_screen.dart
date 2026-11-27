@@ -18,6 +18,7 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/features/monitoring/data/monitoring_models.dart';
 
 import '../../data/pos_device_storage.dart';
@@ -250,9 +251,9 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
             ),
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Tutup'),
             ),
           ],
         ),
@@ -553,7 +554,12 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
               ),
             ),
             actions: [
-              TextButton(
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
                 onPressed: () => Navigator.of(ctx).pop(false),
                 child: const Text('Batal'),
               ),
@@ -723,7 +729,12 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
           'Token perangkat di ponsel ini akan dihapus dan Anda perlu token pairing baru dari Ketua RT untuk mengaktifkan ulang pos.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -1160,9 +1171,9 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
               ),
             ),
             actions: [
-              TextButton(
+              AppButton.danger(
+                text: 'Tutup',
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Tutup'),
               ),
             ],
           );
@@ -1309,7 +1320,12 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
           ),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),

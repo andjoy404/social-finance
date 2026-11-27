@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -870,7 +871,12 @@ class _ResidentCard extends ConsumerWidget {
           'Buat 4 digit kode reset kata sandi untuk ${resident.name}?\n\nKode ini berlaku selama 24 jam.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -938,9 +944,9 @@ class _ResidentCard extends ConsumerWidget {
             ],
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Tutup'),
             ),
             FilledButton.icon(
               icon: const Icon(Icons.copy, size: 16),

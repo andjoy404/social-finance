@@ -644,7 +644,12 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),

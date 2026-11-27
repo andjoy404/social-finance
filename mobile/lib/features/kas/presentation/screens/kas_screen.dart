@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -642,12 +643,10 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -721,11 +720,20 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: saving
                       ? null
                       : () async {

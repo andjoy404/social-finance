@@ -1,16 +1,18 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/utils/url_launcher_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -80,56 +82,29 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
       _imageSupportedEvents.contains(eventType);
 
   Widget _buildBodyWithLinks(String body) {
-    final segments = UrlDetector.parseSegments(body);
-    if (segments.isEmpty || segments.every((s) => !s.isLink)) {
-      return Text(
-        body,
-        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
-      );
-    }
-    return RichText(
-      text: TextSpan(
-        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
-        children: segments.map((seg) {
-          if (seg.isLink) {
-            return TextSpan(
-              text: seg.text,
-              style: const TextStyle(
-                color: Color(0xFFA970FF),
-                decoration: TextDecoration.underline,
-              ),
-              recognizer: TapGestureRecognizer()..onTap = () => UrlDetector.openUrl(seg.url!),
-            );
-          }
-          return TextSpan(text: seg.text);
-        }).toList(),
+    return NotificationBodyText(
+      text: body,
+      eventType: null,
+      style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
+      linkStyle: const TextStyle(
+        color: Color(0xFFA970FF),
+        decoration: TextDecoration.underline,
       ),
+      onOpenUrl: (url) => UrlDetector.openUrl(url),
     );
   }
 
   Widget _buildBodyWithLinksDialog(String body) {
-    final segments = UrlDetector.parseSegments(body);
     final textStyle = TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface);
-    if (segments.isEmpty || segments.every((s) => !s.isLink)) {
-      return Text(body, style: textStyle);
-    }
-    return RichText(
-      text: TextSpan(
-        style: textStyle,
-        children: segments.map((seg) {
-          if (seg.isLink) {
-            return TextSpan(
-              text: seg.text,
-              style: const TextStyle(
-                color: AppColors.accent,
-                decoration: TextDecoration.underline,
-              ),
-              recognizer: TapGestureRecognizer()..onTap = () => UrlDetector.openUrl(seg.url!),
-            );
-          }
-          return TextSpan(text: seg.text);
-        }).toList(),
+    return NotificationBodyText(
+      text: body,
+      eventType: null,
+      style: textStyle,
+      linkStyle: const TextStyle(
+        color: AppColors.accent,
+        decoration: TextDecoration.underline,
       ),
+      onOpenUrl: (url) => UrlDetector.openUrl(url),
     );
   }
 
@@ -203,7 +178,15 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim')),
         ],
       ),
@@ -425,11 +408,15 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                     DropdownButtonFormField<String>(
                       key: const Key('rwTemplateEventTypeField'),
                       initialValue: eventType,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Jenis Event *'),
                       items: eventOptions
                           .map((e) => DropdownMenuItem(
                                 value: e['value'],
-                                child: Text(e['label']!),
+                                child: Text(
+                                  e['label']!,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ))
                           .toList(),
                       onChanged: (isEditing || isSubmitting)
@@ -527,65 +514,77 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                         ),
                         const SizedBox(height: 8),
                       ],
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                      Row(
                         children: [
-                          OutlinedButton.icon(
-                            key: const Key('rwTemplatePickGalleryBtn'),
-                            onPressed: isSubmitting ? null : () => handlePick(ImageSource.gallery),
-                            icon: const Icon(Icons.photo_library_outlined, size: 16),
-                            label: Text(
-                              hasPreviewImage ? 'Ganti dari Galeri' : 'Pilih dari Galeri',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            key: const Key('rwTemplatePickCameraBtn'),
-                            onPressed: isSubmitting ? null : () => handlePick(ImageSource.camera),
-                            icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                            label: const Text('Ambil Foto', style: TextStyle(fontSize: 12)),
-                          ),
-                          if (hasPreviewImage)
-                            OutlinedButton.icon(
-                              key: const Key('rwTemplateRemoveImageBtn'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.danger,
-                                side: BorderSide(color: AppColors.danger.withValues(alpha: 0.5)),
-                              ),
+                          Expanded(
+                            child: AppButton.accentSoft(
+                              buttonKey: const Key('rwTemplatePickCameraBtn'),
+                              text: 'Kamera',
+                              icon: Icons.camera_alt_outlined,
+                              size: AppButtonSize.medium,
+                              fullWidth: true,
                               onPressed: isSubmitting
                                   ? null
-                                  : () => setS(() {
-                                        pickedBytes = null;
-                                        pickedFilename = null;
-                                        currentImageUrl = null;
-                                        imageChanged = true;
-                                      }),
-                              icon: const Icon(Icons.delete_outline, size: 16),
-                              label: const Text('Hapus Gambar', style: TextStyle(fontSize: 12)),
+                                  : () => handlePick(ImageSource.camera),
                             ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: AppButton.accentSoft(
+                              buttonKey: const Key('rwTemplatePickGalleryBtn'),
+                              text: 'Galeri',
+                              icon: Icons.photo_library_outlined,
+                              size: AppButtonSize.medium,
+                              fullWidth: true,
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () => handlePick(ImageSource.gallery),
+                            ),
+                          ),
                         ],
                       ),
+                      if (hasPreviewImage) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            key: const Key('rwTemplateRemoveImageBtn'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.danger,
+                              side: BorderSide(
+                                color: AppColors.danger.withValues(alpha: 0.5),
+                              ),
+                            ),
+                            onPressed: isSubmitting
+                                ? null
+                                : () => setS(() {
+                                      pickedBytes = null;
+                                      pickedFilename = null;
+                                      currentImageUrl = null;
+                                      imageChanged = true;
+                                    }),
+                            icon: const Icon(Icons.delete_outline, size: 16),
+                            label: const Text('Hapus Gambar', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
                     ],
                   ],
                 ),
               ),
             ),
             actions: [
-              TextButton(
+              AppButton.danger(
+                text: 'Batal',
+                size: AppButtonSize.medium,
                 onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-                child: const Text('Batal'),
               ),
-              FilledButton(
-                key: const Key('rwTemplateSaveBtn'),
+              AppButton.primary(
+                buttonKey: const Key('rwTemplateSaveBtn'),
+                text: 'Simpan',
+                size: AppButtonSize.medium,
+                isLoading: isSubmitting,
                 onPressed: isSubmitting ? null : handleSave,
-                child: isSubmitting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : Text(isEditing ? 'Simpan Perubahan' : 'Buat Template'),
               ),
             ],
           );
@@ -619,7 +618,15 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
         title: const Text('Hapus Template?'),
         content: Text('Apakah Anda yakin ingin menghapus template "${t.name}"? Tindakan ini tidak dapat dibatalkan.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
           FilledButton(
             key: const Key('rwTemplateConfirmDeleteBtn'),
             style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
@@ -786,7 +793,10 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tutup')),
+              AppButton.danger(
+                text: 'Tutup',
+                onPressed: () => Navigator.pop(ctx),
+              ),
               if (canWrite && t.isActive)
                 FilledButton.icon(
                   onPressed: () {
@@ -855,7 +865,15 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Batal'),
+              ),
               FilledButton.icon(
                 onPressed: () => Navigator.pop(ctx, true),
                 icon: const Icon(Icons.send_rounded, size: 16),
@@ -1173,6 +1191,64 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
     );
   }
 
+  void _openFullScreenImage(BuildContext context, String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.black.withValues(alpha: 0.92),
+          insetPadding: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.base),
+          ),
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 4.0,
+                child: Center(
+                  child: AuthenticatedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.contain,
+                    errorWidget: const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.white70,
+                            size: 48,
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'Gambar lampiran tidak dapat dimuat.',
+                            style: TextStyle(color: Colors.white70),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  key: const Key('close_fullscreen_image_button'),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  tooltip: 'Tutup Gambar',
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _showNotificationPreview(RwNotificationLog n) {
     final title = n.title?.isNotEmpty == true ? n.title! : n.eventType;
     final body = n.body ?? '';
@@ -1279,14 +1355,36 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                         _buildBodyWithLinks(body),
                         if (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 180),
-                              child: AuthenticatedNetworkImage(
-                                imageUrl: resolvedImageUrl,
-                                width: double.infinity,
-                                fit: BoxFit.contain,
+                          GestureDetector(
+                            key: const Key('preview_notification_image_thumbnail'),
+                            onTap: () => _openFullScreenImage(context, resolvedImageUrl),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 180),
+                                child: Stack(
+                                  alignment: Alignment.bottomRight,
+                                  children: [
+                                    AuthenticatedNetworkImage(
+                                      imageUrl: resolvedImageUrl,
+                                      width: double.infinity,
+                                      fit: BoxFit.contain,
+                                    ),
+                                    Container(
+                                      margin: const EdgeInsets.all(6),
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black54,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(
+                                        Icons.fullscreen,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -1351,9 +1449,9 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
             ),
           ),
           actions: [
-            FilledButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
             ),
           ],
         );

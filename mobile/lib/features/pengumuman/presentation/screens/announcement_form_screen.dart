@@ -508,18 +508,43 @@ class _AnnouncementFormScreenState
 
                 const SizedBox(height: AppSpacing.base),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton(
-                      onPressed: _isSaving ? null : () => context.pop(false),
-                      child: const Text('Batal'),
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: _isSaving ? null : () => context.pop(false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.danger,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.base),
+                            ),
+                          ),
+                          child: const Text('Batal'),
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: (_isSaving || _isUploadingImage)
-                          ? null
-                          : _submit,
-                      child: Text(_isSaving ? 'Menyimpan...' : 'Simpan'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: (_isSaving || _isUploadingImage)
+                              ? null
+                              : _submit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.base),
+                            ),
+                          ),
+                          child: Text(_isSaving ? 'Menyimpan...' : 'Simpan'),
+                        ),
+                      ),
                     ),
                   ],
                 ),

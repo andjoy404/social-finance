@@ -1216,8 +1216,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         }
                       },
                 style: OutlinedButton.styleFrom(
-                  backgroundColor: AppColors.danger,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.danger,
                   side: const BorderSide(color: AppColors.danger),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,

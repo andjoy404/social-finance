@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import '../utils/guest_visit_duration.dart' as guest_duration;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -194,9 +195,9 @@ class _SecurityGuestBookScreenState
             ),
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
             ),
           ],
         ),
@@ -542,7 +543,12 @@ class _SecurityGuestBookScreenState
               ),
             ),
             actions: [
-              TextButton(
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
                 onPressed: () => Navigator.of(ctx).pop(false),
                 child: const Text('Batal'),
               ),

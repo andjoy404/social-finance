@@ -208,6 +208,8 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
       residentId={resident.id}
       rtDisplay={formatResidentRTDisplay(resident)}
       subtitle={resident.full_name}
+      avatarPath={resident.avatar_path ?? null}
+      avatarThumbPath={resident.avatar_thumb_path ?? null}
       error={savingError}
       initialValues={{
         full_name: resident.full_name || '',
@@ -220,6 +222,11 @@ export function SpecialResidentEdit({ mode = 'edit' }: Props) {
         password: '',
       }}
       onSubmit={handleSubmit}
+      onAvatarChange={(newPath, newThumb) => {
+        setResident((prev) =>
+          prev ? { ...prev, avatar_path: newPath, avatar_thumb_path: newThumb } : prev
+        )
+      }}
     />
   )
 }
