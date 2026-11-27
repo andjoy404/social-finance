@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/device_id_service.dart';
 import '../api/device_service.dart';
 import 'notification_url_helper.dart';
 
@@ -31,8 +32,10 @@ class PushNotificationService {
   static bool _firebaseCoreUnavailable = false;
 
   final DeviceService _deviceService;
+  final DeviceIdService? _deviceIdService;
   bool _isInitialized = false;
   Future<void>? _initInFlight;
+  Future<void>? _registerInFlight;
   bool _isUserLoggedIn = false;
   String? _registeredToken;
   StreamSubscription<String>? _tokenRefreshSub;
@@ -48,7 +51,7 @@ class PushNotificationService {
       StreamController<Map<String, dynamic>>.broadcast();
   final Set<String> _processedMessageIds = <String>{};
 
-  PushNotificationService(this._deviceService);
+  PushNotificationService(this._deviceService, [this._deviceIdService]);
 
   bool get isInitialized => _isInitialized;
   bool get isUserLoggedIn => _isUserLoggedIn;
@@ -440,8 +443,26 @@ class PushNotificationService {
   }
 
   /// Called after successful login or session restore to register device token with backend.
+  /// Always confirms active token registration with the backend (even if the same
+  /// token was registered in a prior session) so multi-device / same-account push
+  /// delivery never stalls on an inactive server-side `user_devices` row.
   Future<void> onUserLoggedIn({FirebaseMessaging? messagingInstance}) async {
     _isUserLoggedIn = true;
+    if (_registerInFlight != null) {
+      return _registerInFlight!;
+    }
+    final future = _doRegisterDevice(messagingInstance: messagingInstance);
+    _registerInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_registerInFlight, future)) {
+        _registerInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doRegisterDevice({FirebaseMessaging? messagingInstance}) async {
     try {
       if (!_isInitialized) {
         await initialize(messagingInstance: messagingInstance);
@@ -456,15 +477,18 @@ class PushNotificationService {
 
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
-        if (_registeredToken != token) {
-          await _deviceService.registerDevice(
-            fcmToken: token,
-            platform: _currentPlatform,
-          );
-          _registeredToken = token;
-          if (kDebugMode) {
-            debugPrint('PushNotificationService: Device token registered successfully');
-          }
+        String? deviceId;
+        try {
+          deviceId = await _deviceIdService?.getDeviceId();
+        } catch (_) {}
+        await _deviceService.registerDevice(
+          fcmToken: token,
+          platform: _currentPlatform,
+          deviceId: deviceId,
+        );
+        _registeredToken = token;
+        if (kDebugMode) {
+          debugPrint('PushNotificationService: Device token registered successfully');
         }
       } else {
         if (kDebugMode) {
@@ -515,9 +539,14 @@ class PushNotificationService {
   Future<void> _onTokenRefreshed(String newToken) async {
     if (_isUserLoggedIn) {
       try {
+        String? deviceId;
+        try {
+          deviceId = await _deviceIdService?.getDeviceId();
+        } catch (_) {}
         await _deviceService.registerDevice(
           fcmToken: newToken,
           platform: _currentPlatform,
+          deviceId: deviceId,
         );
         _registeredToken = newToken;
         if (kDebugMode) {
@@ -544,7 +573,8 @@ class PushNotificationService {
 
 final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
   final deviceService = ref.watch(deviceServiceProvider);
-  final service = PushNotificationService(deviceService);
+  final deviceIdService = ref.watch(deviceIdServiceProvider);
+  final service = PushNotificationService(deviceService, deviceIdService);
   ref.onDispose(() => service.dispose());
   return service;
 });

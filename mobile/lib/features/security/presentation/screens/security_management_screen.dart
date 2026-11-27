@@ -744,23 +744,45 @@ class _SecurityManagementScreenState
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Daftar Gang & Titik Kontrol (${_patrolTemplates.length})',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+          if (theme.platform == TargetPlatform.iOS)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Daftar Gang & Titik Kontrol (${_patrolTemplates.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
-              ),
-              FilledButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Tambah Gang'),
-                onPressed: _showAddTemplateDialog,
-              ),
-            ],
-          ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Tambah Gang'),
+                  onPressed: _showAddTemplateDialog,
+                ),
+              ],
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Daftar Gang & Titik Kontrol (${_patrolTemplates.length})',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                FilledButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Tambah Gang'),
+                  onPressed: _showAddTemplateDialog,
+                ),
+              ],
+            ),
           const SizedBox(height: 10),
           if (_patrolTemplates.isEmpty) ...[
             const SizedBox(height: 40),
@@ -3161,38 +3183,76 @@ class _SecurityManagementScreenState
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      TextButton.icon(
-                                        icon: const Icon(
-                                          Icons.refresh,
-                                          size: 16,
+                                  if (theme.platform == TargetPlatform.iOS)
+                                    Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      children: [
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.refresh,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Ganti',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
+                                          onPressed: () =>
+                                              _takePatrolPhoto(t.id),
                                         ),
-                                        label: const Text(
-                                          'Ganti',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        onPressed: () => _takePatrolPhoto(t.id),
-                                      ),
-                                      TextButton.icon(
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          size: 16,
-                                          color: AppColors.danger,
-                                        ),
-                                        label: const Text(
-                                          'Hapus',
-                                          style: TextStyle(
-                                            fontSize: 12,
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 16,
                                             color: AppColors.danger,
                                           ),
+                                          label: const Text(
+                                            'Hapus',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.danger,
+                                            ),
+                                          ),
+                                          onPressed: () => setState(
+                                            () => _patrolPhotos.remove(t.id),
+                                          ),
                                         ),
-                                        onPressed: () => setState(
-                                          () => _patrolPhotos.remove(t.id),
+                                      ],
+                                    )
+                                  else
+                                    Row(
+                                      children: [
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.refresh,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Ganti',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
+                                          onPressed: () =>
+                                              _takePatrolPhoto(t.id),
                                         ),
-                                      ),
-                                    ],
-                                  ),
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 16,
+                                            color: AppColors.danger,
+                                          ),
+                                          label: const Text(
+                                            'Hapus',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.danger,
+                                            ),
+                                          ),
+                                          onPressed: () => setState(
+                                            () => _patrolPhotos.remove(t.id),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
                             ),

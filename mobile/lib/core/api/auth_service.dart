@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'client.dart';
@@ -57,8 +58,28 @@ class AuthService {
     return login(phone: phone, password: password);
   }
 
-  Future<void> logout() async {
-    await client.dio.post('/api/v1/auth/logout');
+  Future<void> logout({String? accessToken, String? refreshToken}) async {
+    final effectiveAccess = accessToken ?? client.token;
+    final effectiveRefresh = refreshToken ?? client.refreshToken;
+    String? deviceId;
+    try {
+      deviceId = await deviceIdService.getDeviceId();
+    } catch (_) {}
+
+    final body = <String, dynamic>{
+      if (effectiveRefresh != null && effectiveRefresh.isNotEmpty)
+        'refresh_token': effectiveRefresh,
+      if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+    };
+    final options = (effectiveAccess != null && effectiveAccess.isNotEmpty)
+        ? Options(headers: {'Authorization': 'Bearer $effectiveAccess'})
+        : null;
+
+    await client.dio.post(
+      '/api/v1/auth/logout',
+      data: body.isNotEmpty ? body : null,
+      options: options,
+    );
   }
 
   Future<LoginResponse> refreshToken(String rawRefreshToken) async {

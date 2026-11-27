@@ -109,7 +109,8 @@ void main() {
       expect(repository.currentJabatan, 'keamanan');
       expect(client.token, 'access-keamanan');
       expect(await secureStorage.hasSession(), isTrue);
-      expect(await secureStorage.getLoginCredentials(), isNotNull);
+      // Security rule: passwords must never be stored for auto-login.
+      expect(await secureStorage.getLoginCredentials(), isNull);
 
       await repository.logout();
 

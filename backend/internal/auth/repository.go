@@ -399,12 +399,12 @@ func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (
 		}
 		return "", nil, time.Time{}, false, "", fmt.Errorf("find refresh token: %w", err)
 	}
-	if rawMembershipID.Valid {
-		mid := rawMembershipID.String
-		return userID, &mid, expiresAt, revoked, mid, nil
-	}
 	if rawDeviceID.Valid {
 		deviceID = rawDeviceID.String
+	}
+	if rawMembershipID.Valid {
+		mid := rawMembershipID.String
+		return userID, &mid, expiresAt, revoked, deviceID, nil
 	}
 	return userID, nil, expiresAt, revoked, deviceID, nil
 }
@@ -423,6 +423,35 @@ func RevokeRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string)
 		tokenHash,
 	); err != nil {
 		// Best-effort -- the primary token is already revoked.
+	}
+	return nil
+}
+
+// RevokeRefreshTokenForUserByHash revokes only the specific refresh token (and any
+// direct replacement) belonging to userID, leaving other devices' sessions intact.
+func RevokeRefreshTokenForUserByHash(ctx context.Context, tx *sql.Tx, userID, tokenHash string) error {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL`,
+		userID, tokenHash,
+	); err != nil {
+		return fmt.Errorf("revoke refresh token for user: %w", err)
+	}
+	_, _ = tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1 AND replaced_by_hash = $2 AND revoked_at IS NULL`,
+		userID, tokenHash,
+	)
+	return nil
+}
+
+// RevokeRefreshTokensByUserAndDevice revokes all active refresh tokens for a
+// specific (userID, deviceID) pair, leaving other devices of the same user active.
+func RevokeRefreshTokensByUserAndDevice(ctx context.Context, tx *sql.Tx, userID, deviceID string) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1 AND device_id = $2 AND revoked_at IS NULL`,
+		userID, deviceID,
+	)
+	if err != nil {
+		return fmt.Errorf("revoke tokens for user device: %w", err)
 	}
 	return nil
 }

@@ -443,12 +443,15 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 // The old token is immediately invalid (rotation).
 func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID string) (*LoginResult, error) {
 	hash := rawToken // raw token is looked up by its stored hash (caller hashes before passing)
-	userID, membershipIDPtr, expiresAt, revoked, _, err := FindRefreshTokenByHash(ctx, tx, hash)
+	userID, membershipIDPtr, expiresAt, revoked, storedDeviceID, err := FindRefreshTokenByHash(ctx, tx, hash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrInvalidRefreshToken
 		}
 		return nil, fmt.Errorf("find refresh token: %w", err)
+	}
+	if strings.TrimSpace(deviceID) == "" && strings.TrimSpace(storedDeviceID) != "" {
+		deviceID = strings.TrimSpace(storedDeviceID)
 	}
 
 	// Must not be revoked or expired.
@@ -603,6 +606,24 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 			},
 		},
 	}, nil
+}
+
+// LogoutSession revokes refresh tokens for a single session/device when
+// refreshToken or deviceID is provided, preserving active sessions on other
+// devices for the same account (e.g. Web logout must not kill Android's
+// persistent session). When neither is supplied, falls back to revoking all
+// sessions for the membership or user.
+func (s *Service) LogoutSession(ctx context.Context, tx *sql.Tx, userID, membershipID, rawRefreshToken, deviceID string) error {
+	if tok := strings.TrimSpace(rawRefreshToken); tok != "" {
+		return RevokeRefreshTokenForUserByHash(ctx, tx, userID, tok)
+	}
+	if dev := strings.TrimSpace(deviceID); dev != "" {
+		return RevokeRefreshTokensByUserAndDevice(ctx, tx, userID, dev)
+	}
+	if membershipID != "" {
+		return s.Logout(ctx, tx, membershipID)
+	}
+	return s.SystemLogout(ctx, tx, userID)
 }
 
 // Logout revokes all refresh tokens for the given membership.

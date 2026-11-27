@@ -343,6 +343,7 @@ abstract class SecureAuthStorage {
 
 /// FlutterSecureStorage implementation of [SecureAuthStorage].
 class FlutterSecureAuthStorage implements SecureAuthStorage {
+  static const _keySessionBundle = 'sf_sec_session_bundle_v1';
   static const _keyAccessToken = 'sf_sec_access_token';
   static const _keyRefreshToken = 'sf_sec_refresh_token';
   static const _keyServerUrl = 'sf_sec_server_url';
@@ -361,6 +362,9 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
             aOptions: AndroidOptions(
               resetOnError: true,
             ),
+            iOptions: IOSOptions(
+              accessibility: KeychainAccessibility.first_unlock_this_device,
+            ),
           );
 
   @override
@@ -370,22 +374,56 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
     required String serverUrl,
     required Map<String, dynamic> userData,
   }) async {
-    try {
-      await _storage.write(key: _keyAccessToken, value: accessToken);
-      await _storage.write(key: _keyRefreshToken, value: refreshToken);
-      await _storage.write(key: _keyServerUrl, value: serverUrl);
-      await _storage.write(key: _keyUserData, value: jsonEncode(userData));
-    } catch (e) {
-      developer.log(
-        'Error saving session to secure storage: $e',
-        name: 'FlutterSecureAuthStorage',
-      );
+    // Write the complete session bundle atomically in a single Keychain /
+    // EncryptedSharedPreferences operation so single-use refresh token rotation
+    // can never be left half-persisted if the OS terminates the app mid-write.
+    final bundle = jsonEncode({
+      'access_token': accessToken,
+      'refresh_token': refreshToken,
+      'server_url': serverUrl,
+      'user_data': userData,
+    });
+    await _storage.write(key: _keySessionBundle, value: bundle);
+    // Clean up legacy split keys on best-effort basis after the atomic bundle
+    // write succeeds so stale tokens never linger on disk.
+    for (final legacyKey in const [
+      _keyAccessToken,
+      _keyRefreshToken,
+      _keyServerUrl,
+      _keyUserData,
+    ]) {
+      try {
+        await _storage.delete(key: legacyKey);
+      } catch (_) {}
     }
   }
 
   @override
   Future<StoredSession?> getSession() async {
     try {
+      final rawBundle = await _storage.read(key: _keySessionBundle);
+      if (rawBundle != null && rawBundle.isNotEmpty) {
+        final decoded = jsonDecode(rawBundle);
+        if (decoded is Map) {
+          final accessToken = (decoded['access_token'] ?? '').toString();
+          final refreshToken = (decoded['refresh_token'] ?? '').toString();
+          final serverUrl = (decoded['server_url'] ?? '').toString();
+          final rawUser = decoded['user_data'];
+          final userData = rawUser is Map
+              ? rawUser.cast<String, dynamic>()
+              : <String, dynamic>{};
+          if (accessToken.trim().isNotEmpty || refreshToken.trim().isNotEmpty) {
+            return StoredSession(
+              accessToken: accessToken,
+              refreshToken: refreshToken,
+              serverUrl: serverUrl,
+              userData: userData,
+            );
+          }
+        }
+      }
+
+      // Backward-compatible read path for existing installs using legacy 4 keys.
       final accessToken = await _storage.read(key: _keyAccessToken) ?? '';
       final refreshToken = await _storage.read(key: _keyRefreshToken) ?? '';
       final serverUrl = await _storage.read(key: _keyServerUrl) ?? '';
@@ -423,6 +461,7 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
   @override
   Future<void> clearSession() async {
     try {
+      await _storage.delete(key: _keySessionBundle);
       await _storage.delete(key: _keyAccessToken);
       await _storage.delete(key: _keyRefreshToken);
       await _storage.delete(key: _keyServerUrl);
@@ -438,12 +477,10 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
   @override
   Future<bool> hasSession() async {
     try {
-      final token = await _storage.read(key: _keyAccessToken);
-      if (token != null && token.trim().isNotEmpty) {
-        return true;
-      }
-      final refresh = await _storage.read(key: _keyRefreshToken);
-      return refresh != null && refresh.trim().isNotEmpty;
+      final session = await getSession();
+      return session != null &&
+          (session.accessToken.trim().isNotEmpty ||
+              session.refreshToken.trim().isNotEmpty);
     } catch (e) {
       return false;
     }

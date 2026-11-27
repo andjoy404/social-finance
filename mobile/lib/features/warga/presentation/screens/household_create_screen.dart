@@ -226,9 +226,9 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
-                Expanded(child: _buildSimpanButton()),
-                const SizedBox(width: AppSpacing.md),
                 Expanded(child: _buildBatalButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildSimpanButton()),
               ],
             ),
           ),

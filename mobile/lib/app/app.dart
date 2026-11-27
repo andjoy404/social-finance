@@ -430,6 +430,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         ref.read(authRepositoryProvider.notifier).reloadProfile();
       }
       if (user != null) {
+        ref.read(authRepositoryProvider.notifier).ensureFreshSession();
         ref.read(pushNotificationServiceProvider).ensureDeviceRegistered();
       }
       if (isPlainWargaUser(user)) {
@@ -878,8 +879,15 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       _pendingDeepLink = null;
       _lastNotificationTarget = null;
       final notifSvc = _ref.read(pushNotificationServiceProvider);
-      await notifSvc.clearNativeNotificationAuth();
-      await notifSvc.onUserLoggedOut();
+      await Future.wait([
+        notifSvc.clearNativeNotificationAuth(),
+        notifSvc.onUserLoggedOut(),
+      ]);
+    };
+    authNotifier.onClearNativeAuth = () async {
+      await _ref
+          .read(pushNotificationServiceProvider)
+          .clearNativeNotificationAuth();
     };
 
     _authSubscription = ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(

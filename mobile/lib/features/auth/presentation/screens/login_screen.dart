@@ -70,62 +70,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         final lastPhone = await prefs.getLastPhone();
         final lastMethod = await prefs.getLastLoginMethod();
         final rememberMe = await prefs.getRememberMe();
-        if (mounted) {
-          setState(() => _rememberMe = rememberMe);
-        }
-        StoredLoginCredentials? storedCredentials;
-        if (rememberMe) {
-          storedCredentials = await ref
-              .read(secureAuthStorageProvider)
-              .getLoginCredentials();
-        } else {
+        // Purge any legacy stored login password — persistent login uses secure
+        // refresh tokens only and never stores or prefills user passwords.
+        try {
           await ref.read(secureAuthStorageProvider).clearLoginCredentials();
-        }
-
-        final effectiveServerUrl =
-            (lastUrl != null && lastUrl.trim().isNotEmpty)
-            ? lastUrl.trim()
-            : (storedCredentials?.serverUrl ?? ApiConfig.effectiveDefaultBaseUrl);
-        final storedServerMatches =
-            storedCredentials != null &&
-            UrlUtils.normalizeUrl(storedCredentials.serverUrl) ==
-                UrlUtils.normalizeUrl(effectiveServerUrl);
-        if (storedCredentials != null && !storedServerMatches) {
-          await ref.read(secureAuthStorageProvider).clearLoginCredentials();
-        }
+        } catch (_) {}
+        final expiredMessage = ref
+            .read(authRepositoryProvider.notifier)
+            .consumeSessionExpiredMessage();
 
         if (mounted) {
           setState(() {
             _rememberMe = rememberMe;
-            if (storedCredentials != null && storedServerMatches) {
-              final method = storedCredentials.loginMethod;
-              _restoredLoginCredentials = storedCredentials;
-              _loginMethod = method == 'phone'
-                  ? LoginMethod.phone
-                  : LoginMethod.email;
-              if (method == 'phone') {
-                _phoneController.text =
-                    PhoneUtils.formatDisplay(storedCredentials.identifier);
-              } else {
-                _emailController.text = storedCredentials.identifier;
-              }
-              _passwordController.text = storedCredentials.password;
-            } else {
-              if (lastMethod == 'phone') {
-                _loginMethod = LoginMethod.phone;
-              } else if (lastMethod == 'email') {
-                _loginMethod = LoginMethod.email;
-              }
-              if (lastEmail != null && lastEmail.isNotEmpty) {
-                _emailController.text = lastEmail;
-              }
-              if (lastPhone != null && lastPhone.isNotEmpty) {
-                _phoneController.text = PhoneUtils.formatDisplay(lastPhone);
-              }
+            _restoredLoginCredentials = null;
+            if (expiredMessage != null && expiredMessage.isNotEmpty) {
+              _error = expiredMessage;
             }
-            final startupUrl = storedServerMatches
-                ? effectiveServerUrl
-                : lastUrl;
+            if (lastMethod == 'phone') {
+              _loginMethod = LoginMethod.phone;
+            } else if (lastMethod == 'email') {
+              _loginMethod = LoginMethod.email;
+            }
+            if (lastEmail != null && lastEmail.isNotEmpty) {
+              _emailController.text = lastEmail;
+            }
+            if (lastPhone != null && lastPhone.isNotEmpty) {
+              _phoneController.text = PhoneUtils.formatDisplay(lastPhone);
+            }
+            final startupUrl = lastUrl;
             if (startupUrl != null && startupUrl.trim().isNotEmpty) {
               final urlErr = UrlUtils.validateUrl(startupUrl);
               if (urlErr != null) {
@@ -669,7 +641,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.accent,
-                      decoration: TextDecoration.underline,
+                      decoration: TextDecoration.none,
                     ),
                   ),
                 ),
@@ -1376,12 +1348,14 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Reset Kata Sandi Warga',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF2EFF9),
+                const Expanded(
+                  child: Text(
+                    'Reset Kata Sandi Warga',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFF2EFF9),
+                    ),
                   ),
                 ),
                 IconButton(

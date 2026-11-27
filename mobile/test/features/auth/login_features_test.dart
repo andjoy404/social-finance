@@ -35,6 +35,16 @@ class MockAdapter implements HttpClientAdapter {
 
 class _FailingLoginCredentialStorage extends InMemorySecureAuthStorage {
   @override
+  Future<void> saveSession({
+    required String accessToken,
+    required String refreshToken,
+    required String serverUrl,
+    required Map<String, dynamic> userData,
+  }) async {
+    throw StateError('secure storage unavailable');
+  }
+
+  @override
   Future<void> saveLoginCredentials({
     required String identifier,
     required String loginMethod,
@@ -392,16 +402,12 @@ void main() {
         // Login with rememberMe = true
         await repo.login('restored@local.com', 'secret', rememberMe: true);
 
-        // Verify stored in secure storage
+        // Verify session stored in secure storage, and password is NEVER stored
         final stored = await secureStorage.getSession();
         expect(stored, isNotNull);
         expect(stored!.accessToken, equals('saved-acc-tok'));
         expect(stored.serverUrl, equals('https://api.urena0216.id'));
-        final rememberedLogin = await secureStorage.getLoginCredentials();
-        expect(rememberedLogin?.identifier, equals('restored@local.com'));
-        expect(rememberedLogin?.loginMethod, equals('email'));
-        expect(rememberedLogin?.password, equals('secret'));
-        expect(rememberedLogin?.serverUrl, equals('https://api.urena0216.id'));
+        expect(await secureStorage.getLoginCredentials(), isNull);
 
         // Create new fresh repository instance (simulating app restart)
         final newClient = ApiClient(baseUrl: 'https://api.urena0216.id');
@@ -1041,14 +1047,17 @@ void main() {
         );
         expect(emailField.controller?.text, equals('warga01@test.com'));
 
+        // Passwords must never be prefilled or retained on disk; legacy stored
+        // login credentials are purged on startup.
         final passField = tester.widget<TextField>(
           find.byType(TextField).at(2),
         );
-        expect(passField.controller?.text, equals('remembered-password'));
+        expect(passField.controller?.text, isEmpty);
+        expect(await secureStorage.getLoginCredentials(), isNull);
       });
 
       testWidgets(
-        'Restores last phone and sets Nomor HP tab active on startup',
+        'Restores last phone and sets Nomor HP tab active on startup without prefilling password',
         (tester) async {
           final prefStorage = InMemoryPreferencesStorage(
             initialUrl: 'https://api.socialfinance.com',
@@ -1091,7 +1100,8 @@ void main() {
           final passField = tester.widget<TextField>(
             find.byType(TextField).at(2),
           );
-          expect(passField.controller?.text, equals('remembered-password'));
+          expect(passField.controller?.text, isEmpty);
+          expect(await secureStorage.getLoginCredentials(), isNull);
         },
       );
 

@@ -827,39 +827,77 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                item.fromLocationName ?? 'Asal',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                      if (Theme.of(context).platform == TargetPlatform.iOS)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 6,
+                                runSpacing: 2,
+                                children: [
+                                  Text(
+                                    item.fromLocationName ?? 'Asal',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward, size: 14),
+                                  Text(
+                                    item.toLocationName ?? 'Tujuan',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 6),
-                                child: Icon(Icons.arrow_forward, size: 14),
-                              ),
-                              Text(
-                                item.toLocationName ?? 'Tujuan',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            formatRupiah(item.amountRupiah),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: AppColors.accent,
                             ),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(width: 8),
+                            Text(
+                              formatRupiah(item.amountRupiah),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  item.fromLocationName ?? 'Asal',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 6),
+                                  child: Icon(Icons.arrow_forward, size: 14),
+                                ),
+                                Text(
+                                  item.toLocationName ?? 'Tujuan',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              formatRupiah(item.amountRupiah),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2215,7 +2253,8 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
 
   bool get _isMatched => widget.report.isBalanced;
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2233,62 +2272,118 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
               width: 1.5,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    _isMatched
-                        ? Icons.check_circle_outline
-                        : Icons.error_outline,
-                    color: _statusColor,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'Status Rekonsiliasi Kas',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                ],
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+          child: isIOS
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isMatched
+                          ? Icons.check_circle_outline
+                          : Icons.error_outline,
+                      color: _statusColor,
+                      size: 20,
                     ),
-                    decoration: BoxDecoration(
-                      color: _statusColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      widget.report.statusLabel,
-                      style: TextStyle(
-                        color: _statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Status Rekonsiliasi Kas',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: _statusColor,
-                    size: 20,
-                  ),
-                ],
-              ),
-            ],
-          ),
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 155),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _statusColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          widget.report.statusLabel,
+                          style: TextStyle(
+                            color: _statusColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      _expanded ? Icons.expand_less : Icons.expand_more,
+                      color: _statusColor,
+                      size: 20,
+                    ),
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          _isMatched
+                              ? Icons.check_circle_outline
+                              : Icons.error_outline,
+                          color: _statusColor,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Status Rekonsiliasi Kas',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            widget.report.statusLabel,
+                            style: TextStyle(
+                              color: _statusColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          _expanded ? Icons.expand_less : Icons.expand_more,
+                          color: _statusColor,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
         ),
       ),
     );
   }
 
-  Widget _buildExpandedContent() {
+  Widget _buildExpandedContent(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -2330,28 +2425,53 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const Divider(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildMetric(
-                'Total Kas (K)',
-                formatRupiah(widget.report.kasBalanceRupiah),
-              ),
-              _buildMetric(
-                'Terlokasi (L)',
-                formatRupiah(widget.report.allocatedBalanceRupiah),
-              ),
-              _buildMetric(
-                'Sisa (U)',
-                formatRupiah(widget.report.unallocatedBalanceRupiah),
-              ),
-              _buildMetric(
-                'Selisih (D)',
-                formatRupiah(widget.report.discrepancyRupiah),
-                color: _statusColor,
-              ),
-            ],
-          ),
+          if (isIOS)
+            Wrap(
+              spacing: 16,
+              runSpacing: 10,
+              children: [
+                _buildMetric(
+                  'Total Kas (K)',
+                  formatRupiah(widget.report.kasBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Terlokasi (L)',
+                  formatRupiah(widget.report.allocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Sisa (U)',
+                  formatRupiah(widget.report.unallocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Selisih (D)',
+                  formatRupiah(widget.report.discrepancyRupiah),
+                  color: _statusColor,
+                ),
+              ],
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildMetric(
+                  'Total Kas (K)',
+                  formatRupiah(widget.report.kasBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Terlokasi (L)',
+                  formatRupiah(widget.report.allocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Sisa (U)',
+                  formatRupiah(widget.report.unallocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Selisih (D)',
+                  formatRupiah(widget.report.discrepancyRupiah),
+                  color: _statusColor,
+                ),
+              ],
+            ),
           if (widget.report.anomaliesDetected) ...[
             const SizedBox(height: 8),
             Container(
@@ -2410,13 +2530,16 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
 
   @override
   Widget build(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildHeader(),
+        _buildHeader(context),
         AnimatedCrossFade(
-          firstChild: const SizedBox.shrink(),
-          secondChild: _buildExpandedContent(),
+          firstChild: isIOS
+              ? const SizedBox(width: double.infinity, height: 0)
+              : const SizedBox.shrink(),
+          secondChild: _buildExpandedContent(context),
           firstCurve: const Interval(0.0, 1.0, curve: Curves.fastOutSlowIn),
           secondCurve: const Interval(0.0, 1.0, curve: Curves.fastOutSlowIn),
           sizeCurve: Curves.easeInOut,

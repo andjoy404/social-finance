@@ -10,6 +10,7 @@ import '../../../core/api/models.dart';
 import '../../../core/errors/app_errors.dart';
 import '../../../core/models/role.dart';
 import '../../../core/storage/app_storage.dart';
+import '../../../core/utils/jwt_utils.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/url_utils.dart';
 
@@ -43,6 +44,8 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   static const _profileLoading = 'loading';
   static const _profileError = 'error';
   static const _profilePermissionsUnavailable = 'permissions_unavailable';
+  static const sessionExpiredNoticeMessage =
+      'Sesi Anda telah berakhir. Silakan masuk kembali.';
 
   final AuthService authService;
   final ApiClient apiClient;
@@ -52,6 +55,31 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   Map<String, dynamic>? _currentUser;
   Future<void>? _profileReloadFuture;
   Future<void> Function()? onBeforeLogout;
+  Future<void> Function()? onClearNativeAuth;
+  String? _sessionExpiredMessage;
+  bool _isLoggingOut = false;
+  bool _isRestoringSession = false;
+
+  Future<void> _clearNativeAuthSafely() async {
+    try {
+      await onClearNativeAuth?.call();
+    } catch (e) {
+      developer.log(
+        'Failed to clear native notification auth: $e',
+        name: 'AuthRepository',
+      );
+    }
+  }
+
+  /// One-shot user-facing message set when a previously active/persisted session
+  /// ends permanently (revoked or expired refresh token). Null on explicit logout.
+  String? get sessionExpiredMessage => _sessionExpiredMessage;
+
+  String? consumeSessionExpiredMessage() {
+    final msg = _sessionExpiredMessage;
+    _sessionExpiredMessage = null;
+    return msg;
+  }
 
   AuthRepository({
     required this.authService,
@@ -78,15 +106,17 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       // and even when _currentUser is still null (e.g. during restoreSession()).
       // Backend refresh tokens are single-use rotated, so failing to save the
       // new refresh token immediately would leave a revoked token on disk.
-      final stored = await secureAuthStorage.getSession();
-      if (stored != null) {
+      // When "Ingat Saya" is unchecked, tokens stay strictly in memory.
+      final rememberMe = await preferencesStorage.getRememberMe();
+      final stored = rememberMe ? await secureAuthStorage.getSession() : null;
+      if (rememberMe) {
         await secureAuthStorage.saveSession(
           accessToken: response.accessToken,
           refreshToken: newRefreshToken,
-          serverUrl: stored.serverUrl.isNotEmpty
+          serverUrl: (stored != null && stored.serverUrl.isNotEmpty)
               ? stored.serverUrl
               : apiClient.baseUrl,
-          userData: stored.userData,
+          userData: stored?.userData ?? const <String, dynamic>{},
         );
       }
 
@@ -100,11 +130,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         try {
           final freshUser = await authService.getMe();
           _setCurrentUser(freshUser, response.accessToken);
-          if (stored != null) {
+          if (rememberMe) {
             await secureAuthStorage.saveSession(
               accessToken: response.accessToken,
               refreshToken: newRefreshToken,
-              serverUrl: stored.serverUrl.isNotEmpty
+              serverUrl: (stored != null && stored.serverUrl.isNotEmpty)
                   ? stored.serverUrl
                   : apiClient.baseUrl,
               userData: freshUser.toJson(),
@@ -152,9 +182,23 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   }
 
   void _handleUnauthorized() {
+    if (!_isLoggingOut && (_currentUser != null || _isRestoringSession)) {
+      _sessionExpiredMessage = sessionExpiredNoticeMessage;
+    }
     _currentUser = null;
     state = null;
     secureAuthStorage.clearSession();
+  }
+
+  /// Proactively refreshes an expired or near-expiry JWT access token on app
+  /// resume via [ApiClient.refreshAccessToken] (single-flight, shared with the
+  /// 401 interceptor). Keeps the session intact on transient offline errors.
+  Future<void> ensureFreshSession() async {
+    if (_currentUser == null) return;
+    final refreshToken = apiClient.refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) return;
+    if (!JwtUtils.isExpiredOrExpiringSoon(apiClient.token)) return;
+    await apiClient.refreshAccessToken();
   }
 
   bool _restoreCachedUserIfAvailable(StoredSession stored) {
@@ -182,6 +226,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   ///
   /// Returns `true` if session was successfully restored, `false` otherwise.
   Future<bool> restoreSession() async {
+    _isRestoringSession = true;
     try {
       // 1. Ensure API URL is initialized on ApiClient before any auth or network action.
       // Persisted custom/last API URL takes precedence over the default official URL
@@ -202,6 +247,9 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       if (!rememberMe) {
         await secureAuthStorage.clearSession();
         await secureAuthStorage.clearLoginCredentials();
+        if (_currentUser == null) {
+          await _clearNativeAuthSafely();
+        }
         return false;
       }
 
@@ -232,11 +280,26 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         apiClient.setRefreshToken(stored.refreshToken);
       }
 
+      // If the stored access token is a parseable JWT that is already expired
+      // or expiring soon (e.g. after overnight idle or device reboot), refresh
+      // proactively via the single-flight gate before calling /auth/me.
+      if (stored.refreshToken.isNotEmpty &&
+          JwtUtils.isExpiredOrExpiringSoon(stored.accessToken)) {
+        final refreshed = await apiClient.refreshAccessToken();
+        if (!refreshed &&
+            (apiClient.refreshToken == null ||
+                apiClient.refreshToken!.isEmpty)) {
+          // Permanent refresh failure already cleared tokens & set notice.
+          return false;
+        }
+      }
+
       try {
         final user = await authService.getMe();
         final activeAccessToken = apiClient.token ?? stored.accessToken;
         final activeRefreshToken =
             apiClient.refreshToken ?? stored.refreshToken;
+        _sessionExpiredMessage = null;
         _setCurrentUser(user, activeAccessToken);
         await secureAuthStorage.saveSession(
           accessToken: activeAccessToken,
@@ -268,6 +331,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
                   (refreshed.refreshToken.isNotEmpty
                       ? refreshed.refreshToken
                       : remainingRefreshToken);
+              _sessionExpiredMessage = null;
               _setCurrentUser(user, activeAccessToken);
               await secureAuthStorage.saveSession(
                 accessToken: activeAccessToken,
@@ -287,6 +351,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         }
 
         // Permanent authentication failure (revoked/expired refresh token):
+        _sessionExpiredMessage = sessionExpiredNoticeMessage;
         apiClient.clearAllTokens();
         await secureAuthStorage.clearSession();
         _currentUser = null;
@@ -296,6 +361,8 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     } catch (e) {
       developer.log('Failed to restore session: $e', name: 'AuthRepository');
       return false;
+    } finally {
+      _isRestoringSession = false;
     }
   }
 
@@ -399,6 +466,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       return;
     }
 
+    _sessionExpiredMessage = null;
     _currentUser = null;
     apiClient.clearAllTokens();
     state = const AsyncLoading();
@@ -449,13 +517,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         developer.log('Preferences save error: $e', name: 'AuthRepository');
       }
 
+      // Never persist plaintext user passwords for auto-login.
+      // "Ingat Saya" keeps the session persistent strictly via secure token
+      // storage (access + rotating refresh tokens) in Keychain / Keystore.
+      await secureAuthStorage.clearLoginCredentials();
       if (rememberMe) {
-        await secureAuthStorage.saveLoginCredentials(
-          identifier: effectivePhone ?? effectiveEmail!,
-          loginMethod: effectivePhone == null ? 'email' : 'phone',
-          password: password,
-          serverUrl: activeServerUrl,
-        );
         await secureAuthStorage.saveSession(
           accessToken: response.accessToken,
           refreshToken: response.refreshToken,
@@ -463,7 +529,6 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           userData: effectiveUser.toJson(),
         );
       } else {
-        await secureAuthStorage.clearLoginCredentials();
         await secureAuthStorage.clearSession();
       }
       _setCurrentUser(effectiveUser, response.accessToken);
@@ -618,53 +683,69 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   }
 
   Future<void> logout() async {
-    final remoteTasks = <Future<void>>[];
+    _isLoggingOut = true;
+    _sessionExpiredMessage = null;
+    final capturedAccessToken = apiClient.token;
+    final capturedRefreshToken = apiClient.refreshToken;
     try {
+      // Run onBeforeLogout (clear native Keystore auth + DELETE /notifications/devices)
+      // BEFORE clearing ApiClient's Bearer token so device unregistration
+      // authenticates cleanly (204) and deactivates the FCM token on the backend.
+      // Bounded to 2s so an unreachable server never stalls local logout.
       final beforeLogout = onBeforeLogout?.call();
       if (beforeLogout != null) {
-        remoteTasks.add(beforeLogout);
+        try {
+          await beforeLogout.timeout(const Duration(seconds: 2));
+        } catch (e) {
+          developer.log('onBeforeLogout hook failed: $e', name: 'AuthRepository');
+        }
       }
-    } catch (e) {
-      developer.log('onBeforeLogout hook failed: $e', name: 'AuthRepository');
-    }
-    try {
-      remoteTasks.add(authService.logout());
-    } catch (e) {
-      developer.log(
-        'Remote logout could not be started.',
-        name: 'AuthRepository',
-      );
-    }
 
-    // End the local session before awaiting network cleanup so a slow or
-    // unavailable server cannot keep this account active on the device.
-    apiClient.clearAllTokens();
-    _currentUser = null;
-    state = null;
-    final clearOperations = <Future<void> Function()>[
-      secureAuthStorage.clearSession,
-      secureAuthStorage.clearLoginCredentials,
-      () => preferencesStorage.setRememberMe(false),
-    ];
-    for (final clearOperation in clearOperations) {
+      Future<void>? remoteLogout;
       try {
-        await clearOperation();
-      } catch (e, stackTrace) {
+        remoteLogout = authService.logout(
+          accessToken: capturedAccessToken,
+          refreshToken: capturedRefreshToken,
+        );
+      } catch (e) {
         developer.log(
-          'Failed to clear persisted logout state.',
+          'Remote logout could not be started.',
           name: 'AuthRepository',
-          stackTrace: stackTrace,
         );
       }
-    }
 
-    if (remoteTasks.isNotEmpty) {
-      try {
-        await Future.wait(remoteTasks).timeout(const Duration(seconds: 5));
-      } catch (e) {
-        // Local logout is authoritative; remote cleanup is best effort.
-        developer.log('Remote logout cleanup failed.', name: 'AuthRepository');
+      // End the local session before awaiting server logout so a slow or
+      // unavailable server cannot keep this account active on the device.
+      apiClient.clearAllTokens();
+      _currentUser = null;
+      state = null;
+      final clearOperations = <Future<void> Function()>[
+        secureAuthStorage.clearSession,
+        secureAuthStorage.clearLoginCredentials,
+        () => preferencesStorage.setRememberMe(false),
+      ];
+      for (final clearOperation in clearOperations) {
+        try {
+          await clearOperation();
+        } catch (e, stackTrace) {
+          developer.log(
+            'Failed to clear persisted logout state.',
+            name: 'AuthRepository',
+            stackTrace: stackTrace,
+          );
+        }
       }
+
+      if (remoteLogout != null) {
+        try {
+          await remoteLogout.timeout(const Duration(seconds: 5));
+        } catch (e) {
+          // Local logout is authoritative; remote cleanup is best effort.
+          developer.log('Remote logout cleanup failed.', name: 'AuthRepository');
+        }
+      }
+    } finally {
+      _isLoggingOut = false;
     }
   }
 

@@ -8,6 +8,9 @@ import 'package:uuid/uuid.dart';
 class DeviceIdService {
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(resetOnError: true),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
   );
   static const _key = '_device_id';
   String? _cachedDeviceId;

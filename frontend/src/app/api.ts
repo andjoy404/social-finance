@@ -281,10 +281,15 @@ export async function apiChangePassword(accessToken: string, body: ApiChangePass
   }
 }
 
-export async function apiLogout(accessToken: string): Promise<void> {
+export async function apiLogout(accessToken: string, refreshToken?: string): Promise<void> {
+  const hasRefresh = typeof refreshToken === 'string' && refreshToken.trim().length > 0
   const res = await fetch(BASE + '/auth/logout', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(hasRefresh ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(hasRefresh ? { body: JSON.stringify({ refresh_token: refreshToken!.trim() }) } : {}),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   if (!res.ok && res.status !== 204) {

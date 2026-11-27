@@ -416,15 +416,18 @@ func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserI
 		}
 
 		recipientStatuses := make([]string, 0, len(recipients))
+		seenTokens := make(map[string]struct{})
 		for _, recipient := range recipients {
+			uniqueTokens := filterUnseenTokens(recipient.Tokens, seenTokens)
+			recipientPayload := clonePayloadMap(payloadMap)
 			recipientSent, recipientFailed := s.sendPushToTokens(
-				bgCtx, recipient.Tokens, title, body, payloadMap,
+				bgCtx, uniqueTokens, title, body, recipientPayload,
 			)
-			status := recipientDeliveryStatus(recipientSent, recipientFailed, len(recipient.Tokens))
+			status := recipientDeliveryStatus(recipientSent, recipientFailed, len(uniqueTokens))
 			recipientStatuses = append(recipientStatuses, status)
 			if err := s.repo.RecordBroadcastRecipientDelivery(
 				bgCtx, rtID, senderUserID, recipient.UserID, EventWasteTruckArrival, notifID,
-				title, body, payloadMap, status,
+				title, body, recipientPayload, status,
 			); err != nil {
 				slog.Warn("failed to record waste truck recipient history",
 					"rt_id", rtID, "error", err)
@@ -533,17 +536,80 @@ func (s *service) SendManualPush(ctx context.Context, rtID, senderUserID string,
 	}
 
 	broadcastID := payloadMap["notification_id"]
-	for _, recipient := range recipients {
-		sent, failed := s.sendPushToTokens(ctx, recipient.Tokens, title, body, payloadMap)
-		status := recipientDeliveryStatus(sent, failed, len(recipient.Tokens))
-		if err := s.repo.RecordBroadcastRecipientDelivery(
-			ctx, rtID, senderUserID, recipient.UserID, EventManualPush,
-			broadcastID, title, body, payloadMap, status,
-		); err != nil {
-			slog.Warn("failed to record manual push recipient history",
-				"rt_id", rtID, "error", err)
-		}
+	// Use a detached timeout context for fan-out so an HTTP client disconnect or
+	// short request timeout on Web never aborts push delivery halfway through the
+	// recipient list (which would drop later recipients including the sender's
+	// own Android device even after the broadcast log was persisted).
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer dispatchCancel()
+
+	// Deduplicate device tokens globally across the broadcast so one device
+	// never receives duplicate pushes, while preserving ALL active tokens of
+	// every legitimate recipient (including senderUserID when they belong to
+	// the target RT — never exclude by sender_user_id).
+	type preparedRecipient struct {
+		userID string
+		tokens []string
 	}
+	seenTokens := make(map[string]struct{})
+	prepared := make([]preparedRecipient, 0, len(recipients))
+	senderIncluded := false
+	senderTokenCount := 0
+	for _, recipient := range recipients {
+		uniqueTokens := filterUnseenTokens(recipient.Tokens, seenTokens)
+		if recipient.UserID == senderUserID {
+			senderIncluded = true
+			senderTokenCount = len(uniqueTokens)
+		}
+		prepared = append(prepared, preparedRecipient{
+			userID: recipient.UserID,
+			tokens: uniqueTokens,
+		})
+	}
+
+	const maxFanoutWorkers = 10
+	sem := make(chan struct{}, maxFanoutWorkers)
+	var fanoutWG sync.WaitGroup
+	var statsMu sync.Mutex
+	totalSent, totalFailed := 0, 0
+
+	for _, rec := range prepared {
+		rec := rec
+		fanoutWG.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer fanoutWG.Done()
+			defer func() { <-sem }()
+
+			recipientPayload := clonePayloadMap(payloadMap)
+			sent, failed := s.sendPushToTokens(dispatchCtx, rec.tokens, title, body, recipientPayload)
+			status := recipientDeliveryStatus(sent, failed, len(rec.tokens))
+
+			statsMu.Lock()
+			totalSent += sent
+			totalFailed += failed
+			statsMu.Unlock()
+
+			if err := s.repo.RecordBroadcastRecipientDelivery(
+				dispatchCtx, rtID, senderUserID, rec.userID, EventManualPush,
+				broadcastID, title, body, recipientPayload, status,
+			); err != nil {
+				slog.Warn("failed to record manual push recipient history",
+					"rt_id", rtID, "error", err)
+			}
+		}()
+	}
+	fanoutWG.Wait()
+
+	slog.Info("manual push broadcast dispatched",
+		"rt_id", rtID,
+		"sender_user_id", senderUserID,
+		"recipient_count", len(prepared),
+		"sender_included", senderIncluded,
+		"sender_token_count", senderTokenCount,
+		"total_sent", totalSent,
+		"total_failed", totalFailed,
+	)
 	return nil
 }
 
@@ -654,6 +720,30 @@ func dedupeUserIDs(ids []string) []string {
 		}
 		seen[id] = struct{}{}
 		out = append(out, id)
+	}
+	return out
+}
+
+func clonePayloadMap(src map[string]string) map[string]string {
+	cp := make(map[string]string, len(src))
+	for k, v := range src {
+		cp[k] = v
+	}
+	return cp
+}
+
+func filterUnseenTokens(tokens []string, seen map[string]struct{}) []string {
+	out := make([]string, 0, len(tokens))
+	for _, raw := range tokens {
+		tok := strings.TrimSpace(raw)
+		if tok == "" {
+			continue
+		}
+		if _, exists := seen[tok]; exists {
+			continue
+		}
+		seen[tok] = struct{}{}
+		out = append(out, tok)
 	}
 	return out
 }
@@ -2471,6 +2561,7 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 	if err != nil {
 		return 0, fmt.Errorf("failed to get RW manual push recipients: %w", err)
 	}
+	targets = dedupeUserIDs(targets)
 	if len(targets) == 0 {
 		return 0, nil
 	}
@@ -2480,6 +2571,7 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 		"rw_id":          rwID,
 		"title":          title,
 		"body":           body,
+		"deep_link":      "/home/notifikasi/detail",
 		"sender_user_id": senderUserID,
 		"sent_at":        time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -2487,18 +2579,24 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 		payload["image_url"] = strings.TrimSpace(imageURL)
 	}
 
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer dispatchCancel()
+
 	batchID := fmt.Sprintf("rw_manual:%s:%d", rwID, time.Now().UnixNano())
 	sentCount := 0
 	senderPtr := &senderUserID
+	seenTokens := make(map[string]struct{})
 	for _, uid := range targets {
 		dedupKey := fmt.Sprintf("%s:%s", batchID, uid)
-		tokens, err := s.repo.GetTokensForUser(ctx, uid)
+		tokens, err := s.repo.GetTokensForUser(dispatchCtx, uid)
+		uniqueTokens := filterUnseenTokens(tokens, seenTokens)
+		recipientPayload := clonePayloadMap(payload)
 		sentN, failedN := 0, 0
-		if err == nil && len(tokens) > 0 {
-			sentN, failedN = s.sendPushToTokens(ctx, tokens, title, body, payload)
+		if err == nil && len(uniqueTokens) > 0 {
+			sentN, failedN = s.sendPushToTokens(dispatchCtx, uniqueTokens, title, body, recipientPayload)
 		}
-		status := recipientDeliveryStatus(sentN, failedN, len(tokens))
-		ok, err := s.repo.RecordRWDedupWithStatus(ctx, rwID, uid, EventManualPush, dedupKey, title, body, status, payload, senderPtr)
+		status := recipientDeliveryStatus(sentN, failedN, len(uniqueTokens))
+		ok, err := s.repo.RecordRWDedupWithStatus(dispatchCtx, rwID, uid, EventManualPush, dedupKey, title, body, status, recipientPayload, senderPtr)
 		if err != nil {
 			slog.Warn("rw manual push dedup failed", "user_id", uid, "error", err)
 		}

@@ -146,7 +146,7 @@ class _SecurityQrScannerScreenState
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error, child) {
+            errorBuilder: (context, error) {
               final isDenied =
                   error.errorCode == MobileScannerErrorCode.permissionDenied;
               return Center(

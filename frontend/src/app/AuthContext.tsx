@@ -409,10 +409,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      const token = getSessionPair()?.accessToken
+      const pair = getSessionPair()
+      const token = pair?.accessToken
       if (token && typeof token === 'string' && token.length > 0) {
         try {
-          await apiLogout(token)
+          await apiLogout(token, pair?.refreshToken)
         } catch {
           /* best-effort — always clear locally below */
         }
