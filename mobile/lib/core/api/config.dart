@@ -37,33 +37,73 @@ class ApiConfig {
         : trimmed;
   }
 
+  static const String _internalNotificationImagePrefix =
+      '/api/v1/notifications/images/';
+
   /// Safely resolves a potentially relative image URL against [fallbackBaseUrl]
   /// or [normalizedBaseUrl] without throwing [ApiConfigException].
   /// Returns `null` if the URL is empty, invalid, or contains path traversal.
+  ///
+  /// Also normalizes bare notification storage keys (`notifications/...`) and
+  /// rebases internal `/api/v1/notifications/images/...` absolute URLs onto the
+  /// active API base URL when available so stale server LAN IPs or cleartext
+  /// `PUBLIC_BASE_URL` values do not break authenticated image loading.
   static String? resolveImageUrl(String? rawUrl, {String? fallbackBaseUrl}) {
     if (rawUrl == null) return null;
-    final trimmed = rawUrl.trim();
+    var trimmed = rawUrl.trim();
     if (trimmed.isEmpty) return null;
     if (trimmed.contains('..') || trimmed.contains(r'\')) return null;
 
+    if (trimmed.startsWith('notifications/')) {
+      trimmed = '$_internalNotificationImagePrefix$trimmed';
+    } else if (trimmed.startsWith('api/v1/')) {
+      trimmed = '/$trimmed';
+    }
+
+    String base = (fallbackBaseUrl ?? '').trim();
+    if (base.isEmpty && _runtimeBaseUrl.trim().isNotEmpty) {
+      base = _runtimeBaseUrl.trim();
+    }
+    if (base.isEmpty && hasBaseUrl) {
+      base = normalizedBaseUrl;
+    }
+    if (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    var originBase = base;
+    if (originBase.endsWith('/api/v1')) {
+      originBase = originBase.substring(
+        0,
+        originBase.length - '/api/v1'.length,
+      );
+    }
+
     String candidate = trimmed;
     if (trimmed.startsWith('/')) {
-      String base = (fallbackBaseUrl ?? '').trim();
-      if (base.isEmpty && _runtimeBaseUrl.trim().isNotEmpty) {
-        base = _runtimeBaseUrl.trim();
-      }
-      if (base.isEmpty && hasBaseUrl) {
-        base = normalizedBaseUrl;
-      }
       if (base.isEmpty) return null;
-      if (base.endsWith('/')) {
-        base = base.substring(0, base.length - 1);
+      final useBase =
+          (trimmed == '/api/v1' || trimmed.startsWith('/api/v1/'))
+              ? originBase
+              : base;
+      if (useBase.isEmpty) return null;
+      candidate = '$useBase$trimmed';
+    } else if (originBase.isNotEmpty) {
+      final parsed = Uri.tryParse(trimmed);
+      final parsedPath = parsed?.path ?? '';
+      final normalizedPath = parsedPath.replaceAll(
+        RegExp(r'(\/api\/v1)(?:\/api\/v1)+(?=\/|$)'),
+        '/api/v1',
+      );
+      final notifIdx = normalizedPath.indexOf(_internalNotificationImagePrefix);
+      if (parsed != null &&
+          (parsed.scheme.toLowerCase() == 'http' ||
+              parsed.scheme.toLowerCase() == 'https') &&
+          notifIdx >= 0) {
+        final baseUri = Uri.tryParse(originBase);
+        if (baseUri != null && baseUri.host.trim().isNotEmpty) {
+          candidate = '$originBase${normalizedPath.substring(notifIdx)}';
+        }
       }
-      if (base.endsWith('/api/v1') &&
-          (trimmed == '/api/v1' || trimmed.startsWith('/api/v1/'))) {
-        base = base.substring(0, base.length - '/api/v1'.length);
-      }
-      candidate = '$base$trimmed';
     }
     candidate = candidate.replaceAll(
       RegExp(r'(\/api\/v1)(?:\/api\/v1)+(?=\/|$)'),

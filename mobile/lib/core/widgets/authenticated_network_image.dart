@@ -22,6 +22,7 @@ class AuthenticatedNetworkImage extends ConsumerStatefulWidget {
   final double? height;
   final BoxFit fit;
   final Widget? errorWidget;
+  final Widget Function(BuildContext context, VoidCallback retry)? errorBuilder;
   final String? rtId;
 
   const AuthenticatedNetworkImage({
@@ -31,6 +32,7 @@ class AuthenticatedNetworkImage extends ConsumerStatefulWidget {
     this.height,
     this.fit = BoxFit.cover,
     this.errorWidget,
+    this.errorBuilder,
     this.rtId,
   });
 
@@ -46,6 +48,7 @@ class _AuthenticatedNetworkImageState
   bool _failed = false;
   CancelToken? _cancelToken;
   String? _loadedKey;
+  String? _lastAttemptedKey;
 
   @override
   void initState() {
@@ -122,7 +125,7 @@ class _AuthenticatedNetworkImageState
     return null;
   }
 
-  Future<void> _loadImage() async {
+  Future<void> _loadImage({bool force = false}) async {
     final apiClient = ref.read(apiClientProvider);
     final resolved = _resolveUrl(apiClient);
     final rtId = _resolveRtId();
@@ -138,18 +141,20 @@ class _AuthenticatedNetworkImageState
           _loading = false;
           _failed = true;
           _loadedKey = null;
+          _lastAttemptedKey = requestKey;
         });
       }
       return;
     }
 
-    if (_loadedKey == requestKey && _bytes != null && !_failed) {
+    if (!force && _loadedKey == requestKey && _bytes != null && !_failed) {
       return;
     }
 
     _cancelToken?.cancel('url_changed');
     final cancelToken = CancelToken();
     _cancelToken = cancelToken;
+    _lastAttemptedKey = requestKey;
 
     if (mounted) {
       setState(() {
@@ -173,8 +178,15 @@ class _AuthenticatedNetworkImageState
         ),
       );
       if (!mounted || cancelToken.isCancelled) return;
+      final contentType =
+          (response.headers.value(Headers.contentTypeHeader) ?? '')
+              .toLowerCase();
+      final isNonImagePayload =
+          contentType.contains('application/json') ||
+          contentType.contains('text/html') ||
+          contentType.contains('text/plain');
       final data = response.data;
-      if (data == null || data.isEmpty) {
+      if (data == null || data.isEmpty || isNonImagePayload) {
         setState(() {
           _bytes = null;
           _loading = false;
@@ -183,11 +195,13 @@ class _AuthenticatedNetworkImageState
         });
         return;
       }
+      final completedKey = '$resolved|$rtId|${apiClient.token ?? ''}';
       setState(() {
         _bytes = Uint8List.fromList(data);
         _loading = false;
         _failed = false;
-        _loadedKey = '$resolved|$rtId|${apiClient.token ?? ''}';
+        _loadedKey = completedKey;
+        _lastAttemptedKey = completedKey;
       });
     } on DioException catch (e) {
       if (CancelToken.isCancel(e) || !mounted || cancelToken.isCancelled) {
@@ -210,16 +224,33 @@ class _AuthenticatedNetworkImageState
     }
   }
 
+  void _handleRetry() {
+    if (!mounted) return;
+    _loadedKey = null;
+    _lastAttemptedKey = null;
+    _loadImage(force: true);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Watch apiClientProvider so changes to baseUrl/client trigger rebuild.
+    // Watch apiClientProvider & authRepositoryProvider so changes to baseUrl,
+    // restored auth session, token refresh, or active RT trigger a re-fetch
+    // (including automatic recovery from an earlier failed attempt before auth
+    // state was ready).
     final apiClient = ref.watch(apiClientProvider);
+    if (widget.rtId == null || widget.rtId!.trim().isEmpty) {
+      try {
+        ref.watch(authRepositoryProvider);
+      } catch (_) {
+        // Isolated widget tests may not mount authRepositoryProvider dependencies.
+      }
+    }
     final resolved = _resolveUrl(apiClient);
     final rtId = _resolveRtId();
     final token = apiClient.token ?? '';
     final desiredKey = '$resolved|$rtId|$token';
-    if (_loadedKey != null &&
-        _loadedKey != desiredKey &&
+    if (_lastAttemptedKey != null &&
+        _lastAttemptedKey != desiredKey &&
         !_loading &&
         resolved != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -255,6 +286,9 @@ class _AuthenticatedNetworkImageState
   }
 
   Widget _buildFallback() {
+    if (widget.errorBuilder != null) {
+      return widget.errorBuilder!(context, _handleRetry);
+    }
     return widget.errorWidget ??
         Container(
           width: widget.width,

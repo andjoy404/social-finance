@@ -12,7 +12,9 @@ import 'package:social_finance/core/notification/push_notification_service.dart'
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
@@ -1027,10 +1029,13 @@ class _NotificationManagementScreenState
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Gambar Lampiran Pengumuman (Opsional)',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
+                            Expanded(
+                              child: Text(
+                                'Gambar Lampiran Pengumuman (Opsional)',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (pickedImageBytes != null ||
@@ -1246,7 +1251,14 @@ class _NotificationManagementScreenState
                           Row(
                             children: [
                               Expanded(
-                                child: OutlinedButton.icon(
+                                child: AppButton.accentSoft(
+                                  buttonKey: const Key(
+                                    'notifMgmtProofCameraBtn',
+                                  ),
+                                  text: 'Kamera',
+                                  icon: Icons.camera_alt_outlined,
+                                  size: AppButtonSize.medium,
+                                  fullWidth: true,
                                   onPressed: () async {
                                     setSheetState(() {
                                       imageUploadError = null;
@@ -1298,16 +1310,18 @@ class _NotificationManagementScreenState
                                       });
                                     }
                                   },
-                                  icon: const Icon(Icons.camera_alt, size: 16),
-                                  label: const Text(
-                                    'Kamera',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: AppSpacing.sm),
                               Expanded(
-                                child: OutlinedButton.icon(
+                                child: AppButton.accentSoft(
+                                  buttonKey: const Key(
+                                    'notifMgmtProofGalleryBtn',
+                                  ),
+                                  text: 'Galeri',
+                                  icon: Icons.photo_library_outlined,
+                                  size: AppButtonSize.medium,
+                                  fullWidth: true,
                                   onPressed: () async {
                                     setSheetState(() {
                                       imageUploadError = null;
@@ -1359,14 +1373,6 @@ class _NotificationManagementScreenState
                                       });
                                     }
                                   },
-                                  icon: const Icon(
-                                    Icons.photo_library,
-                                    size: 16,
-                                  ),
-                                  label: const Text(
-                                    'Galeri',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
                               ),
                             ],

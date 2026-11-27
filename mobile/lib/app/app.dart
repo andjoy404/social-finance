@@ -429,6 +429,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               profileStatus == 'permissions_unavailable')) {
         ref.read(authRepositoryProvider.notifier).reloadProfile();
       }
+      if (user != null) {
+        ref.read(pushNotificationServiceProvider).ensureDeviceRegistered();
+      }
       if (isPlainWargaUser(user)) {
         ref
             .read(overdueWarningSummaryProvider.notifier)
@@ -658,6 +661,20 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       notifService.initialize().then((_) {
         if (_refreshNotifier._lastLoggedIn) {
           notifService.onUserLoggedIn();
+          final apiClient = ref.read(apiClientProvider);
+          final activeUser = ref.read(authRepositoryProvider)?.valueOrNull;
+          final activeRtId =
+              (activeUser?['rt_id'] ??
+                      (activeUser?['rt'] is Map
+                          ? activeUser!['rt']['id']
+                          : null))
+                  ?.toString()
+                  .trim();
+          notifService.syncNativeNotificationAuth(
+            accessToken: apiClient.token,
+            rtId: activeRtId,
+            baseUrl: apiClient.baseUrl,
+          );
         }
         notifService.getInitialMessage().then((message) {
           if (message != null) {
@@ -693,7 +710,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         _navigateToDeepLink(deepLink, payload: payload);
       });
 
-      _foregroundSub = notifService.onForegroundMessage.listen((message) {
+      _foregroundSub = notifService.onForegroundMessage.listen((message) async {
         final notification = message.notification;
         final title =
             notification?.title ?? message.data['title'] ?? 'Notifikasi Baru';
@@ -720,6 +737,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
 
         final isAndroid =
             !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+        bool nativeHeadsUpDisplayed = false;
         if (isAndroid) {
           final apiClient = ref.read(apiClientProvider);
           final activeUser = ref.read(authRepositoryProvider)?.valueOrNull;
@@ -731,24 +749,35 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   ?.toString()
                   .trim();
           // Display true native Android heads-up banner at top of screen with high priority & action button
-          notifService.showHeadsUpNotification(
+          final notifIdStr = message.data['notification_id'] as String?;
+          final dedupSeed = (notifIdStr != null && notifIdStr.trim().isNotEmpty)
+              ? 'nid:${notifIdStr.trim()}'
+              : (message.messageId != null &&
+                      message.messageId!.trim().isNotEmpty)
+                  ? 'mid:${message.messageId!.trim()}'
+                  : '$title:$body';
+          final deterministicId = dedupSeed.hashCode & 0x7FFFFFFF;
+          final displayResult = await notifService.showHeadsUpNotification(
             title: title,
             body: body,
             deepLink: normalizedTarget,
             imageUrl: imageUrl,
             authToken: apiClient.token,
             rtId: activeRtId,
-            notificationId: message.data['notification_id'] as String?,
+            baseUrl: activeBaseUrl,
+            notificationId: notifIdStr,
             type: message.data['type'] as String?,
             sentAt: message.data['sent_at'] as String?,
-            id:
-                (message.messageId ??
-                        '${message.data['notification_id'] ?? title}:$body')
-                    .hashCode,
+            id: deterministicId == 0 ? 1001 : deterministicId,
           );
-          // Avoid showing dual notifications for the same message on Android
-        } else {
-          // Fallback to floating SnackBar on web or unsupported platforms
+          nativeHeadsUpDisplayed =
+              displayResult['status'] == 'ANDROID_DISPLAY_REQUESTED';
+          // Avoid showing dual notifications for the same message on Android when native heads-up succeeded.
+        }
+
+        if (!nativeHeadsUpDisplayed && mounted) {
+          // Fallback to floating SnackBar on web, unsupported platforms, or when
+          // Android native notifications/channel/permission are blocked.
           _scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
           _scaffoldMessengerKey.currentState?.showSnackBar(
             SnackBar(
@@ -848,13 +877,29 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       _isExplicitLogout = true;
       _pendingDeepLink = null;
       _lastNotificationTarget = null;
-      await _ref.read(pushNotificationServiceProvider).onUserLoggedOut();
+      final notifSvc = _ref.read(pushNotificationServiceProvider);
+      await notifSvc.clearNativeNotificationAuth();
+      await notifSvc.onUserLoggedOut();
     };
 
     _authSubscription = ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
       authRepositoryProvider,
       (previous, next) {
-        final isLoggedIn = next?.valueOrNull != null;
+        final activeUser = next?.valueOrNull;
+        final isLoggedIn = activeUser != null;
+        if (isLoggedIn) {
+          final apiClient = _ref.read(apiClientProvider);
+          final activeRtId =
+              (activeUser['rt_id'] ??
+                      (activeUser['rt'] is Map ? activeUser['rt']['id'] : null))
+                  ?.toString()
+                  .trim();
+          _ref.read(pushNotificationServiceProvider).syncNativeNotificationAuth(
+                accessToken: apiClient.token,
+                rtId: activeRtId,
+                baseUrl: apiClient.baseUrl,
+              );
+        }
         if (isLoggedIn != _refreshNotifier._lastLoggedIn) {
           if (!isLoggedIn) {
             if (!_isExplicitLogout &&
@@ -868,7 +913,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             _lastNotificationTarget = null;
             _isExplicitLogout = false;
             _ref.read(wargaSearchQueryProvider.notifier).state = '';
-            _ref.read(pushNotificationServiceProvider).onUserLoggedOut();
+            final notifSvc = _ref.read(pushNotificationServiceProvider);
+            notifSvc.clearNativeNotificationAuth();
+            notifSvc.onUserLoggedOut();
           } else {
             _isExplicitLogout = false;
             _ref.read(pushNotificationServiceProvider).onUserLoggedIn();

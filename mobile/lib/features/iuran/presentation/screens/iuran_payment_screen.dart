@@ -11,6 +11,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
@@ -973,35 +974,24 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: AppButton.accentSoft(
+                        buttonKey: const Key('iuranPaymentProofGalleryBtn'),
+                        text: 'Galeri',
+                        icon: Icons.photo_library_outlined,
+                        size: AppButtonSize.medium,
+                        fullWidth: true,
                         onPressed: () => _pickImage(ImageSource.gallery),
-                        icon: const Icon(
-                          Icons.photo_library_outlined,
-                          size: 18,
-                        ),
-                        label: const Text('Galeri'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.md),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: AppButton.accentSoft(
+                        buttonKey: const Key('iuranPaymentProofCameraBtn'),
+                        text: 'Kamera',
+                        icon: Icons.camera_alt_outlined,
+                        size: AppButtonSize.medium,
+                        fullWidth: true,
                         onPressed: () => _pickImage(ImageSource.camera),
-                        icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                        label: const Text('Kamera'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
                       ),
                     ),
                   ],

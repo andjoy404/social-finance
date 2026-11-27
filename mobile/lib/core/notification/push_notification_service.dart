@@ -104,6 +104,12 @@ class PushNotificationService {
     }
   }
 
+  String get _currentPlatform {
+    if (kIsWeb) return 'web';
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'ios';
+    return 'android';
+  }
+
   Future<void> _doInitialize({
     FirebaseMessaging? messagingInstance,
     bool requestPermissionOnStartup = true,
@@ -131,6 +137,21 @@ class PushNotificationService {
         );
         if (kDebugMode) {
           debugPrint('PushNotificationService: Permission status: ${settings.authorizationStatus}');
+        }
+      }
+
+      // Ensure iOS presents foreground push banners/sound/badges natively.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          await messaging.setForegroundNotificationPresentationOptions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('PushNotificationService: iOS foreground presentation options warning: $e');
+          }
         }
       }
 
@@ -166,14 +187,21 @@ class PushNotificationService {
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
-    if (message.messageId != null) {
-      if (_processedMessageIds.contains(message.messageId)) {
+    final dedupKey = (message.messageId?.trim().isNotEmpty == true)
+        ? message.messageId!.trim()
+        : (message.data['notification_id']?.toString().trim().isNotEmpty == true
+            ? 'nid:${message.data['notification_id']}'
+            : (message.data['dedup_key']?.toString().trim().isNotEmpty == true
+                ? 'dk:${message.data['dedup_key']}'
+                : null));
+    if (dedupKey != null) {
+      if (_processedMessageIds.contains(dedupKey)) {
         if (kDebugMode) {
-          debugPrint('FCM foreground message duplicate suppressed: ${message.messageId}');
+          debugPrint('FCM foreground message duplicate suppressed: $dedupKey');
         }
         return;
       }
-      _processedMessageIds.add(message.messageId!);
+      _processedMessageIds.add(dedupKey);
       if (_processedMessageIds.length > 100) {
         _processedMessageIds.clear();
       }
@@ -223,10 +251,12 @@ class PushNotificationService {
     String? imageUrl,
     String? authToken,
     String? rtId,
+    String? baseUrl,
     Uint8List? imageBytes,
     String? notificationId,
     String? type,
     String? sentAt,
+    int? preloadTimeoutMs,
     int? id,
   }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
@@ -240,12 +270,14 @@ class PushNotificationService {
         'image_url': imageUrl,
         if (authToken != null && authToken.isNotEmpty) 'auth_token': authToken,
         if (rtId != null && rtId.isNotEmpty) 'rt_id': rtId,
+        if (baseUrl != null && baseUrl.isNotEmpty) 'base_url': baseUrl,
         if (imageBytes != null && imageBytes.isNotEmpty)
           'image_bytes': imageBytes,
         if (notificationId != null && notificationId.isNotEmpty)
           'notification_id': notificationId,
         if (type != null && type.isNotEmpty) 'type': type,
         if (sentAt != null && sentAt.isNotEmpty) 'sent_at': sentAt,
+        if (preloadTimeoutMs != null) 'preload_timeout_ms': preloadTimeoutMs,
         'id': id ?? (DateTime.now().millisecondsSinceEpoch % 100000),
       });
       if (res is Map) {
@@ -262,6 +294,44 @@ class PushNotificationService {
         debugPrint('PushNotificationService: failed to show native heads-up notification: $e');
       }
       return {'status': 'DISPLAY_FAILED', 'reason': e.toString()};
+    }
+  }
+
+  /// Syncs the active authenticated session into Android Keystore-encrypted
+  /// storage so background/terminated FCM delivery can fetch private RT/RW
+  /// notification attachment images with `Authorization: Bearer` and `X-RT-ID`.
+  /// Never logs tokens; no-op on non-Android platforms.
+  Future<void> syncNativeNotificationAuth({
+    required String? accessToken,
+    String? rtId,
+    String? baseUrl,
+  }) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final token = accessToken?.trim();
+      if (token == null || token.isEmpty) {
+        await _nativeChannel.invokeMethod('clearNotificationAuth');
+        return;
+      }
+      await _nativeChannel.invokeMethod('syncNotificationAuth', {
+        'access_token': token,
+        if (rtId != null && rtId.trim().isNotEmpty) 'rt_id': rtId.trim(),
+        if (baseUrl != null && baseUrl.trim().isNotEmpty)
+          'base_url': baseUrl.trim(),
+      });
+    } catch (_) {
+      // Safe no-op in tests or environments without the native channel handler.
+    }
+  }
+
+  /// Clears Keystore-encrypted native notification auth credentials on logout
+  /// or session invalidation.
+  Future<void> clearNativeNotificationAuth() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await _nativeChannel.invokeMethod('clearNotificationAuth');
+    } catch (_) {
+      // Safe no-op in tests or environments without the native channel handler.
     }
   }
 
@@ -389,7 +459,7 @@ class PushNotificationService {
         if (_registeredToken != token) {
           await _deviceService.registerDevice(
             fcmToken: token,
-            platform: 'android',
+            platform: _currentPlatform,
           );
           _registeredToken = token;
           if (kDebugMode) {
@@ -406,6 +476,16 @@ class PushNotificationService {
         debugPrint('PushNotificationService: Failed to register device token on login: $e');
       }
     }
+  }
+
+  /// Retries device token registration when the user is logged in and a prior
+  /// registration attempt did not complete (for example after offline startup).
+  Future<void> ensureDeviceRegistered({
+    FirebaseMessaging? messagingInstance,
+  }) async {
+    if (!_isUserLoggedIn) return;
+    if (_registeredToken != null && _registeredToken!.isNotEmpty) return;
+    await onUserLoggedIn(messagingInstance: messagingInstance);
   }
 
   /// Called on logout to unregister device from backend so other users don't receive alerts.
@@ -437,7 +517,7 @@ class PushNotificationService {
       try {
         await _deviceService.registerDevice(
           fcmToken: newToken,
-          platform: 'android',
+          platform: _currentPlatform,
         );
         _registeredToken = newToken;
         if (kDebugMode) {

@@ -1,0 +1,88 @@
+{
+  "notes": "Redacted FCM HTTP v1 payloads constructed by backend/internal/notification/provider.go (BuildFCMMessagePayload). Device tokens, JWT access tokens, and credentials are strictly redacted.",
+  "private_image_rt_notification_payload": {
+    "message": {
+      "token": "<REDACTED_FCM_TOKEN>",
+      "data": {
+        "type": "manual_push",
+        "rt_id": "43d1ed42-d982-4299-9b29-30080591fcf9",
+        "title": "Kerja Bakti RT 002 (Foreground)",
+        "body": "Warga dimohon berkumpul pukul 07.00 WIB di balai RT. Lihat foto lampiran.",
+        "deep_link": "/home/notifikasi/detail",
+        "image_url": "/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/1795762232637908338_ad6c905d9400f0d4b27ddb58f24768d0.png",
+        "channel_id": "social_finance_notifications_v2",
+        "sent_at": "<RFC3339_TIMESTAMP>"
+      },
+      "android": {
+        "priority": "HIGH"
+      },
+      "apns": {
+        "headers": {
+          "apns-priority": "10",
+          "apns-push-type": "alert"
+        },
+        "payload": {
+          "aps": {
+            "alert": {
+              "title": "Kerja Bakti RT 002 (Foreground)",
+              "body": "Warga dimohon berkumpul pukul 07.00 WIB di balai RT. Lihat foto lampiran."
+            },
+            "sound": "default",
+            "mutable-content": 1
+          }
+        }
+      }
+    },
+    "security_and_delivery_design": [
+      "Top-level 'notification' and 'android.notification' are intentionally omitted for private image attachments so Android background delivery wakes SocialFinanceMessagingService (instead of Firebase auto-displaying an unauthenticated text-only duplicate).",
+      "Private /api/v1/notifications/images/... URLs are NEVER placed in unauthenticated notification.image or android.notification.image.",
+      "Android client downloads data.image_url using Authorization: Bearer <REDACTED> and X-RT-ID headers (live in-memory token in foreground; Android Keystore AES/GCM/NoPadding encrypted cache in background), retaining full RT/RW tenant isolation (unauthenticated GET returns HTTP 401).",
+      "iOS still receives native APNs alerts via apns.payload.aps.alert with apns-push-type=alert and apns-priority=10."
+    ]
+  },
+  "text_only_rt_notification_payload": {
+    "message": {
+      "token": "<REDACTED_FCM_TOKEN>",
+      "notification": {
+        "title": "Rapat Rutin RT 002 (Tanpa Gambar)",
+        "body": "Undangan rapat bulanan warga pukul 19.30 WIB di balai RT 002."
+      },
+      "data": {
+        "type": "manual_push",
+        "rt_id": "43d1ed42-d982-4299-9b29-30080591fcf9",
+        "title": "Rapat Rutin RT 002 (Tanpa Gambar)",
+        "body": "Undangan rapat bulanan warga pukul 19.30 WIB di balai RT 002.",
+        "deep_link": "/home/notifikasi/detail",
+        "channel_id": "social_finance_notifications_v2",
+        "sent_at": "<RFC3339_TIMESTAMP>"
+      },
+      "android": {
+        "priority": "HIGH",
+        "notification": {
+          "channel_id": "social_finance_notifications_v2",
+          "sound": "default",
+          "default_sound": true,
+          "default_vibrate_timings": true,
+          "notification_priority": "PRIORITY_MAX",
+          "visibility": "PUBLIC"
+        }
+      },
+      "apns": {
+        "headers": {
+          "apns-priority": "10",
+          "apns-push-type": "alert"
+        },
+        "payload": {
+          "aps": {
+            "alert": {
+              "title": "Rapat Rutin RT 002 (Tanpa Gambar)",
+              "body": "Undangan rapat bulanan warga pukul 19.30 WIB di balai RT 002."
+            },
+            "sound": "default",
+            "mutable-content": 1
+          }
+        }
+      }
+    }
+  }
+}

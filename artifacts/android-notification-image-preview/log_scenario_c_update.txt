@@ -1,0 +1,50 @@
+=== SCENARIO C: UPDATE AFTER DOWNLOAD (SAME NOTIFICATION ID) ===
+--------- beginning of main
+11-27 14:18:05.738  3716  3716 D FLTFireMsgReceiver: broadcast received for message
+11-27 14:18:05.756  3716  3716 I SocialFinanceNotif: NOTIFICATION_PIPELINE_START: id=998659563 source=foreground_flutter has_image_url=true image_url=http://127.0.0.1:18080/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/1795762232637908338_ad6c905d9400f0d4b27ddb58f24768d0.png channel=social_finance_notifications_v2 importance=4
+11-27 14:18:05.758  3716  3820 I SocialFinanceNotif: IMAGE_DOWNLOAD_START: url=http://127.0.0.1:18080/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/1795762232637908338_ad6c905d9400f0d4b27ddb58f24768d0.png has_auth=true has_rt_id=true
+11-27 14:18:05.763  3716  4289 I SocialFinanceNotif: FCM_NATIVE_RECEIVED: msg_id=0:1795763885846413%88b1fd19f9fd7ecd has_notif_block=false has_image_url=true type=manual_push
+11-27 14:18:05.763  3716  4289 I SocialFinanceNotif: FCM_NATIVE_DELEGATED_FOREGROUND: msg_id=0:1795763885846413%88b1fd19f9fd7ecd
+11-27 14:18:07.562  3716  3818 I SocialFinanceNotif: ANDROID_DISPLAY_INITIAL_TEXT: id=998659563 source=foreground_flutter reason=image_download_pending channel=social_finance_notifications_v2 importance=4
+11-27 14:18:09.621  3716  3820 I SocialFinanceNotif: IMAGE_DECODE_OK: url=http://127.0.0.1:18080/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/1795762232637908338_ad6c905d9400f0d4b27ddb58f24768d0.png http_status=200 bytes=6982 bitmap=800x450
+11-27 14:18:09.622  3716  3852 I SocialFinanceNotif: BIG_PICTURE_STYLE_BUILT: id=998659563 bitmap=800x450 only_alert_once=true
+11-27 14:18:09.626  3716  3852 I SocialFinanceNotif: ANDROID_DISPLAY_UPDATED_BIG_PICTURE: id=998659563 source=foreground_flutter bitmap=800x450 only_alert_once=true
+
+=== ACTIVE NOTIFICATION COUNT & DETAILS ===
+    NotificationRecord(0x039c9895: pkg=com.example.social_finance user=UserHandle{0} id=998659563 tag=null importance=4 key=0|com.example.social_finance|998659563|null|10240: Notification(channel=social_finance_notifications_v2 shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONLY_ALERT_ONCE|AUTO_CANCEL color=0x00000000 category=msg actions=1 vis=PUBLIC))
+      uid=10240 userId=0
+      opPkg=com.example.social_finance
+      icon=Icon(typ=RESOURCE pkg=com.example.social_finance id=0x7f070074)
+      flags=ONLY_ALERT_ONCE|AUTO_CANCEL
+      originalFlags=ONLY_ALERT_ONCE|AUTO_CANCEL
+      pri=1
+      key=0|com.example.social_finance|998659563|null|10240
+      seen=false
+      groupKey=0|com.example.social_finance|998659563|null|10240
+      notification=
+            fullscreenIntent=null
+            contentIntent=PendingIntent{8688daa: PendingIntentRecord{f9e06f8 com.example.social_finance startActivity (allowlist: ea0eee0:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+            deleteIntent=null
+            number=0
+            groupAlertBehavior=0
+            when=1795763889622/1795763889622
+            tickerText=null
+            vis=1
+            contentView=null
+            bigContentView=null
+            headsUpContentView=null
+            color=0x00000000
+            timeout=PT72H
+            actions={
+                [0] "Lihat Detail" -> PendingIntent{b2a4d9b: PendingIntentRecord{f9e06f8 com.example.social_finance startActivity (allowlist: ea0eee0:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+              }
+            extras={
+                android.title=String (Update Gambar RT 002 (Slow Link))
+                android.reduced.images=Boolean (true)
+                android.subText=null
+                android.template=String (android.app.Notification$BigPictureStyle)
+                android.showChronometer=Boolean (false)
+                android.text=String (Notifikasi awal tampil cepat tanpa menunggu, lalu diperbarui menjadi Big Picture.)
+                android.progress=Integer (0)
+                androidx.core.app.extra.COMPAT_TEMPLATE=String (androidx.core.app.NotificationCompat$BigPictureStyle)
+NON_SUMMARY_COUNT=1

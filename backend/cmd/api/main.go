@@ -1075,10 +1075,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
 	})
 
-	// Authenticated notification image streaming — requires valid JWT and RT scope match.
+	// Authenticated notification image streaming — requires valid JWT.
+	// Fine-grained RT/RW scope authorization (including active RT checks,
+	// SuperAdmin admin-scope validation, and RW-only member access) is enforced
+	// inside notifH.GetImage.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 	})
 

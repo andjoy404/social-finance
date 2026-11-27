@@ -293,6 +293,8 @@ func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, payme
 		payload := NotificationPayload{
 			Type:      EventPaymentVerified,
 			RTID:      rtID,
+			Title:     title,
+			Body:      body,
 			BillID:    billID,
 			PaymentID: paymentID,
 			Status:    status,

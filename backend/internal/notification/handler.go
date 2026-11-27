@@ -427,7 +427,11 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 	authorized := false
 	if category == "rw-kas" || category == "rw-manual" {
 		if ac.SystemRole == auth.SystemRoleSuperAdmin {
-			authorized = true
+			if h.scopingCfg != nil {
+				authorized = h.scopingCfg.HasRW(scopeID)
+			} else {
+				authorized = true
+			}
 		} else {
 			// RW scope check: user is an RW member with this RW ID, or user's RT belongs to this RW
 			for _, rm := range ac.RWMemberships {
@@ -438,7 +442,7 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 			}
 			if !authorized && ac.RTID != "" && h.pool != nil {
 				var exists bool
-				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2)", ac.RTID, scopeID).Scan(&exists)
+				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2 AND is_active = true)", ac.RTID, scopeID).Scan(&exists)
 				if err == nil && exists {
 					authorized = true
 				}
@@ -446,21 +450,32 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// RT scope check: validate that the image's RT matches the authenticated user's RT scope.
+		// Never trust client-supplied X-RT-ID for non-SuperAdmin users.
 		userRTID := ac.RTID
 		if ac.SystemRole == auth.SystemRoleSuperAdmin {
-			headerRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
-			if headerRT != "" {
-				userRTID = headerRT
-			}
-			if userRTID != "" && userRTID == scopeID {
-				authorized = true
-			} else if h.scopingCfg != nil && h.pool != nil {
+			if h.scopingCfg != nil && h.pool != nil {
 				if inScope, err := h.scopingCfg.IsRTInAdminScope(r.Context(), h.pool, scopeID); err == nil && inScope {
+					authorized = true
+				}
+			} else {
+				headerRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
+				if headerRT != "" {
+					userRTID = headerRT
+				}
+				if userRTID != "" && userRTID == scopeID {
 					authorized = true
 				}
 			}
 		} else if userRTID != "" && userRTID == scopeID {
-			authorized = true
+			if h.pool != nil {
+				var rtActive bool
+				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT is_active FROM rts WHERE id = $1 LIMIT 1", scopeID).Scan(&rtActive)
+				if err == nil && rtActive {
+					authorized = true
+				}
+			} else {
+				authorized = true
+			}
 		}
 	}
 
@@ -471,13 +486,34 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 
 	reader, err := h.storage.GetNotificationImage(r.Context(), key)
 	if err != nil {
-		httpx.WriteNotFound(w, "image not found")
+		if errors.Is(err, storage.ErrNotFound) {
+			httpx.WriteNotFound(w, "image not found")
+			return
+		}
+		httpx.WriteError(w, http.StatusBadGateway, "storage_unavailable", "failed to load notification image")
 		return
 	}
 	defer reader.Body.Close()
 
-	w.Header().Set("Content-Type", reader.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
+	contentType := strings.TrimSpace(reader.ContentType)
+	if contentType == "" || contentType == "application/octet-stream" {
+		lowerKey := strings.ToLower(key)
+		switch {
+		case strings.HasSuffix(lowerKey, ".png"):
+			contentType = "image/png"
+		case strings.HasSuffix(lowerKey, ".webp"):
+			contentType = "image/webp"
+		case strings.HasSuffix(lowerKey, ".jpg"), strings.HasSuffix(lowerKey, ".jpeg"):
+			contentType = "image/jpeg"
+		default:
+			contentType = "image/jpeg"
+		}
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	if reader.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
+	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	_, _ = io.Copy(w, reader.Body)
 }

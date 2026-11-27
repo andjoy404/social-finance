@@ -16,6 +16,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
@@ -589,7 +590,12 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: OutlinedButton.icon(
+                          child: AppButton.accentSoft(
+                            buttonKey: const Key('kasMasukProofCameraBtn'),
+                            text: 'Kamera',
+                            icon: Icons.camera_alt_outlined,
+                            size: AppButtonSize.medium,
+                            fullWidth: true,
                             onPressed: _saving
                                 ? null
                                 : () async {
@@ -607,16 +613,16 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                       });
                                     }
                                   },
-                            icon: const Icon(Icons.camera_alt, size: 16),
-                            label: const Text(
-                              'Kamera',
-                              style: TextStyle(fontSize: 12),
-                            ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: AppSpacing.sm),
                         Expanded(
-                          child: OutlinedButton.icon(
+                          child: AppButton.accentSoft(
+                            buttonKey: const Key('kasMasukProofGalleryBtn'),
+                            text: 'Galeri',
+                            icon: Icons.photo_library_outlined,
+                            size: AppButtonSize.medium,
+                            fullWidth: true,
                             onPressed: _saving
                                 ? null
                                 : () async {
@@ -634,11 +640,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                       });
                                     }
                                   },
-                            icon: const Icon(Icons.photo_library, size: 16),
-                            label: const Text(
-                              'Galeri',
-                              style: TextStyle(fontSize: 12),
-                            ),
                           ),
                         ),
                       ],

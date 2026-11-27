@@ -225,7 +225,11 @@ class _NotificationDetailScreenState
     return formatted == '-' ? null : formatted;
   }
 
-  void _openFullScreenImage(BuildContext context, String resolvedImageUrl) {
+  void _openFullScreenImage(
+    BuildContext context,
+    String resolvedImageUrl, {
+    String? rtId,
+  }) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -243,22 +247,36 @@ class _NotificationDetailScreenState
                 child: Center(
                   child: AuthenticatedNetworkImage(
                     imageUrl: resolvedImageUrl,
+                    rtId: rtId,
                     fit: BoxFit.contain,
-                    errorWidget: const Padding(
-                      padding: EdgeInsets.all(24),
+                    errorBuilder: (ctx, retry) => Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.broken_image_outlined,
                             color: Colors.white70,
                             size: 48,
                           ),
-                          SizedBox(height: 12),
-                          Text(
+                          const SizedBox(height: 12),
+                          const Text(
                             'Gambar lampiran tidak dapat dimuat.',
                             style: TextStyle(color: Colors.white70),
                             textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: retry,
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Muat Ulang',
+                              style: TextStyle(color: Colors.white),
+                            ),
                           ),
                         ],
                       ),
@@ -464,16 +482,26 @@ class _NotificationDetailScreenState
                                 onTap: () => _openFullScreenImage(
                                   context,
                                   resolvedImageUrl,
+                                  rtId: _fetchedEntry?.rtId.trim().isNotEmpty == true
+                                      ? _fetchedEntry!.rtId.trim()
+                                      : null,
                                 ),
                                 child: ClipRRect(
                                   borderRadius:
                                       BorderRadius.circular(AppRadius.base),
                                   child: AuthenticatedNetworkImage(
                                     imageUrl: resolvedImageUrl,
+                                    rtId: _fetchedEntry?.rtId.trim().isNotEmpty == true
+                                        ? _fetchedEntry!.rtId.trim()
+                                        : null,
                                     width: double.infinity,
                                     fit: BoxFit.cover,
-                                    errorWidget:
-                                        _buildImageFallback(theme, isDark),
+                                    errorBuilder: (_, retry) =>
+                                        _buildImageFallback(
+                                          theme,
+                                          isDark,
+                                          onRetry: retry,
+                                        ),
                                   ),
                                 ),
                               ),
@@ -522,7 +550,11 @@ class _NotificationDetailScreenState
     );
   }
 
-  Widget _buildImageFallback(ThemeData theme, bool isDark) {
+  Widget _buildImageFallback(
+    ThemeData theme,
+    bool isDark, {
+    VoidCallback? onRetry,
+  }) {
     return Container(
       key: const Key('notification_detail_image_fallback'),
       width: double.infinity,
@@ -552,6 +584,21 @@ class _NotificationDetailScreenState
               ),
             ),
           ),
+          if (onRetry != null) ...[
+            const SizedBox(width: 8),
+            TextButton.icon(
+              key: const Key('notification_detail_image_retry_button'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Muat Ulang'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
         ],
       ),
     );

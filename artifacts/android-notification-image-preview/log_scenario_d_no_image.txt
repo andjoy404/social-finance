@@ -1,0 +1,45 @@
+=== SCENARIO D: NOTIFICATION WITHOUT IMAGE ===
+--------- beginning of main
+11-27 13:59:21.011  6157  6157 D FLTFireMsgReceiver: broadcast received for message
+11-27 13:59:21.034  6157  6157 I SocialFinanceNotif: NOTIFICATION_PIPELINE_START: id=891860586 source=foreground_flutter has_image_url=false image_url=none channel=social_finance_notifications_v2 importance=4
+11-27 13:59:21.042  6157  7162 I SocialFinanceNotif: ANDROID_DISPLAY_POSTED: id=891860586 source=foreground_flutter with_image=false mode=text_only channel=social_finance_notifications_v2 importance=4
+11-27 13:59:21.042  6157  7164 I SocialFinanceNotif: FCM_NATIVE_RECEIVED: msg_id=0:1795762760520026%88b1fd1988b1fd19 has_notif_block=true has_image_url=false type=manual_push
+
+=== ACTIVE NOTIFICATION COUNT & DETAILS ===
+    NotificationRecord(0x0ac0e7ff: pkg=com.example.social_finance user=UserHandle{0} id=891860586 tag=null importance=4 key=0|com.example.social_finance|891860586|null|10240: Notification(channel=social_finance_notifications_v2 shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=AUTO_CANCEL color=0x00000000 category=msg actions=1 vis=PUBLIC))
+      uid=10240 userId=0
+      opPkg=com.example.social_finance
+      icon=Icon(typ=RESOURCE pkg=com.example.social_finance id=0x7f070074)
+      flags=AUTO_CANCEL
+      originalFlags=AUTO_CANCEL
+      pri=1
+      key=0|com.example.social_finance|891860586|null|10240
+      seen=true
+      groupKey=0|com.example.social_finance|891860586|null|10240
+      notification=
+            fullscreenIntent=null
+            contentIntent=PendingIntent{90ca9cc: PendingIntentRecord{9ef4f92 com.example.social_finance startActivity (allowlist: 8e26d39:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+            deleteIntent=null
+            number=0
+            groupAlertBehavior=0
+            when=1795762761034/1795762761034
+            tickerText=null
+            vis=1
+            contentView=null
+            bigContentView=null
+            headsUpContentView=null
+            color=0x00000000
+            timeout=PT72H
+            actions={
+                [0] "Lihat Detail" -> PendingIntent{5e8a415: PendingIntentRecord{9ef4f92 com.example.social_finance startActivity (allowlist: 8e26d39:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+              }
+            extras={
+                android.title=String (Rapat Rutin RT 002 (Tanpa Gambar))
+                android.reduced.images=Boolean (true)
+                android.subText=null
+                android.template=String (android.app.Notification$BigTextStyle)
+                android.showChronometer=Boolean (false)
+                android.text=String (Undangan rapat bulanan warga pukul 19.30 WIB di balai RT 002.)
+                android.progress=Integer (0)
+                androidx.core.app.extra.COMPAT_TEMPLATE=String (androidx.core.app.NotificationCompat$BigTextStyle)
+NON_SUMMARY_COUNT=1
