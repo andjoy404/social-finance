@@ -177,23 +177,23 @@ func TestSuperAdminResident_GetResidentDetail_SuccessWithXRTID(t *testing.T) {
 	}
 }
 
-// 5. Super Admin without RT context receives HTTP 403 ("tenant context required").
-func TestSuperAdminResident_WithoutRTContext_Returns403(t *testing.T) {
+// 5. Super Admin query across all RTs succeeds, while creating without target RT returns 403.
+func TestSuperAdminResident_WithoutRTContext(t *testing.T) {
 	pool, router := setupRouterTest(t)
 	_, saToken := createTestSuperAdminUser(t, pool)
 
-	// 5a. GET /api/v1/residents without X-RT-ID or ?rt_id
+	// 5a. GET /api/v1/residents without X-RT-ID or ?rt_id queries platform-wide (HTTP 200)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/residents", nil)
 	req.Header.Set("Authorization", "Bearer "+saToken)
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("GET /api/v1/residents without RT context expected 403, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/residents without RT context expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 5b. POST /api/v1/residents without X-RT-ID or ?rt_id or body rt_id
+	// 5b. POST /api/v1/residents without X-RT-ID or ?rt_id or body rt_id is rejected with 403
 	reqBody, _ := json.Marshal(map[string]any{
 		"full_name": "No Context Warga",
 	})

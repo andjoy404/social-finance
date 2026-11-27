@@ -27,6 +27,11 @@ import { ActivityList } from '@/features/kegiatan/ActivityList'
 import { ActivityDetail } from '@/features/kegiatan/ActivityDetail'
 import { AnnouncementManagement } from '@/features/pengumuman/AnnouncementManagement'
 import { KelolaKeamananPage } from '@/features/keamanan/KelolaKeamananPage'
+import { BukuTamuPage } from '@/features/keamanan/BukuTamuPage'
+import { PatrolPage } from '@/features/keamanan/PatrolPage'
+import { PaketPage } from '@/features/keamanan/PaketPage'
+import { PaketDetailPage } from '@/features/keamanan/PaketDetailPage'
+import { hasPermission } from '@/app/AuthContext'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -58,11 +63,111 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Iuran access route — all authenticated RT users can access Iuran personal view.
+// Sekretaris RT, Sosial RT, Operasional, and Humas can view their own bills and payments.
+// Admin Iuran operations (Kelola Iuran, Iuran Warga) are blocked by the backend.
+function IuranAccessRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  if (!isAllowedRT(user)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function KasAccessRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  if (jabatan === 'humas') {
+    const rwId = (user?.rwMemberships && user.rwMemberships.length > 0)
+      ? user.rwMemberships[0].rw_id
+      : (user?.rwId ?? '')
+    return <Navigate to={rwId ? `/rw-view/${rwId}/kas` : '/'} replace />
+  }
+  if (jabatan === 'sosial' || jabatan === 'operasional') {
+    return <Navigate to="/" replace />
+  }
+  if (!isAllowedRT(user)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function GuestBookRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  if (jabatan === 'humas') {
+    return <Navigate to="/" replace />
+  }
+  const isSuperAdmin = user?.role === 'super_admin'
+  const canAccess =
+    isSuperAdmin ||
+    jabatan === 'ketua' ||
+    hasPermission(user, 'security.guest_book')
+  if (!canAccess) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
 export function getOfficerRouteDestination(
   jabatan: string | null | undefined,
   pathname: string,
+  rwMemberships?: { rw_id: string; rw_name: string }[],
+  userRwId?: string | null,
 ): string | null {
   const normalized = (jabatan ?? '').trim().toLowerCase()
+
+  // Humas: redirect Kas to Kas RW, Keuangan to RW Dashboard
+  if (normalized === 'humas') {
+    const rwId = (rwMemberships && rwMemberships.length > 0)
+      ? rwMemberships[0].rw_id
+      : (userRwId ?? '')
+    if (pathname.startsWith('/kas')) {
+      return rwId ? `/rw-view/${rwId}/kas` : '/'
+    }
+    if (pathname === '/keuangan' || pathname.startsWith('/keuangan/')) {
+      return rwId ? `/rw-view/${rwId}/dashboard` : '/'
+    }
+  }
+
+  // Operasional: hide/block Kas, allow Iuran (personal household bills)
+  if (normalized === 'operasional') {
+    if (pathname.startsWith('/kas')) {
+      return '/'
+    }
+  }
+
+  // Sosial: hide/block Kas, allow Iuran (personal household bills)
+  if (normalized === 'sosial') {
+    if (pathname.startsWith('/kas')) {
+      return '/'
+    }
+  }
+
+  // Anggota RT / Anggota RW: redirect to RW Dashboard, not Beranda.
+  if (normalized === 'anggota' || normalized === 'anggota_rt' || normalized === 'anggota_rw') {
+    const rwId = (rwMemberships && rwMemberships.length > 0)
+      ? rwMemberships[0].rw_id
+      : (userRwId ?? '')
+    if (rwId) {
+      const rwPath = `/rw-view/${rwId}/dashboard`
+      if (pathname === '/' || pathname === '/login') return rwPath
+      // Allow staying on rw-view, notifikasi; redirect away from other paths
+      if (pathname.startsWith('/rw-view/') || pathname === '/notifikasi') return null
+      return rwPath
+    }
+    return null // No RW membership — let RwDataView handle the error
+  }
+
   if (normalized !== 'keamanan' && normalized !== 'kebersihan') return null
   const defaultPath = normalized === 'keamanan' ? '/warga' : '/monitoring'
   if (pathname === '/') return defaultPath
@@ -70,9 +175,49 @@ export function getOfficerRouteDestination(
     ? pathname === '/warga' ||
       pathname.startsWith('/warga/') ||
       pathname === '/notifikasi' ||
-      pathname === '/monitoring'
+      pathname === '/monitoring' ||
+      pathname === '/patroli' ||
+      pathname.startsWith('/patroli/') ||
+      pathname === '/paket' ||
+      pathname.startsWith('/paket/')
     : pathname === '/monitoring'
   return allowed ? null : defaultPath
+}
+
+function PatrolRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  const isSuperAdmin = user?.role === 'super_admin'
+  const isSekretaris = jabatan === 'sekretaris'
+  if (isSuperAdmin || isSekretaris) {
+    return <Navigate to="/" replace />
+  }
+  const canAccess = hasPermission(user, 'patrol.read') || hasPermission(user, 'patrol.create')
+  if (!canAccess) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function PaketRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  const isSuperAdmin = user?.role === 'super_admin'
+  const isSekretaris = jabatan === 'sekretaris'
+  if (isSuperAdmin || isSekretaris) {
+    return <Navigate to="/" replace />
+  }
+  const canAccess = hasPermission(user, 'paket.read') || hasPermission(user, 'paket.create')
+  if (!canAccess) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
 }
 
 function OfficerAccessRoute({ children }: { children: React.ReactNode }) {
@@ -80,7 +225,12 @@ function OfficerAccessRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   if (!isAuthenticated) return <>{children}</>
 
-  const destination = getOfficerRouteDestination(user?.jabatan, location.pathname)
+  const destination = getOfficerRouteDestination(
+    user?.jabatan,
+    location.pathname,
+    user?.rwMemberships,
+    user?.rwId,
+  )
   if (destination) return <Navigate to={destination} replace />
   return <>{children}</>
 }
@@ -198,17 +348,17 @@ export function App() {
         <Route
           path="iuran/*"
           element={
-            <AllowedRTRoute>
+            <IuranAccessRoute>
               <IuranRoutes />
-            </AllowedRTRoute>
+            </IuranAccessRoute>
           }
         />
         <Route
           path="kas/*"
           element={
-            <AllowedRTRoute>
+            <KasAccessRoute>
               <KasRoutes />
-            </AllowedRTRoute>
+            </KasAccessRoute>
           }
         />
         <Route
@@ -240,11 +390,43 @@ export function App() {
           }
         />
         <Route
+          path="patroli"
+          element={
+            <PatrolRoute>
+              <PatrolPage />
+            </PatrolRoute>
+          }
+        />
+        <Route
+          path="paket"
+          element={
+            <PaketRoute>
+              <PaketPage />
+            </PaketRoute>
+          }
+        />
+        <Route
+          path="paket-detail"
+          element={
+            <ProtectedRoute>
+              <PaketDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="keamanan-rt"
           element={
             <AllowedRTRoute>
               <KelolaKeamananPage />
             </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="buku-tamu"
+          element={
+            <GuestBookRoute>
+              <BukuTamuPage />
+            </GuestBookRoute>
           }
         />
         <Route

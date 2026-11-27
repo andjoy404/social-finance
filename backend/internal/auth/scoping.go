@@ -207,6 +207,63 @@ func RequireRWScope(pool *database.Pool, cfg ScopingConfig) func(http.Handler) h
 	}
 }
 
+// HasRW checks if the given rwId is in the SCOPED_RW_IDS allowlist.
+func (c ScopingConfig) HasRW(rwID string) bool {
+	return c.hasRW(rwID)
+}
+
+// HasRT checks if the given rtId is in the SCOPED_RT_IDS allowlist.
+func (c ScopingConfig) HasRT(rtID string) bool {
+	return c.hasRT(rtID)
+}
+
+// IsRTInAdminScope checks whether rtID is an active RT inside the Super Admin's
+// configured administrative scope — either directly listed in SCOPED_RT_IDS OR
+// belonging to an active RW listed in SCOPED_RW_IDS.
+// Fails closed when both allowlists are empty or the RT is inactive/missing.
+func (c ScopingConfig) IsRTInAdminScope(ctx context.Context, pool *database.Pool, rtID string) (bool, error) {
+	rtID = strings.TrimSpace(rtID)
+	if rtID == "" || (len(c.RTIDs) == 0 && len(c.RWIDs) == 0) {
+		return false, nil
+	}
+	if pool == nil {
+		return c.hasRT(rtID), nil
+	}
+	var rwID sql.NullString
+	var isActive bool
+	err := pool.Raw().QueryRowContext(ctx,
+		`SELECT rw_id, is_active FROM rts WHERE id = $1 LIMIT 1`,
+		rtID,
+	).Scan(&rwID, &isActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !isActive {
+		return false, nil
+	}
+	if c.hasRT(rtID) {
+		return true, nil
+	}
+	if rwID.Valid && rwID.String != "" && c.hasRW(rwID.String) {
+		var rwActive bool
+		errRW := pool.Raw().QueryRowContext(ctx,
+			`SELECT is_active FROM rws WHERE id = $1 LIMIT 1`,
+			rwID.String,
+		).Scan(&rwActive)
+		if errRW != nil {
+			if errors.Is(errRW, sql.ErrNoRows) {
+				return false, nil
+			}
+			return false, errRW
+		}
+		return rwActive, nil
+	}
+	return false, nil
+}
+
 // hasRW checks if the given rwId is in the SCOPED_RW_IDS allowlist.
 func (c ScopingConfig) hasRW(rwID string) bool {
 	for _, id := range c.RWIDs {
@@ -297,18 +354,23 @@ const (
 
 // rwPermissionMapReadOnly defines RW permissions for RT officials accessing RW
 // through inferred membership (rt_inferred). In accordance with the final RBAC matrix:
-//   - Beranda RW: READ
-//   - KAS RW: NO
+//   - Beranda RW: READ (all RT officials)
+//   - KAS RW: READ (all RT officials)
 //   - Lokasi Dana RW: NO
 //   - Notifikasi RW: NO
 var rwPermissionMapReadOnly = map[string][]string{
-	"ketua":       {PermissionRWDashboardRead},
-	"wakil_ketua": {PermissionRWDashboardRead},
-	"sekretaris":  {PermissionRWDashboardRead},
-	"bendahara":   {PermissionRWDashboardRead},
-	"anggota":     {PermissionRWDashboardRead},
-	"pengurus":    {PermissionRWDashboardRead},
-	"perangkat":   {PermissionRWDashboardRead},
+	"ketua":       {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"wakil_ketua": {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"sekretaris":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"bendahara":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota":     {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota_rt":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"anggota_rw":  {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"operasional": {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"humas":       {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"sosial":      {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"pengurus":    {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
+	"perangkat":   {PermissionRWDashboardRead, PermissionRWKasRead, "finance.read"},
 }
 
 // rwPermissionMap defines RW-specific permissions mapped by explicit RW jabatan.
@@ -378,7 +440,22 @@ var rwPermissionMap = map[string][]string{
 	"anggota": {
 		PermissionRWDashboardRead,
 		PermissionRWKasRead,
-		PermissionRWLocationRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"anggota_rt": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
+		PermissionRWNotificationRead,
+		// Domain/legacy aliases (READ ONLY)
+		"finance.read",
+		"notification.read",
+	},
+	"anggota_rw": {
+		PermissionRWDashboardRead,
+		PermissionRWKasRead,
 		PermissionRWNotificationRead,
 		// Domain/legacy aliases (READ ONLY)
 		"finance.read",
@@ -393,6 +470,46 @@ var rwPermissionMap = map[string][]string{
 		"finance.read",
 		"notification.read",
 	},
+}
+
+// RWScopePermissions returns a copy of the server-authoritative RW permission
+// codes granted for the given (jabatan, source) pair.
+// Used to expose RW-scoped permissions per membership in /auth/me without
+// expanding permissions or conflating RT-scoped effective_permissions.
+func RWScopePermissions(jabatan string, source RWMembershipSource) []string {
+	cleanJabatan := strings.ToLower(strings.TrimSpace(jabatan))
+	if cleanJabatan == "" {
+		return nil
+	}
+	var src []string
+	if source == RWMembershipSourceRTInferred {
+		src = rwPermissionMapReadOnly[cleanJabatan]
+	} else {
+		src = rwPermissionMap[cleanJabatan]
+	}
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
+}
+
+// SuperAdminRWPermissions returns the RW-scoped permissions for Super Admin
+// scoped RW memberships returned by /auth/me.
+func SuperAdminRWPermissions() []string {
+	return RWScopePermissions("ketua", RWMembershipSourceExplicit)
+}
+
+// populateRWMembershipPermissions fills Permissions on each RWMembership in-place
+// from the authoritative server RW permission matrix.
+func populateRWMembershipPermissions(memberships []RWMembership) []RWMembership {
+	for i := range memberships {
+		if len(memberships[i].Permissions) == 0 {
+			memberships[i].Permissions = RWScopePermissions(memberships[i].Jabatan, memberships[i].Source)
+		}
+	}
+	return memberships
 }
 
 // HasRWScopePermission checks whether the given RW jabatan and source
@@ -443,8 +560,10 @@ func normalizeRWPermissionCode(code string) string {
 		return PermissionRWLocationRead
 	case "fund_location.write", "locations.write", "rw.locations.write":
 		return PermissionRWLocationWrite
-	case "rw.notification.manage":
+	case "rw.notification.manage", "notification.manage", "notification.write":
 		return PermissionRWNotificationWrite
+	case "notification.read":
+		return PermissionRWNotificationRead
 	default:
 		return code
 	}

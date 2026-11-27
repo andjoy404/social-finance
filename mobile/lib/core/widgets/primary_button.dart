@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
-import 'package:social_finance/core/theme/app_colors.dart';
-import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 
+/// Legacy adapter for [PrimaryButton].
+///
+/// Keeps backwards-compatibility while delegating styling and states
+/// to the standardized [AppButton].
 class PrimaryButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
@@ -19,54 +22,12 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: isLoading || onPressed == null ? null : onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.accent,
-        foregroundColor: Colors.white,
-        shadowColor: AppColors.accent,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: 12,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-      child: isLoading
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : icon != null
-              ? Row(
-                  mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 18),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        text,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                )
-              : Text(
-                  text,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+    return AppButton.primary(
+      text: text,
+      onPressed: onPressed,
+      isLoading: isLoading,
+      icon: icon,
+      size: AppButtonSize.medium,
     );
   }
 }

@@ -614,4 +614,82 @@ describe('ResidentDetail — edit flow dispatches warga:refresh on success', () 
     // Household endpoint should also be called
     expect(householdEndpointCalled).toBe(true)
   })
+
+  it('SuperAdmin opens and edits Anggota RW on ResidentDetail without any GET/PATCH household call', async () => {
+    const superAdminUser: AuthUser = {
+      id: 'sa-1',
+      name: 'Super Admin',
+      email: 'admin@local.com',
+      role: 'pengurus',
+      systemRole: 'super_admin',
+      jabatan: null,
+      rt: { id: 'rt-2', name: '002' },
+    }
+    const mockAnggotaRW: ApiResident = {
+      id: 'arw-1',
+      rt_id: 'rt-1',
+      household_id: null,
+      full_name: 'Petugas Anggota RW',
+      nik: null,
+      phone: null,
+      email: null,
+      is_active: true,
+      created_at: '2026-11-23T00:00:00Z',
+      updated_at: '2026-11-23T00:00:00Z',
+      jabatan: 'anggota_rw',
+    }
+
+    let getHouseholdCalled = false
+    let patchHouseholdCalled = false
+    let specialPatchBody: Record<string, unknown> | null = null
+
+    mockFetch((url, init) => {
+      if (url.includes('/households/')) {
+        if (init?.method === 'GET') getHouseholdCalled = true
+        if (init?.method === 'PATCH') patchHouseholdCalled = true
+      }
+      if (init?.method === 'PATCH' && url.includes('/residents/special/')) {
+        specialPatchBody = JSON.parse(String(init.body || '{}'))
+        return mockSuccessResponse({
+          ...mockAnggotaRW,
+          full_name: 'Petugas Anggota RW Edited',
+        })
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        return mockSuccessResponse(
+          specialPatchBody
+            ? { ...mockAnggotaRW, full_name: 'Petugas Anggota RW Edited' }
+            : mockAnggotaRW,
+        )
+      }
+      return mockSuccessResponse({})
+    })
+
+    renderResidentDetail(superAdminUser)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Petugas Anggota RW')).toBeInTheDocument()
+    })
+
+    // Zero household GET calls on detail load
+    expect(getHouseholdCalled).toBe(false)
+
+    // Enter edit mode and update only full_name (redacted contact fields remain empty)
+    fireEvent.click(screen.getByText('Ubah'))
+    const nameInput = (await screen.findByLabelText(/Nama Lengkap/i)) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Petugas Anggota RW Edited' } })
+    fireEvent.click(screen.getByRole('button', { name: /Simpan Perubahan/i }))
+
+    await waitFor(() => {
+      expect(specialPatchBody).not.toBeNull()
+    })
+
+    expect(specialPatchBody).toEqual({
+      full_name: 'Petugas Anggota RW Edited',
+      jabatan: 'anggota_rw',
+      is_active: true,
+    })
+    expect(getHouseholdCalled).toBe(false)
+    expect(patchHouseholdCalled).toBe(false)
+  })
 })

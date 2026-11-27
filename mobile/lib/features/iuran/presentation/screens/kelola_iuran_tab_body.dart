@@ -863,8 +863,8 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                       children: [
                                         AppBadge(
                                           label: due.name,
-                                          textColor: AppColors.info,
-                                          backgroundColor: AppColors.info
+                                          textColor: AppColors.infoBlue,
+                                          backgroundColor: AppColors.infoBlue
                                               .withValues(
                                                 alpha: isDark ? 0.25 : 0.12,
                                               ),
@@ -874,11 +874,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                               ? 'Sukarela'
                                               : 'Reguler',
                                           textColor: due.isVoluntary
-                                              ? AppColors.info
+                                              ? AppColors.infoBlue
                                               : AppColors.success,
                                           backgroundColor:
                                               (due.isVoluntary
-                                                      ? AppColors.info
+                                                      ? AppColors.infoBlue
                                                       : AppColors.success)
                                                   .withValues(
                                                     alpha: isDark ? 0.25 : 0.12,
@@ -1086,7 +1086,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           'Tagihan lama dan riwayat pembayaran yang sudah ada tidak akan diubah.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -1779,19 +1784,26 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                           }
                         },
                   style: OutlinedButton.styleFrom(
-                    backgroundColor: AppColors.danger,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.danger,
                     side: const BorderSide(color: AppColors.danger),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
                     ),
                   ),
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.close, size: 18),
-                      SizedBox(width: 6),
-                      Text('Batal'),
+                      Icon(Icons.close, size: 16),
+                      SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          'Batal',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1807,7 +1819,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -1827,10 +1839,16 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         )
                       : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.save_outlined, size: 18),
-                            SizedBox(width: 6),
-                            Text('Simpan'),
+                            Icon(Icons.save_outlined, size: 16),
+                            SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Simpan',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         ),
                 ),

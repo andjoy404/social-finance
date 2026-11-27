@@ -437,6 +437,10 @@ class _SpecialResidentEditScreenState
                           value: 'kebersihan',
                           child: Text('Kebersihan'),
                         ),
+                        DropdownMenuItem(
+                          value: 'anggota_rw',
+                          child: Text('Anggota RW'),
+                        ),
                       ],
                       hint: const Text('Pilih jabatan'),
                       onChanged: (value) {
@@ -542,9 +546,39 @@ class _SpecialResidentEditScreenState
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Horizontal buttons: Simpan + Batal
+              // Horizontal buttons: Batal + Simpan
               Row(
                 children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _confirmCancel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.danger,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.close, size: 18),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('Batal'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: SizedBox(
                       height: 48,
@@ -582,35 +616,6 @@ class _SpecialResidentEditScreenState
                                   ),
                                 ],
                               ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _saving ? null : _confirmCancel,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.danger,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.close, size: 18),
-                            SizedBox(width: 6),
-                            Flexible(
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text('Batal'),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ),
                   ),

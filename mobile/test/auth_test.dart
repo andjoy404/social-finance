@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/auth_service.dart';
+import 'package:social_finance/core/api/device_id_service.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
@@ -32,6 +33,11 @@ class MockAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+class _FakeDeviceIdService extends DeviceIdService {
+  @override
+  Future<String> getDeviceId() async => 'fake-device-id-001';
 }
 
 ResponseBody _jsonResponse(dynamic data, int statusCode) {
@@ -460,7 +466,7 @@ void main() {
           if (options.path == '/api/v1/auth/me') {
             profileCalls++;
             if (profileCalls > 1) {
-              return _jsonResponse({'error': 'profile unavailable'}, 503);
+              return _jsonResponse({'error': 'permission revoked'}, 403);
             }
             return _jsonResponse({
               'id': 'user-1',
@@ -845,7 +851,7 @@ void main() {
         });
 
         final repo = AuthRepository(
-          authService: AuthService(client),
+          authService: AuthService(client, _FakeDeviceIdService()),
           apiClient: client,
           preferencesStorage: preferencesStorage,
           secureAuthStorage: secureAuthStorage,
@@ -879,13 +885,12 @@ void main() {
         await tester.enterText(find.byType(TextField).last, 'wrongpassword');
         final button = find.text('Masuk');
         await tester.ensureVisible(button);
-        await tester.pumpAndSettle();
+        await tester.pump();
         await tester.tap(button);
-        await tester.pump(); // Start loading
-        await tester.pump(
-          const Duration(milliseconds: 100),
-        ); // Complete response
-        await tester.pumpAndSettle(); // Process microtasks (async continuation)
+        await tester.pump();
+        for (int i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
 
         // Verify: Stays on login screen, error banner displayed, no uncaught exception
         expect(find.byType(LoginScreen), findsOneWidget);
@@ -896,13 +901,13 @@ void main() {
         // 2. Retry with valid credentials
         await tester.enterText(find.byType(TextField).last, 'correctpassword');
         await tester.ensureVisible(button);
-        await tester.pumpAndSettle();
+        await tester.pump();
         await tester.tap(button);
-        await tester.pump(); // Start loading
-        await tester.pump(
-          const Duration(milliseconds: 100),
-        ); // Complete response
-        await tester.pumpAndSettle();
+        await tester.pump();
+        for (int i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await tester.pump(const Duration(milliseconds: 200));
 
         expect(attempts, equals(2));
         expect(find.byType(DashboardScreen), findsOneWidget);

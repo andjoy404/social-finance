@@ -20,6 +20,8 @@ type RWNotifier interface {
 	NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string)
 	SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, target ...string) (int, error)
 	ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]notification.NotificationLogEntry, int, error)
+	ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, page, pageSize int) ([]notification.NotificationLogEntry, int, error)
+	GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error)
 }
 
 // Service provides RW-scoped operations with authorization enforcement.
@@ -114,7 +116,7 @@ func (s *Service) RequirePermission(ctx context.Context, ac *auth.AuthContext, r
 // =========================================================================
 
 // GetDashboard returns an aggregated financial overview for the RW.
-func (s *Service) GetDashboard(ctx context.Context, ac *auth.AuthContext, rwID string) (*DashboardSummary, error) {
+func (s *Service) GetDashboard(ctx context.Context, ac *auth.AuthContext, rwID string, period ...string) (*DashboardSummary, error) {
 	if err := s.requirePermission(ctx, ac, rwID, "rw.dashboard.read"); err != nil {
 		return nil, err
 	}
@@ -125,7 +127,7 @@ func (s *Service) GetDashboard(ctx context.Context, ac *auth.AuthContext, rwID s
 	}
 	defer tx.Rollback()
 
-	summary, err := s.repo.GetDashboardSummary(ctx, tx, rwID)
+	summary, err := s.repo.GetDashboardSummary(ctx, tx, rwID, period...)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard summary: %w", err)
 	}
@@ -405,7 +407,8 @@ func (s *Service) CreateTransaction(ctx context.Context, ac *auth.AuthContext, r
 }
 
 // SendManualPush broadcasts a manual push notification to RW officials and RT officials under the RW.
-func (s *Service) SendManualPush(ctx context.Context, ac *auth.AuthContext, rwID, title, body string, target ...string) (int, error) {
+// opts optionally provides target (opts[0], e.g. "all_pengurus" or "rw_only") and imageURL (opts[1]).
+func (s *Service) SendManualPush(ctx context.Context, ac *auth.AuthContext, rwID, title, body string, opts ...string) (int, error) {
 	if err := s.requirePermission(ctx, ac, rwID, "rw.notification.write"); err != nil {
 		return 0, err
 	}
@@ -418,7 +421,7 @@ func (s *Service) SendManualPush(ctx context.Context, ac *auth.AuthContext, rwID
 	if s.notifier == nil {
 		return 0, nil
 	}
-	return s.notifier.SendRWManualPush(ctx, rwID, ac.UserID, title, body, target...)
+	return s.notifier.SendRWManualPush(ctx, rwID, ac.UserID, title, body, opts...)
 }
 
 // ListNotifications returns notification logs for the RW.
@@ -430,6 +433,28 @@ func (s *Service) ListNotifications(ctx context.Context, ac *auth.AuthContext, r
 		return nil, 0, nil
 	}
 	return s.notifier.ListRWLogs(ctx, rwID, eventType, page, pageSize)
+}
+
+// ListMyNotifications lists notifications sent by the current user within the RW.
+// Requires rw.notification.write permission.
+func (s *Service) ListMyNotifications(ctx context.Context, ac *auth.AuthContext, rwID, eventType string, page, pageSize int) ([]notification.NotificationLogEntry, int, error) {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.notification.write"); err != nil {
+		return nil, 0, err
+	}
+	if s.notifier == nil {
+		return nil, 0, nil
+	}
+	return s.notifier.ListRWMyLogs(ctx, rwID, ac.UserID, eventType, page, pageSize)
+}
+
+func (s *Service) GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rwID string) (int, error) {
+	if s.notifier == nil {
+		return 0, nil
+	}
+	if err := s.requirePermission(ctx, ac, rwID, "rw.notification.write"); err != nil {
+		return 0, nil
+	}
+	return s.notifier.GetRWUnreadCount(ctx, rwID, ac.UserID)
 }
 
 // AttachTransactionProof saves the uploaded proof metadata for an RW transaction.

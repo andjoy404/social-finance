@@ -19,11 +19,14 @@ class _TestBillsNotifier extends BillsNotifier {
 }
 
 void main() {
+  final currentPeriod =
+      '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}';
+
   final billWithPending = IuranBill(
     id: 'bill-pending',
     householdName: 'Keluarga Budi',
     iuranType: 'Iuran Sampah',
-    periode: 'Oktober 2026',
+    periode: currentPeriod,
     nominal: 500000,
     paidAmount: 0,
     pendingAmount: 500000,
@@ -35,7 +38,7 @@ void main() {
     id: 'bill-approved',
     householdName: 'Keluarga Siti',
     iuranType: 'Iuran Keamanan',
-    periode: 'Oktober 2026',
+    periode: currentPeriod,
     nominal: 300000,
     paidAmount: 300000,
     pendingAmount: 0,
@@ -47,7 +50,7 @@ void main() {
     id: 'bill-rejected',
     householdName: 'Keluarga Agus',
     iuranType: 'Iuran Kebersihan',
-    periode: 'Oktober 2026',
+    periode: currentPeriod,
     nominal: 200000,
     paidAmount: 0,
     pendingAmount: 0,
@@ -59,7 +62,7 @@ void main() {
     id: 'bill-mixed',
     householdName: 'Keluarga Joko',
     iuranType: 'Iuran IPL',
-    periode: 'Oktober 2026',
+    periode: currentPeriod,
     nominal: 1000000,
     paidAmount: 400000,
     pendingAmount: 300000,
@@ -95,6 +98,10 @@ void main() {
     return MaterialApp(
       home: ProviderScope(
         overrides: [
+          iuranFilterExpandedProvider(0).overrideWith((ref) => true),
+          iuranFilterExpandedProvider(1).overrideWith((ref) => true),
+          iuranSelectedPaymentStatusProvider.overrideWith((ref) => ''),
+          iuranSelectedStatusProvider.overrideWith((ref) => ''),
           billsProvider.overrideWith(() => _TestBillsNotifier(bills)),
           myBillsProvider.overrideWith(() => _TestBillsNotifier(bills)),
           authRepositoryProvider.overrideWith((ref) {
@@ -124,6 +131,8 @@ void main() {
         );
 
         await tester.pumpAndSettle();
+        await tester.tap(find.text('Iuran Warga'));
+        await tester.pumpAndSettle();
 
         expect(find.text('Keluarga Budi'), findsOneWidget);
         expect(find.text(formatRupiah(500000)), findsOneWidget);
@@ -143,6 +152,8 @@ void main() {
         );
 
         await tester.pumpAndSettle();
+        await tester.tap(find.text('Iuran Warga'));
+        await tester.pumpAndSettle();
 
         expect(find.text('Keluarga Siti'), findsOneWidget);
         expect(find.textContaining('Tertunda'), findsNothing);
@@ -160,6 +171,8 @@ void main() {
           ),
         );
 
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Iuran Warga'));
         await tester.pumpAndSettle();
 
         expect(find.text('Keluarga Joko'), findsOneWidget);
@@ -190,71 +203,65 @@ void main() {
         );
 
         await tester.pumpAndSettle();
-
-        // Initially all 3 bills are visible
-        expect(find.text('Keluarga Budi'), findsOneWidget);
-        expect(find.text('Keluarga Siti'), findsOneWidget);
-        expect(find.text('Keluarga Agus'), findsOneWidget);
-
-        // Find "Pembayaran" filter chip and tap it
-        final pembayaranChip = find.text('Pembayaran');
-        expect(pembayaranChip, findsOneWidget);
-        await tester.tap(pembayaranChip);
+        await tester.tap(find.text('Iuran Warga'));
         await tester.pumpAndSettle();
 
-        // Dialog should be visible
-        expect(find.text('Status Pembayaran'), findsOneWidget);
-        expect(find.text('Semua'), findsOneWidget);
-        expect(find.text('Menunggu Verifikasi'), findsOneWidget);
-        expect(find.text('Disetujui'), findsOneWidget);
-        expect(find.text('Ditolak'), findsOneWidget);
+        // Initially all 3 bills are visible
+        expect(find.text('Keluarga Budi', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Siti', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Agus', skipOffstage: false), findsOneWidget);
 
-        // Tap "Menunggu Verifikasi"
-        await tester.tap(find.text('Menunggu Verifikasi'));
+        // Find "Pembayaran" dropdown and tap it
+        final pembayaranChip = find.text('Pembayaran', skipOffstage: false);
+        expect(pembayaranChip, findsOneWidget);
+        await tester.tap(pembayaranChip, warnIfMissed: false);
+        await tester.pumpAndSettle();
+
+        // Tap "Menunggu"
+        await tester.tap(find.text('Menunggu').last);
         await tester.pumpAndSettle();
 
         // Only billWithPending should be visible
-        expect(find.text('Keluarga Budi'), findsOneWidget);
-        expect(find.text('Keluarga Siti'), findsNothing);
-        expect(find.text('Keluarga Agus'), findsNothing);
-        expect(find.text('1 Iuran'), findsOneWidget);
+        expect(find.text('Keluarga Budi', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Siti', skipOffstage: false), findsNothing);
+        expect(find.text('Keluarga Agus', skipOffstage: false), findsNothing);
 
-        // Tap filter chip again (now labeled "Menunggu Verifikasi")
-        await tester.tap(find.text('Menunggu Verifikasi'));
+        // Tap dropdown again (now showing "Menunggu")
+        await tester.tap(find.text('Menunggu'));
         await tester.pumpAndSettle();
 
         // Tap "Disetujui"
-        await tester.tap(find.text('Disetujui'));
+        await tester.tap(find.text('Disetujui').last);
         await tester.pumpAndSettle();
 
         // Only billWithApproved should be visible
-        expect(find.text('Keluarga Budi'), findsNothing);
-        expect(find.text('Keluarga Siti'), findsOneWidget);
-        expect(find.text('Keluarga Agus'), findsNothing);
+        expect(find.text('Keluarga Budi', skipOffstage: false), findsNothing);
+        expect(find.text('Keluarga Siti', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Agus', skipOffstage: false), findsNothing);
 
-        // Tap filter chip again (now labeled "Disetujui")
+        // Tap dropdown again (now showing "Disetujui")
         await tester.tap(find.text('Disetujui'));
         await tester.pumpAndSettle();
 
         // Tap "Ditolak"
-        await tester.tap(find.text('Ditolak'));
+        await tester.tap(find.text('Ditolak').last);
         await tester.pumpAndSettle();
 
         // Only billWithRejected should be visible
-        expect(find.text('Keluarga Budi'), findsNothing);
-        expect(find.text('Keluarga Siti'), findsNothing);
-        expect(find.text('Keluarga Agus'), findsOneWidget);
+        expect(find.text('Keluarga Budi', skipOffstage: false), findsNothing);
+        expect(find.text('Keluarga Siti', skipOffstage: false), findsNothing);
+        expect(find.text('Keluarga Agus', skipOffstage: false), findsOneWidget);
 
-        // Tap reset close icon
-        final closeIcon = find.byIcon(Icons.close);
-        expect(closeIcon, findsOneWidget);
-        await tester.tap(closeIcon);
+        // Tap dropdown again and reset to "Semua"
+        await tester.tap(find.text('Ditolak'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Semua').last);
         await tester.pumpAndSettle();
 
         // All 3 restored
-        expect(find.text('Keluarga Budi'), findsOneWidget);
-        expect(find.text('Keluarga Siti'), findsOneWidget);
-        expect(find.text('Keluarga Agus'), findsOneWidget);
+        expect(find.text('Keluarga Budi', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Siti', skipOffstage: false), findsOneWidget);
+        expect(find.text('Keluarga Agus', skipOffstage: false), findsOneWidget);
       },
     );
 
@@ -270,9 +277,11 @@ void main() {
 
         await tester.pumpAndSettle();
 
-        // Warga sees the bills and filter
-        expect(find.text('Pembayaran'), findsOneWidget);
-        expect(find.text('Keluarga Budi'), findsOneWidget);
+        // Warga sees the bills
+        expect(find.text('Iuran Sampah'), findsOneWidget);
+
+        // Warga sees the payment status filter dropdown
+        expect(find.text('Pembayaran', skipOffstage: false), findsOneWidget);
 
         // Warga does NOT see manage tabs (TabBar)
         expect(find.text('Kelola'), findsNothing);

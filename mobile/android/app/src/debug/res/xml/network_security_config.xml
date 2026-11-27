@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Debug builds allow HTTP to local development hosts (including LAN IPs
+        such as http://192.168.1.10:8080), while still enforcing HTTPS-only for
+        the official Social Finance production domain.
+    -->
+    <base-config cleartextTrafficPermitted="true"/>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">urena0216.id</domain>
+    </domain-config>
+</network-security-config>

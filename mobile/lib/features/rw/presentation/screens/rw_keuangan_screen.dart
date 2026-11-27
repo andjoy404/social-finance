@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_finance/core/api/models.dart';
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -61,11 +62,33 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
   Widget build(BuildContext context) {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
-    final rwMemberships = (user?['rw_memberships'] as List?)
+    final rawRwMemberships = (user?['rw_memberships'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
             .toList() ??
         <RWMembership>[];
+    List<RWMembership> rwMemberships = rawRwMemberships;
+    if (rwMemberships.isEmpty) {
+      final userRwId = (user?['rw_id'] ?? '').toString().trim();
+      final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+      final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+      final isAnggotaRT =
+          jab == 'anggota_rt' || (jab == 'anggota' && role == 'pengurus');
+      final isAnggotaRW = jab == 'anggota_rw';
+      if (userRwId.isNotEmpty && (isAnggotaRT || isAnggotaRW || jab.isNotEmpty)) {
+        rwMemberships = [
+          RWMembership(
+            rwId: userRwId,
+            rwName: user?['rw_name']?.toString(),
+            rwNumber: user?['rt_rw'] is num
+                ? (user!['rt_rw'] as num).toInt()
+                : int.tryParse(user?['rw']?.toString() ?? ''),
+            jabatan: jab.isNotEmpty ? jab : (isAnggotaRW ? 'anggota_rw' : 'anggota_rt'),
+            source: 'rt_inferred',
+          ),
+        ];
+      }
+    }
     final currentMembership =
         rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
     final rwNumberText = currentMembership?.rwNumber != null
@@ -73,14 +96,19 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
         : resolveRwNumber(widget.rwId, rwMemberships);
 
     // Final Matrix:
-    // Pengurus RT (rt_inferred): Beranda RW only. KAS/Lokasi Dana/Notifikasi NO.
+    // Pengurus RT (rt_inferred, including anggota_rt): Beranda RW + KAS RW (read-only). Lokasi Dana/Notifikasi NO.
     // Pengurus RW (explicit): Beranda, KAS, Lokasi Dana, Notifikasi (read; write by jabatan).
     // Ketua RW & Bendahara RW explicit: write-capable per feature/backend.
     // Super Admin: all tabs.
-    final isSuperAdmin = user?['role'] == 'super_admin' || user?['system_role'] == 'super_admin';
+    final isSuperAdmin =
+        user?['role'] == AppRole.superAdmin ||
+        user?['role'] == 'super_admin' ||
+        user?['system_role'] == 'super_admin';
     final isExplicitMember = currentMembership?.source == 'explicit';
-    final hasFeatureAccess = rwMembershipHasFeatureAccess(user, widget.rwId);
-    final showKas = hasFeatureAccess;
+    final hasFeatureAccess = rwMembershipHasFeatureAccess(user, widget.rwId,
+        rwMemberships: rwMemberships.map((m) => m.toJson()).toList());
+    final userRwId = (user?['rw_id'] ?? '').toString().trim();
+    final showKas = isSuperAdmin || currentMembership != null || (userRwId.isNotEmpty && userRwId == widget.rwId);
     final showLokasiDana = hasFeatureAccess;
     final showNotifikasi = isSuperAdmin || isExplicitMember; // explicit read + SA; rt_inferred hidden
     final tabCount = 1 + (showKas ? 1 : 0) + (showLokasiDana ? 1 : 0) + (showNotifikasi ? 1 : 0);
@@ -89,18 +117,13 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
     // vice versa). TabController.length has no setter, so we must dispose
     // and allocate a new controller rather than mutating in place.
     if (_tabController == null || _tabController!.length != tabCount) {
+      final oldIndex = _tabController?.index ?? widget.initialTab;
       _tabController?.dispose();
       _tabController = TabController(
         length: tabCount,
         vsync: this,
-        initialIndex: widget.initialTab.clamp(0, tabCount - 1),
+        initialIndex: oldIndex.clamp(0, tabCount - 1),
       );
-    }
-
-    // Clamp index to valid range after length change.
-    final validIndex = widget.initialTab.clamp(0, tabCount - 1);
-    if (_tabController!.index != validIndex) {
-      _tabController!.index = validIndex;
     }
 
     return Scaffold(
@@ -114,10 +137,25 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
           indicatorColor: AppColors.accent,
           indicatorWeight: 3,
           tabs: [
-            const Tab(text: 'BERANDA'),
-            if (showKas) const Tab(text: 'KAS'),
-            if (showLokasiDana) const Tab(text: 'LOKASI DANA'),
-            if (showNotifikasi) const Tab(text: 'NOTIFIKASI'),
+            const Tab(
+              icon: Icon(Icons.dashboard_outlined, size: 20),
+              text: 'BERANDA',
+            ),
+            if (showKas)
+              const Tab(
+                icon: Icon(Icons.account_balance_wallet_outlined, size: 20),
+                text: 'KAS',
+              ),
+            if (showLokasiDana)
+              const Tab(
+                icon: Icon(Icons.account_balance_outlined, size: 20),
+                text: 'LOKASI DANA',
+              ),
+            if (showNotifikasi)
+              const Tab(
+                icon: Icon(Icons.notifications_outlined, size: 20),
+                text: 'NOTIFIKASI',
+              ),
           ],
         ),
       ),

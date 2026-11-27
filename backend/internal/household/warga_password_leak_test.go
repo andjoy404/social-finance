@@ -354,7 +354,7 @@ H-1,Head,OWNER,Jl. Test,Test User,3171010000004001,0811,test@test.com,2024-01-15
 	}
 
 	// But preview conversion must NOT include it.
-	preview := rowsToPreview(rows)
+	preview := rowsToPreview(rows, "rt-1", &auth.AuthContext{Jabatan: auth.JabatanKetua, RTID: "rt-1"})
 	if len(preview) != 1 {
 		t.Fatalf("expected 1 preview row, got %d", len(preview))
 	}
@@ -366,5 +366,26 @@ H-1,Head,OWNER,Jl. Test,Test User,3171010000004001,0811,test@test.com,2024-01-15
 	}
 	if !strings.Contains(previewJSONStr, "password will be set") {
 		t.Errorf("expected PasswordHint in preview: %s", previewJSONStr)
+	}
+	if !strings.Contains(previewJSONStr, "0811") || !strings.Contains(previewJSONStr, "test@test.com") {
+		t.Errorf("exact Ketua RT should retain own-RT contact fields: %s", previewJSONStr)
+	}
+
+	for name, ac := range map[string]*auth.AuthContext{
+		"super admin": {SystemRole: auth.SystemRoleSuperAdmin, RTID: "rt-1"},
+		"alias":       {Jabatan: "ketua_rt", RTID: "rt-1"},
+		"alias space": {Jabatan: "ketua rt", RTID: "rt-1"},
+		"cross RT":    {Jabatan: auth.JabatanKetua, RTID: "rt-other"},
+		"no position": {RTID: "rt-1"},
+	} {
+		t.Run(name+" contacts redacted from import preview", func(t *testing.T) {
+			response, err := json.Marshal(rowsToPreview(rows, "rt-1", ac))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(response), "0811") || strings.Contains(string(response), "test@test.com") {
+				t.Fatalf("unauthorized contact fields leaked: %s", response)
+			}
+		})
 	}
 }

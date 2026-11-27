@@ -8,10 +8,10 @@ import {
 } from '@/app/wargaAuth'
 
 describe('wargaAuth — K_WARGA_WRITE_JABATANS', () => {
-  it('contains exactly the four authorized positions', () => {
-    const expected = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
+  it('contains exactly the authorized positions (sekretaris revoked)', () => {
+    const expected = new Set(['ketua', 'wakil_ketua', 'bendahara'])
     expect(K_WARGA_WRITE_JABATANS).toEqual(expected)
-    expect(K_WARGA_WRITE_JABATANS.size).toBe(4)
+    expect(K_WARGA_WRITE_JABATANS.size).toBe(3)
   })
 })
 
@@ -23,10 +23,11 @@ describe('wargaAuth — hasWargaWriteAccess', () => {
     expect(hasWargaWriteAccess({ systemRole: 'super_admin', role: 'warga', jabatan: 'kas_keuangan' })).toBe(true)
   })
 
-  it('authorized positions grant write access', () => {
-    for (const jabatan of ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara']) {
+  it('authorized positions grant write access (sekretaris is denied)', () => {
+    for (const jabatan of ['ketua', 'wakil_ketua', 'bendahara']) {
       expect(hasWargaWriteAccess({ role: 'warga', jabatan })).toBe(true)
     }
+    expect(hasWargaWriteAccess({ role: 'warga', jabatan: 'sekretaris' })).toBe(false)
   })
 
   it('unknown non-empty jabatan denies access', () => {
@@ -72,10 +73,11 @@ describe('wargaAuth — getWargaWriteRoleType', () => {
     expect(getWargaWriteRoleType({ systemRole: 'super_admin', role: 'warga' })).toBe('super_admin')
   })
 
-  it('returns position for authorized jabatan', () => {
-    for (const jabatan of ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara']) {
+  it('returns position for authorized jabatan (sekretaris returns none)', () => {
+    for (const jabatan of ['ketua', 'wakil_ketua', 'bendahara']) {
       expect(getWargaWriteRoleType({ role: 'warga', jabatan })).toBe('position')
     }
+    expect(getWargaWriteRoleType({ role: 'warga', jabatan: 'sekretaris' })).toBe('none')
   })
 
   it('returns none for unauthorized jabatan', () => {

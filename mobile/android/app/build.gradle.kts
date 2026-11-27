@@ -48,3 +48,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.google.firebase:firebase-messaging:26.0.0")
+}

@@ -151,7 +151,10 @@ void main() {
       throwsA(isA<ServerException>()),
     );
     expect(container.read(myBillsProvider), isA<AsyncError<List<IuranBill>>>());
-    await container.read(myBillsProvider.notifier).refresh();
+    await expectLater(
+      container.read(myBillsProvider.notifier).refresh(),
+      throwsA(isA<ServerException>()),
+    );
 
     expect(repository.scopes, [true, true]);
     expect(container.read(myBillsProvider), isA<AsyncError<List<IuranBill>>>());

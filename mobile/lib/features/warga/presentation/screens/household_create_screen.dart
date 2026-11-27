@@ -185,7 +185,11 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         final routePath = GoRouterState.of(context).uri.path;
         KasFormNavigationGuard.allowExitFor(routePath);
         try {
-          context.pop();
+          if (context.canPop()) {
+            context.pop();
+          } else {
+            context.go('/home/warga');
+          }
         } catch (_) {
           KasFormNavigationGuard.revokeExitFor(routePath);
           rethrow;
@@ -220,30 +224,12 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.md;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildSimpanButton(),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(child: _buildBatalButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildSimpanButton()),
+              ],
             ),
           ),
         ),
@@ -757,14 +743,16 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
 
   Widget _buildBatalButton() => SizedBox(
     height: 48,
-    child: OutlinedButton(
+    child: ElevatedButton(
       onPressed: _saving
           ? null
           : () => KasFormNavigationGuard.requestFormCancel(context),
-      style: OutlinedButton.styleFrom(
+      style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.danger),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),

@@ -16,8 +16,8 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
-	"social-finance/internal/notification"
 	httpx "social-finance/internal/http"
+	"social-finance/internal/notification"
 )
 
 var threeDigitRegex = regexp.MustCompile(`^[0-9]{3}$`)
@@ -91,8 +91,25 @@ func auditIP(r *http.Request) *string {
 	return &ip
 }
 
+func canViewMembershipContacts(ac *auth.AuthContext, rtID string) bool {
+	return ac != nil && ac.SystemRole != auth.SystemRoleSuperAdmin &&
+		ac.Jabatan == auth.JabatanKetua && ac.RTID != "" && ac.RTID == rtID
+}
+
+func redactRTMembershipContacts(items []RTMembership, ac *auth.AuthContext, rtID string) []RTMembership {
+	if canViewMembershipContacts(ac, rtID) {
+		return items
+	}
+	for i := range items {
+		items[i].Email = nil
+		items[i].Phone = nil
+	}
+	return items
+}
+
 func (h *Handler) ListMemberships(w http.ResponseWriter, r *http.Request) {
 	rtID := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	tx, err := h.p.BeginTx(ctx)
@@ -109,7 +126,7 @@ func (h *Handler) ListMemberships(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	items, err := ListMemberships(ctx, tx, rtID)
+	items, err := listMemberships(ctx, tx, rtID, canViewMembershipContacts(ac, rtID))
 	if err != nil {
 		httpx.WriteInternalServerError(w, "failed to list RT memberships")
 		return
@@ -118,7 +135,7 @@ func (h *Handler) ListMemberships(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternalServerError(w, "failed to list RT memberships")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	writeJSON(w, http.StatusOK, map[string]any{"data": redactRTMembershipContacts(items, ac, rtID)})
 }
 
 func (h *Handler) SetJabatan(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +148,10 @@ func (h *Handler) SetJabatan(w http.ResponseWriter, r *http.Request) {
 	jabatan := normalizeJabatan(req.Jabatan)
 	if !auth.ValidJabatans[jabatan] {
 		httpx.WriteValidationError(w, "jabatan is invalid", nil)
+		return
+	}
+	if jabatan == auth.JabatanKeamanan || jabatan == auth.JabatanKebersihan {
+		httpx.WriteValidationError(w, "jabatan 'keamanan' and 'kebersihan' must be managed through Tambah Petugas", nil)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -155,6 +176,8 @@ func (h *Handler) SetJabatan(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteInternalServerError(w, "failed to commit jabatan")
 			return
 		}
+		item.Email = nil
+		item.Phone = nil
 		writeJSON(w, http.StatusOK, item)
 		return
 	}
@@ -166,6 +189,8 @@ func (h *Handler) SetJabatan(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternalServerError(w, "failed to commit jabatan")
 		return
 	}
+	item.Email = nil
+	item.Phone = nil
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -360,7 +385,7 @@ func (h *Handler) writeAdministrationError(w http.ResponseWriter, err error) {
 		httpx.WriteNotFound(w, err.Error())
 	case errors.Is(err, ErrDuplicateJabatan):
 		httpx.WriteConflict(w, err.Error())
-	case errors.Is(err, ErrInvalidJabatan):
+	case errors.Is(err, ErrInvalidJabatan), errors.Is(err, ErrUserHasNoHousehold):
 		httpx.WriteValidationError(w, err.Error(), nil)
 	default:
 		httpx.WriteInternalServerError(w, "failed to update jabatan")

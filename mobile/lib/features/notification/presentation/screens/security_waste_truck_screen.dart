@@ -6,6 +6,7 @@ import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/widgets/primary_button.dart';
@@ -311,12 +312,12 @@ class _SecurityWasteTruckScreenState
                         _template!.imageUrl!.isNotEmpty)
                       ClipRRect(
                         borderRadius: BorderRadius.circular(AppRadius.base),
-                        child: Image.network(
-                          _template!.imageUrl!,
+                        child: AuthenticatedNetworkImage(
+                          imageUrl: _template!.imageUrl!,
                           width: 100,
                           height: 100,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                          errorWidget: Container(
                             width: 100,
                             height: 100,
                             color: isDark

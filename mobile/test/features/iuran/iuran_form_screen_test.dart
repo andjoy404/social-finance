@@ -83,6 +83,27 @@ class FakeIuranRepository extends IuranRepository {
   }
 
   @override
+  Future<PaginatedResponse<IuranBill>> fetchBills({
+    String? search,
+    String? dueId,
+    String? status,
+    String? paymentStatus,
+    String? period,
+    String? householdOccupancyId,
+    bool myBills = false,
+    int page = 1,
+    int pageSize = 30,
+    String? order,
+  }) async {
+    calls.add('refreshBills');
+    billsRefreshes++;
+    return const PaginatedResponse<IuranBill>(
+      data: [],
+      pagination: PaginationInfo(page: 1, pageSize: 30, total: 0, totalPages: 0),
+    );
+  }
+
+  @override
   Future<List<IuranBill>> fetchAllBills({
     String? search,
     String? status,
@@ -122,7 +143,7 @@ void main() {
       expect(find.text('Tambah Iuran'), findsOneWidget);
       // 3 editable TextFields: Nama, Nominal, Periode (Jatuh Tempo is readOnly)
       expect(find.byType(TextField), findsWidgets);
-      expect(find.byType(TextField).evaluate().length, greaterThanOrEqualTo(3));
+      expect(find.byType(TextField, skipOffstage: false).evaluate().length, greaterThanOrEqualTo(3));
       await tester.scrollUntilVisible(
         find.byKey(_saveKey),
         500,

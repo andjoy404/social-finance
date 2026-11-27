@@ -320,6 +320,107 @@ func TestResidentCreationRequiresWargaCreatePermission(t *testing.T) {
 	}
 }
 
+func TestSekretarisRTCannotCreateOrUpdateWarga(t *testing.T) {
+	pool, router := setupRouterTest(t)
+	ctx := context.Background()
+
+	// 1. Get an existing RT and resident
+	var rtID, residentID string
+	err := pool.Raw().QueryRowContext(ctx, `
+		SELECT res.rt_id, res.id
+		FROM residents res
+		JOIN rts r ON r.id = res.rt_id
+		WHERE res.is_active = true AND r.is_active = true
+		LIMIT 1
+	`).Scan(&rtID, &residentID)
+	if err != nil {
+		t.Fatalf("find existing resident: %v", err)
+	}
+
+	// 2. Create a user with jabatan = sekretaris
+	var sekUserID, sekMID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		VALUES (gen_random_uuid(), $1, 'dummy', 'Sekretaris RT Test', NULL, true)
+		RETURNING id
+	`, fmt.Sprintf("sekretaris-test-%d@local.com", time.Now().UnixNano())).Scan(&sekUserID)
+	if err != nil {
+		t.Fatalf("create sekretaris user: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES (gen_random_uuid(), $1, $2, 'pengurus', 'sekretaris', true)
+		RETURNING id
+	`, sekUserID, rtID).Scan(&sekMID)
+	if err != nil {
+		t.Fatalf("create sekretaris membership: %v", err)
+	}
+
+	token := makeTestToken(t, sekUserID, sekMID, rtID, auth.RolePengurus, auth.JabatanSekretaris)
+
+	// A. Create resident -> 403 Forbidden
+	createResidentBody, _ := json.Marshal(map[string]any{
+		"full_name": "Penduduk Baru Oleh Sekretaris",
+		"nik":       "3201010101018888",
+	})
+	reqCreateRes := httptest.NewRequest(http.MethodPost, "/api/v1/residents", bytes.NewReader(createResidentBody))
+	reqCreateRes.Header.Set("Authorization", "Bearer "+token)
+	reqCreateRes.Header.Set("Content-Type", "application/json")
+	recCreateRes := httptest.NewRecorder()
+	router.ServeHTTP(recCreateRes, reqCreateRes)
+	if recCreateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Sekretaris POST /api/v1/residents, got %d: %s", recCreateRes.Code, recCreateRes.Body.String())
+	}
+
+	// B. Create household -> 403 Forbidden
+	createHhBody, _ := json.Marshal(map[string]any{
+		"house_number": "A-999",
+	})
+	reqCreateHh := httptest.NewRequest(http.MethodPost, "/api/v1/households", bytes.NewReader(createHhBody))
+	reqCreateHh.Header.Set("Authorization", "Bearer "+token)
+	reqCreateHh.Header.Set("Content-Type", "application/json")
+	recCreateHh := httptest.NewRecorder()
+	router.ServeHTTP(recCreateHh, reqCreateHh)
+	if recCreateHh.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Sekretaris POST /api/v1/households, got %d: %s", recCreateHh.Code, recCreateHh.Body.String())
+	}
+
+	// C. Update resident -> 403 Forbidden
+	updateResBody, _ := json.Marshal(map[string]any{
+		"full_name": "Nama Diubah Oleh Sekretaris",
+	})
+	reqUpdateRes := httptest.NewRequest(http.MethodPatch, "/api/v1/residents/"+residentID, bytes.NewReader(updateResBody))
+	reqUpdateRes.Header.Set("Authorization", "Bearer "+token)
+	reqUpdateRes.Header.Set("Content-Type", "application/json")
+	recUpdateRes := httptest.NewRecorder()
+	router.ServeHTTP(recUpdateRes, reqUpdateRes)
+	if recUpdateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Sekretaris PATCH /api/v1/residents/{id}, got %d: %s", recUpdateRes.Code, recUpdateRes.Body.String())
+	}
+
+	// D. Move resident -> 403 Forbidden
+	moveResBody, _ := json.Marshal(map[string]any{
+		"move_date": "2026-11-15",
+	})
+	reqMoveRes := httptest.NewRequest(http.MethodPost, "/api/v1/residents/"+residentID+"/move", bytes.NewReader(moveResBody))
+	reqMoveRes.Header.Set("Authorization", "Bearer "+token)
+	reqMoveRes.Header.Set("Content-Type", "application/json")
+	recMoveRes := httptest.NewRecorder()
+	router.ServeHTTP(recMoveRes, reqMoveRes)
+	if recMoveRes.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Sekretaris POST /api/v1/residents/{id}/move, got %d: %s", recMoveRes.Code, recMoveRes.Body.String())
+	}
+
+	// E. List residents -> 200 OK (warga.read is preserved!)
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/residents", nil)
+	reqList.Header.Set("Authorization", "Bearer "+token)
+	recList := httptest.NewRecorder()
+	router.ServeHTTP(recList, reqList)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for Sekretaris GET /api/v1/residents (warga.read preserved), got %d: %s", recList.Code, recList.Body.String())
+	}
+}
+
 func TestKetuaRTCannotUpdateResidentInAnotherRT(t *testing.T) {
 	pool, router := setupRouterTest(t)
 	ctx := context.Background()

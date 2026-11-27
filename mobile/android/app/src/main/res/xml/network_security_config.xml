@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true"/>
+    <!--
+        Production builds enforce HTTPS by default.
+        Only explicit local loopback development hosts permit cleartext HTTP;
+        LAN HTTP testing is scoped to src/debug/res/xml/network_security_config.xml.
+    -->
+    <base-config cleartextTrafficPermitted="false"/>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">urena0216.id</domain>
+    </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">127.0.0.1</domain>

@@ -235,8 +235,13 @@ class NotificationApiClient {
   Future<int> markAllAsRead() async {
     final response = await dio.post('/api/v1/notifications/logs/read-all');
     final data = response.data;
-    if (data is Map && data['marked'] is num) {
-      return (data['marked'] as num).toInt();
+    if (data is Map) {
+      if (data['updated_count'] is num) {
+        return (data['updated_count'] as num).toInt();
+      }
+      if (data['marked'] is num) {
+        return (data['marked'] as num).toInt();
+      }
     }
     return 0;
   }

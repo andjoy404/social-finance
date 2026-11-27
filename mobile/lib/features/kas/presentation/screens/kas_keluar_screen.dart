@@ -16,6 +16,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
@@ -337,30 +338,12 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.md;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildSimpanButton(),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(child: _buildBatalButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildSimpanButton()),
+              ],
             ),
           ),
         ),
@@ -668,7 +651,12 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: OutlinedButton.icon(
+                          child: AppButton.accentSoft(
+                            buttonKey: const Key('kasKeluarProofCameraBtn'),
+                            text: 'Kamera',
+                            icon: Icons.camera_alt_outlined,
+                            size: AppButtonSize.medium,
+                            fullWidth: true,
                             onPressed: _saving
                                 ? null
                                 : () async {
@@ -686,16 +674,16 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                       });
                                     }
                                   },
-                            icon: const Icon(Icons.camera_alt, size: 16),
-                            label: const Text(
-                              'Kamera',
-                              style: TextStyle(fontSize: 12),
-                            ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: AppSpacing.sm),
                         Expanded(
-                          child: OutlinedButton.icon(
+                          child: AppButton.accentSoft(
+                            buttonKey: const Key('kasKeluarProofGalleryBtn'),
+                            text: 'Galeri',
+                            icon: Icons.photo_library_outlined,
+                            size: AppButtonSize.medium,
+                            fullWidth: true,
                             onPressed: _saving
                                 ? null
                                 : () async {
@@ -713,11 +701,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                       });
                                     }
                                   },
-                            icon: const Icon(Icons.photo_library, size: 16),
-                            label: const Text(
-                              'Galeri',
-                              style: TextStyle(fontSize: 12),
-                            ),
                           ),
                         ),
                       ],
@@ -769,14 +752,16 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
   Widget _buildBatalButton() => SizedBox(
     height: 48,
-    child: OutlinedButton(
+    child: ElevatedButton(
       onPressed: _saving
           ? null
           : () => KasFormNavigationGuard.requestFormCancel(context),
-      style: OutlinedButton.styleFrom(
+      style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.danger),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,14 +37,40 @@ func parseSchedulePeriod(startRaw, endRaw string) (time.Time, time.Time, error) 
 	return start, end, nil
 }
 
-func normalizeScheduleDates(startRaw, endRaw, legacy string) (time.Time, time.Time, error) {
+func normalizeScheduleDates(startRaw, endRaw, legacy string) (*time.Time, *time.Time, error) {
 	if startRaw == "" && endRaw == "" && legacy != "" {
 		startRaw, endRaw = legacy, legacy
 	}
-	if startRaw == "" || endRaw == "" {
-		return time.Time{}, time.Time{}, newAppError(400, "validation_error", "start_date dan end_date wajib diisi", ErrValidation)
+
+	// Both empty: return NULL, NULL — dates are truly optional.
+	if startRaw == "" && endRaw == "" {
+		return nil, nil, nil
 	}
-	return parseSchedulePeriod(startRaw, endRaw)
+
+	// Only start_date provided: end_date remains NULL.
+	if startRaw != "" && endRaw == "" {
+		start, err := parseShiftDate(startRaw)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &start, nil, nil
+	}
+
+	// Only end_date provided: start_date remains NULL.
+	if startRaw == "" && endRaw != "" {
+		end, err := parseShiftDate(endRaw)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &end, nil
+	}
+
+	// Both provided: validate range.
+	start, end, err := parseSchedulePeriod(startRaw, endRaw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &start, &end, nil
 }
 
 func lockOfficerSchedules(ctx context.Context, tx *sql.Tx, rtID, userID string) error {
@@ -67,17 +94,61 @@ func loadActiveShift(ctx context.Context, tx *sql.Tx, rtID, shiftID string) (Shi
 }
 
 func scheduleProjectionSQL() string {
-	return `SELECT s.id,s.assignment_id,to_char(s.assignment_start_date,'YYYY-MM-DD'),to_char(s.assignment_end_date,'YYYY-MM-DD'),s.rt_id,s.user_id,u.full_name,s.membership_id,s.shift_config_id,s.shift_version,to_char(s.shift_date,'YYYY-MM-DD'),s.shift_name_snapshot,to_char(s.start_time_snapshot,'HH24:MI'),to_char(s.end_time_snapshot,'HH24:MI'),s.crosses_midnight_snapshot,s.lateness_tolerance_minutes,s.check_in_window_before_minutes,s.check_in_window_after_minutes,s.absent_cutoff_minutes,s.missing_checkout_cutoff_minutes,s.scheduled_start_at,s.scheduled_end_at,s.notes,s.status,COALESCE(ar.status,'belum_hadir'),ar.checked_in_at,ar.checked_out_at,s.created_at,s.updated_at FROM security_schedules s JOIN users u ON u.id=s.user_id LEFT JOIN security_attendance_records ar ON ar.schedule_id=s.id`
+	return `SELECT s.id,s.assignment_id,to_char(s.assignment_start_date,'YYYY-MM-DD'),to_char(s.assignment_end_date,'YYYY-MM-DD'),s.rt_id,s.user_id,u.full_name,s.membership_id,s.shift_config_id,s.shift_version,to_char(s.shift_date,'YYYY-MM-DD'),s.shift_name_snapshot,to_char(s.start_time_snapshot,'HH24:MI'),to_char(s.end_time_snapshot,'HH24:MI'),s.crosses_midnight_snapshot,s.lateness_tolerance_minutes,s.check_in_window_before_minutes,s.check_in_window_after_minutes,s.absent_cutoff_minutes,s.missing_checkout_cutoff_minutes,s.scheduled_start_at,s.scheduled_end_at,s.notes,s.status,s.is_active,COALESCE(ar.status,'belum_hadir'),ar.checked_in_at,ar.checked_out_at,s.created_at,s.updated_at FROM security_schedules s JOIN users u ON u.id=s.user_id LEFT JOIN LATERAL (SELECT status, checked_in_at, checked_out_at FROM security_attendance_records WHERE schedule_id = s.id AND ((s.shift_date IS NOT NULL AND shift_date = s.shift_date) OR (s.shift_date IS NULL AND shift_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)) ORDER BY checked_in_at DESC NULLS LAST LIMIT 1) ar ON true`
 }
 
 func scanSchedule(row interface{ Scan(...any) error }) (SecuritySchedule, error) {
 	var s SecuritySchedule
-	err := row.Scan(&s.ID, &s.AssignmentID, &s.AssignmentStartDate, &s.AssignmentEndDate, &s.RTID, &s.UserID, &s.OfficerName, &s.MembershipID, &s.ShiftConfigID, &s.ShiftVersion, &s.ShiftDate, &s.ShiftName, &s.StartTime, &s.EndTime, &s.CrossesMidnight, &s.LatenessToleranceMinutes, &s.CheckInWindowBeforeMinutes, &s.CheckInWindowAfterMinutes, &s.AbsentCutoffMinutes, &s.MissingCheckoutCutoffMinutes, &s.ScheduledStartAt, &s.ScheduledEndAt, &s.Notes, &s.Status, &s.AttendanceStatus, &s.CheckedInAt, &s.CheckedOutAt, &s.CreatedAt, &s.UpdatedAt)
+	var startNull, endNull, dateNull, notesNull, attStatusNull sql.NullString
+	var schedStartNull, schedEndNull, cinNull, coutNull sql.NullTime
+	err := row.Scan(
+		&s.ID, &s.AssignmentID, &startNull, &endNull, &s.RTID, &s.UserID, &s.OfficerName, &s.MembershipID,
+		&s.ShiftConfigID, &s.ShiftVersion, &dateNull, &s.ShiftName, &s.StartTime, &s.EndTime,
+		&s.CrossesMidnight, &s.LatenessToleranceMinutes, &s.CheckInWindowBeforeMinutes, &s.CheckInWindowAfterMinutes,
+		&s.AbsentCutoffMinutes, &s.MissingCheckoutCutoffMinutes,
+		&schedStartNull, &schedEndNull, &notesNull, &s.Status, &s.IsActive, &attStatusNull, &cinNull, &coutNull,
+		&s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return s, err
+	}
+	if startNull.Valid {
+		s.AssignmentStartDate = &startNull.String
+	}
+	if endNull.Valid {
+		s.AssignmentEndDate = &endNull.String
+	}
+	if dateNull.Valid {
+		s.ShiftDate = dateNull.String
+	}
+	if notesNull.Valid {
+		v := notesNull.String
+		s.Notes = &v
+	}
+	if schedStartNull.Valid {
+		s.ScheduledStartAt = schedStartNull.Time
+	}
+	if schedEndNull.Valid {
+		s.ScheduledEndAt = schedEndNull.Time
+	}
+	if attStatusNull.Valid {
+		s.AttendanceStatus = attStatusNull.String
+	} else {
+		s.AttendanceStatus = StatusBelumHadir
+	}
+	if cinNull.Valid {
+		t := cinNull.Time
+		s.CheckedInAt = &t
+	}
+	if coutNull.Valid {
+		t := coutNull.Time
+		s.CheckedOutAt = &t
+	}
 	s.AttendanceStatusLabel = StatusLabel(s.AttendanceStatus)
-	return s, err
+	return s, nil
 }
 
-func (r *Repository) CreateSchedulePeriod(ctx context.Context, rtID, actorID string, req CreateScheduleRequest, start, end, now time.Time) (*SecuritySchedule, error) {
+func (r *Repository) CreateSchedulePeriod(ctx context.Context, rtID, actorID string, req CreateScheduleRequest, start, end *time.Time, now time.Time) (*SecuritySchedule, error) {
 	tx, err := r.pool.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -94,7 +165,7 @@ func (r *Repository) CreateSchedulePeriod(ctx context.Context, rtID, actorID str
 	return first, nil
 }
 
-func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtID, actorID string, req CreateScheduleRequest, start, end, now time.Time) (*SecuritySchedule, error) {
+func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtID, actorID string, req CreateScheduleRequest, start, end *time.Time, now time.Time) (*SecuritySchedule, error) {
 	if err := lockOfficerSchedules(ctx, tx, rtID, req.UserID); err != nil {
 		return nil, err
 	}
@@ -107,8 +178,88 @@ func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 		return nil, err
 	}
 	assignmentID := uuid.NewString()
+
+	// Pure date-independent shift assignment: no start/end dates and no legacy shift_date.
+	if start == nil && end == nil && strings.TrimSpace(req.ShiftDate) == "" {
+		var conflictID string
+		err = tx.QueryRowContext(ctx, `SELECT id FROM security_schedules WHERE rt_id=$1 AND user_id=$2 AND shift_config_id=$3 AND status='scheduled' AND is_active=true LIMIT 1`, rtID, req.UserID, cfg.ID).Scan(&conflictID)
+		if err == nil {
+			return nil, newAppError(409, "schedule_conflict", "Petugas sudah memiliki penugasan aktif untuk shift ini", ErrConflict)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		var id string
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO security_schedules(
+				rt_id, assignment_id, assignment_start_date, assignment_end_date,
+				user_id, membership_id, shift_config_id, shift_version, shift_date,
+				shift_name_snapshot, start_time_snapshot, end_time_snapshot, crosses_midnight_snapshot,
+				lateness_tolerance_minutes, check_in_window_before_minutes, check_in_window_after_minutes,
+				absent_cutoff_minutes, missing_checkout_cutoff_minutes,
+				scheduled_start_at, scheduled_end_at, notes, status, is_active, created_by, created_at, updated_at
+			) VALUES (
+				$1, $2, NULL, NULL,
+				$3, $4, $5, $6, NULL,
+				$7, $8::time, $9::time, $10,
+				$11, $12, $13,
+				$14, $15,
+				NULL, NULL, $16, 'scheduled', true, $17, $18, $18
+			) RETURNING id
+		`, rtID, assignmentID, req.UserID, membership, cfg.ID, cfg.Version,
+			cfg.Name, cfg.StartTime, cfg.EndTime, cfg.CrossesMidnight,
+			cfg.LatenessToleranceMinutes, cfg.CheckInWindowBeforeMinutes, cfg.CheckInWindowAfterMinutes,
+			cfg.AbsentCutoffMinutes, cfg.MissingCheckoutCutoffMinutes,
+			req.Notes, actorID, now).Scan(&id)
+		if err != nil {
+			return nil, err
+		}
+		first, err := scanSchedule(tx.QueryRowContext(ctx, scheduleProjectionSQL()+` WHERE s.id=$1`, id))
+		if err != nil {
+			return nil, err
+		}
+		actor := actorID
+		newVal := map[string]any{
+			"assignment_id":   assignmentID,
+			"user_id":         req.UserID,
+			"shift_config_id": cfg.ID,
+		}
+		if err := insertAuditLog(ctx, tx, rtID, &actor, "security.schedule.created", "security_schedule", assignmentID, nil, newVal, ""); err != nil {
+			return nil, err
+		}
+		return &first, nil
+	}
+
+	// Legacy date-specified schedule creation (for backwards compatibility / migration tests)
+	var days []time.Time
+	if start == nil || end == nil {
+		shiftDay := now.In(JakartaLoc)
+		shiftDay = time.Date(shiftDay.Year(), shiftDay.Month(), shiftDay.Day(), 0, 0, 0, 0, JakartaLoc)
+		if req.ShiftDate != "" {
+			parsed, pErr := parseShiftDate(req.ShiftDate)
+			if pErr == nil {
+				shiftDay = parsed
+			}
+		}
+		days = []time.Time{shiftDay}
+	} else {
+		for day := *start; !day.After(*end); day = day.AddDate(0, 0, 1) {
+			days = append(days, day)
+		}
+	}
+
+	// Format assignment dates for SQL (NULL when pointer is nil).
+	assignmentStartSQL := sql.NullString{}
+	assignmentEndSQL := sql.NullString{}
+	if start != nil {
+		assignmentStartSQL = sql.NullString{String: start.Format("2006-01-02"), Valid: true}
+	}
+	if end != nil {
+		assignmentEndSQL = sql.NullString{String: end.Format("2006-01-02"), Valid: true}
+	}
+
 	var first SecuritySchedule
-	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+	for i, day := range days {
 		bs, be, cross, e := ComputeShiftBounds(day, cfg.StartTime, cfg.EndTime, cfg.CrossesMidnight)
 		if e != nil {
 			return nil, newAppError(400, "invalid_shift_time", e.Error(), ErrValidation)
@@ -122,11 +273,10 @@ func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 			return nil, e
 		}
 		date := day.Format("2006-01-02")
-		res, e := tx.ExecContext(ctx, `INSERT INTO security_schedules(rt_id,assignment_id,assignment_start_date,assignment_end_date,user_id,membership_id,shift_config_id,shift_version,shift_date,shift_name_snapshot,start_time_snapshot,end_time_snapshot,crosses_midnight_snapshot,lateness_tolerance_minutes,check_in_window_before_minutes,check_in_window_after_minutes,absent_cutoff_minutes,missing_checkout_cutoff_minutes,scheduled_start_at,scheduled_end_at,notes,status,created_by,created_at,updated_at) VALUES($1,$2,$3::date,$4::date,$5,$6,$7,$8,$9::date,$10,$11::time,$12::time,$13,$14,$15,$16,$17,$18,$19,$20,$21,'scheduled',$22,$23,$23)`, rtID, assignmentID, start.Format("2006-01-02"), end.Format("2006-01-02"), req.UserID, membership, cfg.ID, cfg.Version, date, cfg.Name, cfg.StartTime, cfg.EndTime, cross, cfg.LatenessToleranceMinutes, cfg.CheckInWindowBeforeMinutes, cfg.CheckInWindowAfterMinutes, cfg.AbsentCutoffMinutes, cfg.MissingCheckoutCutoffMinutes, bs, be, req.Notes, actorID, now)
+		_, e = tx.ExecContext(ctx, `INSERT INTO security_schedules(rt_id,assignment_id,assignment_start_date,assignment_end_date,user_id,membership_id,shift_config_id,shift_version,shift_date,shift_name_snapshot,start_time_snapshot,end_time_snapshot,crosses_midnight_snapshot,lateness_tolerance_minutes,check_in_window_before_minutes,check_in_window_after_minutes,absent_cutoff_minutes,missing_checkout_cutoff_minutes,scheduled_start_at,scheduled_end_at,notes,status,created_by,created_at,updated_at) VALUES($1,$2,$3::date,$4::date,$5,$6,$7,$8,$9::date,$10,$11::time,$12::time,$13,$14,$15,$16,$17,$18,$19,$20,$21,'scheduled',$22,$23,$23)`, rtID, assignmentID, assignmentStartSQL, assignmentEndSQL, req.UserID, membership, cfg.ID, cfg.Version, date, cfg.Name, cfg.StartTime, cfg.EndTime, cross, cfg.LatenessToleranceMinutes, cfg.CheckInWindowBeforeMinutes, cfg.CheckInWindowAfterMinutes, cfg.AbsentCutoffMinutes, cfg.MissingCheckoutCutoffMinutes, bs, be, req.Notes, actorID, now)
 		if e != nil {
 			return nil, e
 		}
-		_ = res
 		var id string
 		e = tx.QueryRowContext(ctx, `SELECT id FROM security_schedules WHERE rt_id=$1 AND assignment_id=$2 AND shift_date=$3::date`, rtID, assignmentID, date).Scan(&id)
 		if e != nil {
@@ -135,7 +285,7 @@ func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 		if _, e = tx.ExecContext(ctx, `INSERT INTO security_attendance_records(rt_id,schedule_id,user_id,shift_config_id,shift_version,shift_date,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::date,'belum_hadir',$7,$7)`, rtID, id, req.UserID, cfg.ID, cfg.Version, date, now); e != nil {
 			return nil, e
 		}
-		if day.Equal(start) {
+		if i == 0 {
 			first, e = scanSchedule(tx.QueryRowContext(ctx, scheduleProjectionSQL()+` WHERE s.id=$1`, id))
 			if e != nil {
 				return nil, e
@@ -143,7 +293,13 @@ func (r *Repository) createSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 		}
 	}
 	actor := actorID
-	newVal := map[string]any{"assignment_id": assignmentID, "user_id": req.UserID, "shift_config_id": cfg.ID, "start_date": start.Format("2006-01-02"), "end_date": end.Format("2006-01-02")}
+	newVal := map[string]any{
+		"assignment_id": assignmentID,
+		"user_id":       req.UserID,
+		"shift_config_id": cfg.ID,
+		"start_date":      assignmentStartSQL,
+		"end_date":        assignmentEndSQL,
+	}
 	if err := insertAuditLog(ctx, tx, rtID, &actor, "security.schedule.created", "security_schedule", assignmentID, nil, newVal, ""); err != nil {
 		return nil, err
 	}
@@ -165,7 +321,7 @@ func attendanceLockedError(date time.Time) error {
 	return newAppError(409, "attendance_locked", "Jadwal tanggal "+date.Format("2006-01-02")+" sudah memiliki riwayat absensi dan tidak dapat diubah", ErrConflict)
 }
 
-func (r *Repository) UpdateSchedulePeriod(ctx context.Context, rtID, scheduleID, actorID string, req UpdateScheduleRequest, start, end, now time.Time) (*SecuritySchedule, error) {
+func (r *Repository) UpdateSchedulePeriod(ctx context.Context, rtID, scheduleID, actorID string, req UpdateScheduleRequest, start, end *time.Time, now time.Time) (*SecuritySchedule, error) {
 	tx, err := r.pool.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -182,9 +338,9 @@ func (r *Repository) UpdateSchedulePeriod(ctx context.Context, rtID, scheduleID,
 	return out, nil
 }
 
-func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtID, scheduleID, actorID string, req UpdateScheduleRequest, start, end, now time.Time) (*SecuritySchedule, error) {
+func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtID, scheduleID, actorID string, req UpdateScheduleRequest, start, end *time.Time, now time.Time) (*SecuritySchedule, error) {
 	var groupID, currentUser string
-	var oldStart, oldEnd time.Time
+	var oldStart, oldEnd sql.NullTime
 	err := tx.QueryRowContext(ctx, `SELECT assignment_id,user_id,assignment_start_date,assignment_end_date FROM security_schedules WHERE (id=$1 OR assignment_id=$1) AND rt_id=$2 ORDER BY shift_date LIMIT 1`, scheduleID, rtID).Scan(&groupID, &currentUser, &oldStart, &oldEnd)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, newAppError(404, "not_found", "schedule not found", ErrNotFound)
@@ -240,7 +396,36 @@ func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 	for _, x := range existing {
 		byDate[x.shiftDate.In(JakartaLoc).Format("2006-01-02")] = x
 	}
-	identical := req.UserID == currentUser && req.ShiftConfigID == existing[0].shiftConfigID && start.Format("2006-01-02") == oldStart.Format("2006-01-02") && end.Format("2006-01-02") == oldEnd.Format("2006-01-02")
+
+	// If client did not send date fields (nil pointer), preserve the existing dates.
+	// start/end will be nil from normalizeScheduleDates("") when req.StartDate/EndDate are nil.
+	preserveStart := req.StartDate == nil
+	preserveEnd := req.EndDate == nil
+	if preserveStart && oldStart.Valid {
+		start = &oldStart.Time
+	}
+	if preserveEnd && oldEnd.Valid {
+		end = &oldEnd.Time
+	}
+
+	// Compare dates for identical check (handle nullable).
+	oldStartStr := ""
+	oldEndStr := ""
+	if oldStart.Valid {
+		oldStartStr = oldStart.Time.Format("2006-01-02")
+	}
+	if oldEnd.Valid {
+		oldEndStr = oldEnd.Time.Format("2006-01-02")
+	}
+	newStartStr := ""
+	newEndStr := ""
+	if start != nil {
+		newStartStr = start.Format("2006-01-02")
+	}
+	if end != nil {
+		newEndStr = end.Format("2006-01-02")
+	}
+	identical := req.UserID == currentUser && req.ShiftConfigID == existing[0].shiftConfigID && newStartStr == oldStartStr && newEndStr == oldEndStr
 	for _, x := range existing {
 		if x.shiftDate.In(JakartaLoc).Format("2006-01-02") >= todayKey && x.status == ScheduleStatusScheduled && (x.startAt.In(JakartaLoc).Format("15:04:05") != cfg.StartTime || x.endAt.In(JakartaLoc).Format("15:04:05") != cfg.EndTime) {
 			identical = false
@@ -256,7 +441,24 @@ func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 		}
 		return &out, nil
 	}
-	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+
+	// Determine the days to iterate over for conflict check.
+	// When start/end are both set, iterate the range. Otherwise use existing schedule dates.
+	var newDays []time.Time
+	if start != nil && end != nil {
+		for day := *start; !day.After(*end); day = day.AddDate(0, 0, 1) {
+			newDays = append(newDays, day)
+		}
+	} else {
+		// Single-day or no dates: use existing schedule dates for conflict check.
+		for _, x := range existing {
+			d := x.shiftDate.In(JakartaLoc)
+			date := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, JakartaLoc)
+			newDays = append(newDays, date)
+		}
+	}
+
+	for _, day := range newDays {
 		bs, be, _, e := ComputeShiftBounds(day, cfg.StartTime, cfg.EndTime, cfg.CrossesMidnight)
 		if e != nil {
 			return nil, e
@@ -273,6 +475,9 @@ func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 			return nil, attendanceLockedError(day)
 		}
 	}
+
+	// Determine which existing dates are inside the new range.
+	// When start/end are nil, treat all existing dates as inside.
 	for _, x := range existing {
 		d := x.shiftDate.In(JakartaLoc)
 		date := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, JakartaLoc)
@@ -280,7 +485,12 @@ func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 		if key < todayKey {
 			continue
 		}
-		inside := !date.Before(start) && !date.After(end)
+		var inside bool
+		if start != nil && end != nil {
+			inside = !date.Before(*start) && !date.After(*end)
+		} else {
+			inside = true
+		}
 		if !inside {
 			if x.status == ScheduleStatusScheduled {
 				if isRecordedAttendance(x) || hasAttendanceCorrections(ctx, tx, x.id) {
@@ -310,35 +520,50 @@ func (r *Repository) updateSchedulePeriodTx(ctx context.Context, tx *sql.Tx, rtI
 			return nil, err
 		}
 	}
-	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
-		key := day.Format("2006-01-02")
-		if old, ok := byDate[key]; ok {
-			if old.status == ScheduleStatusScheduled || old.status == ScheduleStatusCancelled {
+
+	// Insert new days that don't exist yet (only when start/end are both set).
+	if start != nil && end != nil {
+		for _, day := range newDays {
+			key := day.Format("2006-01-02")
+			if old, ok := byDate[key]; ok {
+				if old.status == ScheduleStatusScheduled || old.status == ScheduleStatusCancelled {
+					continue
+				}
+			}
+			if key < todayKey {
 				continue
 			}
-		}
-		if key < todayKey {
-			continue
-		}
-		bs, be, cross, e := ComputeShiftBounds(day, cfg.StartTime, cfg.EndTime, cfg.CrossesMidnight)
-		if e != nil {
-			return nil, e
-		}
-		var id string
-		err = tx.QueryRowContext(ctx, `INSERT INTO security_schedules(rt_id,assignment_id,assignment_start_date,assignment_end_date,user_id,membership_id,shift_config_id,shift_version,shift_date,shift_name_snapshot,start_time_snapshot,end_time_snapshot,crosses_midnight_snapshot,lateness_tolerance_minutes,check_in_window_before_minutes,check_in_window_after_minutes,absent_cutoff_minutes,missing_checkout_cutoff_minutes,scheduled_start_at,scheduled_end_at,notes,status,created_by,updated_by,created_at,updated_at) VALUES($1,$2,$3::date,$4::date,$5,$6,$7,$8,$9::date,$10,$11::time,$12::time,$13,$14,$15,$16,$17,$18,$19,$20,$21,'scheduled',$22,$22,$23,$23) RETURNING id`, rtID, groupID, start.Format("2006-01-02"), end.Format("2006-01-02"), req.UserID, membership, cfg.ID, cfg.Version, key, cfg.Name, cfg.StartTime, cfg.EndTime, cross, cfg.LatenessToleranceMinutes, cfg.CheckInWindowBeforeMinutes, cfg.CheckInWindowAfterMinutes, cfg.AbsentCutoffMinutes, cfg.MissingCheckoutCutoffMinutes, bs, be, req.Notes, actorID, now).Scan(&id)
-		if err != nil {
-			return nil, err
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO security_attendance_records(rt_id,schedule_id,user_id,shift_config_id,shift_version,shift_date,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::date,'belum_hadir',$7,$7)`, rtID, id, req.UserID, cfg.ID, cfg.Version, key, now); err != nil {
-			return nil, err
+			bs, be, cross, e := ComputeShiftBounds(day, cfg.StartTime, cfg.EndTime, cfg.CrossesMidnight)
+			if e != nil {
+				return nil, e
+			}
+			var id string
+			err = tx.QueryRowContext(ctx, `INSERT INTO security_schedules(rt_id,assignment_id,assignment_start_date,assignment_end_date,user_id,membership_id,shift_config_id,shift_version,shift_date,shift_name_snapshot,start_time_snapshot,end_time_snapshot,crosses_midnight_snapshot,lateness_tolerance_minutes,check_in_window_before_minutes,check_in_window_after_minutes,absent_cutoff_minutes,missing_checkout_cutoff_minutes,scheduled_start_at,scheduled_end_at,notes,status,created_by,updated_by,created_at,updated_at) VALUES($1,$2,$3::date,$4::date,$5,$6,$7,$8,$9::date,$10,$11::time,$12::time,$13,$14,$15,$16,$17,$18,$19,$20,$21,'scheduled',$22,$22,$23,$23) RETURNING id`, rtID, groupID, start.Format("2006-01-02"), end.Format("2006-01-02"), req.UserID, membership, cfg.ID, cfg.Version, key, cfg.Name, cfg.StartTime, cfg.EndTime, cross, cfg.LatenessToleranceMinutes, cfg.CheckInWindowBeforeMinutes, cfg.CheckInWindowAfterMinutes, cfg.AbsentCutoffMinutes, cfg.MissingCheckoutCutoffMinutes, bs, be, req.Notes, actorID, now).Scan(&id)
+			if err != nil {
+				return nil, err
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO security_attendance_records(rt_id,schedule_id,user_id,shift_config_id,shift_version,shift_date,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6::date,'belum_hadir',$7,$7)`, rtID, id, req.UserID, cfg.ID, cfg.Version, key, now); err != nil {
+				return nil, err
+			}
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE security_schedules SET assignment_start_date=$3::date,assignment_end_date=$4::date WHERE rt_id=$1 AND assignment_id=$2 AND status='scheduled' AND shift_date >= $5::date`, rtID, groupID, start.Format("2006-01-02"), end.Format("2006-01-02"), todayKey); err != nil {
+
+	// Update assignment dates on all scheduled future rows.
+	assignmentStartSQL := sql.NullString{}
+	assignmentEndSQL := sql.NullString{}
+	if start != nil {
+		assignmentStartSQL = sql.NullString{String: start.Format("2006-01-02"), Valid: true}
+	}
+	if end != nil {
+		assignmentEndSQL = sql.NullString{String: end.Format("2006-01-02"), Valid: true}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE security_schedules SET assignment_start_date=$3::date,assignment_end_date=$4::date WHERE rt_id=$1 AND assignment_id=$2 AND status='scheduled' AND shift_date >= $5::date`, rtID, groupID, assignmentStartSQL, assignmentEndSQL, todayKey); err != nil {
 		return nil, err
 	}
-	old := map[string]any{"user_id": currentUser, "start_date": oldStart.Format("2006-01-02"), "end_date": oldEnd.Format("2006-01-02")}
-	newVal := map[string]any{"user_id": req.UserID, "shift_config_id": cfg.ID, "start_date": start.Format("2006-01-02"), "end_date": end.Format("2006-01-02")}
-	if err = insertAuditLog(ctx, tx, rtID, &actorID, "security.schedule.updated", "security_schedule", groupID, old, newVal, ""); err != nil {
+
+	oldAudit := map[string]any{"user_id": currentUser, "start_date": oldStart, "end_date": oldEnd}
+	newAudit := map[string]any{"user_id": req.UserID, "shift_config_id": cfg.ID, "start_date": assignmentStartSQL, "end_date": assignmentEndSQL}
+	if err = insertAuditLog(ctx, tx, rtID, &actorID, "security.schedule.updated", "security_schedule", groupID, oldAudit, newAudit, ""); err != nil {
 		return nil, err
 	}
 	out, err := scanSchedule(tx.QueryRowContext(ctx, scheduleProjectionSQL()+` WHERE (s.id=$1 OR s.assignment_id=$1) AND s.rt_id=$2 ORDER BY s.shift_date LIMIT 1`, scheduleID, rtID))
@@ -357,7 +582,7 @@ func (r *Repository) GetScheduleAssignment(ctx context.Context, rtID, scheduleID
 	if err != nil {
 		return nil, err
 	}
-	rows, err := r.pool.Raw().QueryContext(ctx, scheduleProjectionSQL()+` WHERE s.rt_id=$1 AND s.assignment_id=$2 ORDER BY s.shift_date`, rtID, groupID)
+	rows, err := r.pool.Raw().QueryContext(ctx, scheduleProjectionSQL()+` WHERE s.rt_id=$1 AND (s.assignment_id=$2 OR s.id=$2) ORDER BY s.shift_date NULLS LAST, s.created_at ASC`, rtID, groupID)
 	if err != nil {
 		return nil, err
 	}

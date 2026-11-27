@@ -692,14 +692,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	})
 
 	// Household and resident routes (tenant-scoped, requires auth context).
-	hh := household.NewHandler(pool)
+	hh := household.NewHandlerWithScope(pool, *scopingCfg)
 
 	// Read access: warga, bendahara, pengurus.
 	// jabatan-based users evaluated via position_permissions;
 	// role-based users still pass through RequireRole.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/households", hh.ListHouseholds)
@@ -713,7 +713,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Both role-based (Bendahara, Pengurus) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.export"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
@@ -724,15 +724,17 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	})
 
 	// Write access: warga creation (households & residents).
-	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Ketua, Wakil Ketua, and Bendahara access allowed.
 	// Users with a jabatan must possess the warga.create permission in position_permissions.
+	// Sekretaris RT is strictly revoked from creating warga.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
+		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
 		r.Post("/api/v1/households", hh.CreateHousehold)
 		r.Post("/api/v1/residents", hh.CreateResident)
@@ -743,7 +745,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Hanya pengurus (Ketua/WakilKetua/Sekretaris/Bendahara) atau super admin yang berwenang.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
 			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
@@ -752,15 +754,17 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	})
 
 	// Write access: warga mutation (update, move, deactivate for households & residents).
-	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Ketua, Wakil Ketua, and Bendahara access allowed.
 	// Users with a jabatan must possess the warga.update permission in position_permissions.
+	// Sekretaris RT is strictly revoked from mutating warga.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
+		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
 		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
 		r.Patch("/api/v1/households/{id}", hh.UpdateHousehold)
@@ -776,7 +780,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequireAllowedRTForWarga(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequirePermission(pool, "warga.import"))
@@ -802,7 +806,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// the resident.profile_photo.manage permission (currently position 'ketua')
 	// may change a resident's photo. Visibility of uploaded photos is enforced
 	// by the community image reference check for residents.
-	profileH := profilephoto.NewHandler(pool, store)
+	profileH := profilephoto.NewHandlerWithScope(pool, store, *scopingCfg)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
@@ -825,6 +829,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	notifProvider.SetProjectID(fcmProject)
 	notifSvc := notification.NewService(notifRepo, notifProvider)
 	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
+	if scopingCfg != nil {
+		notifH.SetScopingConfig(*scopingCfg)
+	}
 
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
@@ -870,32 +877,88 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		return err
 	}
 
-	// Financial read access & warga payments: warga, bendahara, pengurus
-	// jabatan-based users evaluated via position_permissions for finance.read.
-	// Self-submitted payments by warga/staff use finance.create permission.
+	// Kas (transactions, reports, balance, dashboard) — readable by all finance.read users.
+	// Sekretaris RT retains Kas READ access.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Use(auth.RequirePermission(pool, "finance.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
+		r.Get("/api/v1/transactions", finH.ListTransactions)
+		r.Get("/api/v1/transactions/{id}", finH.GetTransaction)
+		r.Get("/api/v1/reports/balance", finH.GetBalance)
+		r.Get("/api/v1/dashboard/summary", finH.GetDashboardSummary)
+	})
+
+	// Dues master list is an admin view — blocked for Sekretaris.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
+		r.Use(auth.RequirePermission(pool, "finance.read"))
+		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/dues", finH.ListDues)
 		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
+	})
+
+	// Overdue warning summary — accessible by any authenticated user
+	// (SuperAdmin returns zeros, residents return personal household summary).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
 		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
+	})
+
+	// Iuran personal bills/payments —
+	// accessible by all finance.read users including Sekretaris RT, as well as RT jabatan Sosial
+	// (personal scoping to user's household enforced by handlers).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial, auth.JabatanOperasional, auth.JabatanHumas))
+		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
 		r.Get("/api/v1/payments/{id}", finH.GetPayment)
 		r.Get("/api/v1/payments/{id}/proof", finH.GetPaymentProof)
-		r.Get("/api/v1/transactions", finH.ListTransactions)
-		r.Get("/api/v1/transactions/{id}", finH.GetTransaction)
-		r.Get("/api/v1/reports/balance", finH.GetBalance)
-		r.Get("/api/v1/dashboard/summary", finH.GetDashboardSummary)
+	})
 
-		// Self-submitted payments by warga or staff
+	// Iuran self-payment — warga can submit payments for their own bills.
+	// Sekretaris RT and jabatan Sosial can submit their own payments but cannot manage others'.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.RequirePermissionOrJabatan(pool, "finance.read", auth.JabatanSosial, auth.JabatanOperasional, auth.JabatanHumas))
+		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Post("/api/v1/payments", finH.CreatePayment)
 		r.Post("/api/v1/payments/multi-period", finH.CreateMultiPeriodPayment)
 		r.Post("/api/v1/payments/{id}/proof", finH.UploadPaymentProof)
+	})
+
+	// Iuran admin operations — blocked for Sekretaris RT.
+	// Sekretaris has finance.read for Kas but must not access Iuran management or Iuran warga views.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Use(auth.BlockJabatan(auth.JabatanSekretaris))
+		r.Use(auth.RequirePermission(pool, "finance.create"))
+		r.Use(auth.RequirePermission(pool, "finance.update"))
+		r.Use(auth.RequirePermission(pool, "finance.approve"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RoleBendahara, auth.RolePengurus},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
+		))
+		r.Post("/api/v1/dues", finH.CreateDue)
+		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
+		r.Patch("/api/v1/dues/{id}/periods/{period}/status", finH.UpdateDuePeriodStatus)
+		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)
+		r.Post("/api/v1/bills", finH.CreateBill)
+		r.Patch("/api/v1/bills/{id}/status", finH.UpdateBillStatus)
+		r.Post("/api/v1/bills/generate", finH.GenerateBills)
+		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
+		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
+		r.Post("/api/v1/payments/{id}/reverse", finH.ReversePayment)
 	})
 
 	// Master categories management: pengurus only (Bendahara cannot delete categories)
@@ -916,8 +979,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Delete("/api/v1/categories/{id}", finH.DeactivateCategory)
 	})
 
-	// Financial operations: bendahara & pengurus
+	// Kas financial operations: bendahara & pengurus
 	// jabatan-based users evaluated via position_permissions for finance.create, finance.update, finance.approve.
+	// Iuran admin operations are in the group above with BlockJabatan(JabatanSekretaris).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
@@ -928,16 +992,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 			[]auth.Role{auth.RoleBendahara, auth.RolePengurus},
 			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
-		r.Post("/api/v1/dues", finH.CreateDue)
-		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
-		r.Patch("/api/v1/dues/{id}/periods/{period}/status", finH.UpdateDuePeriodStatus)
-		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)
-		r.Post("/api/v1/bills", finH.CreateBill)
-		r.Patch("/api/v1/bills/{id}/status", finH.UpdateBillStatus)
-		r.Post("/api/v1/bills/generate", finH.GenerateBills)
-		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
-		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
-		r.Post("/api/v1/payments/{id}/reverse", finH.ReversePayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Put("/api/v1/transactions/{id}", finH.UpdateTransaction)
 		r.Patch("/api/v1/transactions/{id}", finH.UpdateTransaction)
@@ -980,6 +1034,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireRWScope(pool, *scopingCfg))
 		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
 		r.Get("/api/v1/rw/{rwId}/notifications", rwHandler.ListNotifications)
+		r.Get("/api/v1/rw/{rwId}/notifications/mine", rwHandler.ListMyNotifications)
+		r.Get("/api/v1/rw/{rwId}/notifications/unread-count", rwHandler.GetUnreadCount)
 		r.Post("/api/v1/rw/{rwId}/notifications/manual", rwHandler.SendManualPush)
 		r.Get("/api/v1/rw/{rwId}/notifications/templates", rwHandler.ListRWTemplates)
 		r.Get("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.GetRWTemplateByID)
@@ -991,6 +1047,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Put("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.UpdateRWTemplate)
 		r.Patch("/api/v1/rw/{rwId}/notifications/templates/{id}/toggle", rwHandler.ToggleRWTemplateActive)
 		r.Delete("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.DeleteRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/upload-image", rwHandler.UploadNotificationImage)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
 		r.Get("/api/v1/rw/{rwId}/kas/report", rwHandler.GetKASReportDetail)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
@@ -1018,8 +1075,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
 	})
 
-	// Public notification image streaming
-	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
+	// Authenticated notification image streaming — requires valid JWT.
+	// Fine-grained RT/RW scope authorization (including active RT checks,
+	// SuperAdmin admin-scope validation, and RW-only member access) is enforced
+	// inside notifH.GetImage.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/api/v1/notifications/images/*", notifH.GetImage)
+	})
 
 	// Notification device token management and notification history (accessible to all authenticated RT members)
 	r.Group(func(r chi.Router) {
@@ -1070,6 +1133,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/notifications/templates/{id}", notifH.GetTemplate)
 		r.Put("/api/v1/notifications/templates/{id}", notifH.UpdateTemplate)
 		r.Patch("/api/v1/notifications/templates/{id}/toggle-active", notifH.ToggleTemplateActive)
+		r.Post("/api/v1/notifications/templates/{id}/reset", notifH.ResetTemplate)
 		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
 		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/test-push", notifH.TestPush)
@@ -1198,6 +1262,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.With(auth.RequirePermission(pool, "activities.update")).Put("/api/v1/activities/{id}", communityH.UpdateActivity)
 		r.With(auth.RequirePermission(pool, "activities.publish")).Post("/api/v1/activities/{id}/publish", communityH.PublishActivity)
 		r.With(auth.RequirePermission(pool, "activities.cancel")).Post("/api/v1/activities/{id}/cancel", communityH.CancelActivity)
+		r.With(auth.RequirePermission(pool, "activities.archive")).Post("/api/v1/activities/{id}/archive", communityH.ArchiveActivity)
+		r.With(auth.RequirePermission(pool, "activities.archive")).Patch("/api/v1/activities/{id}/unarchive", communityH.UnarchiveActivity)
 		r.With(auth.RequirePermission(pool, "activities.delete")).Delete("/api/v1/activities/{id}", communityH.DeleteActivity)
 		r.With(auth.RequirePermission(pool, "announcements.create")).Post("/api/v1/announcements", communityH.CreateAnnouncement)
 		r.With(auth.RequirePermission(pool, "announcements.update")).Put("/api/v1/announcements/{id}", communityH.UpdateAnnouncement)
@@ -1225,12 +1291,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		return auth.ClientIP(r)
 	})(http.HandlerFunc(securityH.ActivateDevice)).(http.HandlerFunc))
 
-	// Authenticated User endpoints (Ketua RT, Petugas Keamanan, Super Admin).
-	// Strict RT isolation & position-based RBAC enforced via RequireAllowedRT + RequireAccess + Handler permission checks.
+	// Authenticated User endpoints (Super Admin, Ketua RT, Petugas Keamanan, Humas, and any position granted security.* permissions).
+	// Strict RT isolation & position_permissions RBAC are enforced via RequireAllowedRT and per-handler permission checks.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
-		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKetua, auth.JabatanKeamanan}))
 
 		r.Get("/api/v1/security/dashboard", securityH.GetDashboard)
 		r.Get("/api/v1/security/officers", securityH.ListOfficers)
@@ -1274,6 +1339,42 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Post("/api/v1/security/devices/{id}/revoke", securityH.RevokeDevice)
 
 		r.Get("/api/v1/security/guest-books", securityH.ListGuestBooksAdmin)
+		r.Post("/api/v1/security/guest-books/photos", securityH.UploadGuestBookPhoto)
+
+		// Patrol endpoints
+		r.Get("/api/v1/security/patrol/templates", securityH.ListPatrolTemplates)
+		r.Post("/api/v1/security/patrol/templates", securityH.CreatePatrolTemplate)
+		r.Put("/api/v1/security/patrol/templates/{id}", securityH.UpdatePatrolTemplate)
+		r.Delete("/api/v1/security/patrol/templates/{id}", securityH.DeletePatrolTemplate)
+		r.Get("/api/v1/security/patrol/bundles", securityH.ListPatrolBundles)
+		r.Get("/api/v1/security/patrol/bundles/{id}", securityH.GetPatrolBundle)
+		r.Post("/api/v1/security/patrol/bundles", securityH.CreatePatrolBundle)
+		r.Post("/api/v1/security/patrol/photos", securityH.UploadPatrolPhoto)
+		r.Get("/api/v1/security/patrol/photos/{photoId}", securityH.GetPatrolPhoto)
+
+		// Paket management endpoints (Ketua RT, Petugas Keamanan, Super Admin)
+		r.Get("/api/v1/security/paket/reports", securityH.ListPaketReports)
+		r.Post("/api/v1/security/paket/reports", securityH.CreatePaketReport)
+		r.Patch("/api/v1/security/paket/reports/{id}/items/{itemId}/status", securityH.UpdatePaketItemStatus)
+		r.Post("/api/v1/security/paket/photos", securityH.UploadPaketPhoto)
+
+		// Warga masked search for security
+		r.Get("/api/v1/security/warga/search", securityH.SearchWargaMasked)
+
+		// Security alerts & read receipts
+		r.Get("/api/v1/security/alerts", securityH.GetSecurityAlerts)
+		r.Post("/api/v1/security/read-receipts", securityH.MarkReadReceipts)
+	})
+
+	// Authenticated Paket report & photo read endpoints (Ketua RT, Petugas Keamanan, Super Admin,
+	// and verified resident recipient of the package report within their RT).
+	// RequireAllowedRT enforces tenant isolation. Handler enforces specific item & photo recipient authorization.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
+		r.Get("/api/v1/security/paket/reports/{id}", securityH.GetPaketReport)
+		r.Get("/api/v1/security/paket/photos/{photoId}", securityH.GetPaketPhoto)
+		r.Get("/api/v1/security/guest-books/photos/{key}", securityH.GetGuestBookPhoto)
 	})
 
 	// Authenticated Security Pos Device endpoints (scoped to bound RT only, non-user identity).

@@ -740,15 +740,12 @@ class _NoteDialogState extends State<_NoteDialog> {
       ),
       actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       actions: [
-        OutlinedButton(
-          style: OutlinedButton.styleFrom(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
             minimumSize: const Size(80, 42),
-            foregroundColor: isDark
-                ? AppColors.darkTextMuted
-                : AppColors.lightTextMuted,
-            side: BorderSide(
-              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-            ),
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),

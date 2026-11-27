@@ -234,8 +234,9 @@ class UpdateHouseholdRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
-    if (startDate != null && startDate!.isNotEmpty)
+    if (startDate != null && startDate!.isNotEmpty) {
       data['start_date'] = startDate;
+    }
     if (endDate != null) data['end_date'] = endDate;
     if (address != null) data['address'] = address;
     if (isActive != null) data['is_active'] = isActive;
@@ -348,8 +349,9 @@ class UpdateResidentRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (isActive != null) data['is_active'] = isActive;
-    if (startDate != null && startDate!.isNotEmpty)
+    if (startDate != null && startDate!.isNotEmpty) {
       data['start_date'] = startDate;
+    }
     if (endDate != null) data['end_date'] = endDate;
     if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;
@@ -460,6 +462,11 @@ class MappedResident {
       case 'bendahara':
       case 'bendahara_rt':
         return 'Bendahara';
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
+        return 'Humas';
       case 'keamanan':
       case 'keamanan_rt':
       case 'seksi_keamanan':
@@ -475,6 +482,11 @@ class MappedResident {
       case 'kebersihan':
       case 'kebersihan_rt':
         return 'Kebersihan';
+      case 'anggota':
+      case 'anggota_rt':
+        return 'Anggota RT';
+      case 'anggota_rw':
+        return 'Anggota RW';
       default:
         return jabatan;
     }
@@ -493,12 +505,17 @@ class MappedResident {
         return AppColors.accent;
       case 'wakil_ketua':
       case 'wakil_ketua_rt':
-        return AppColors.info;
+        return AppColors.infoBlue;
       case 'sekretaris':
       case 'sekretaris_rt':
         return AppColors.success;
       case 'bendahara':
       case 'bendahara_rt':
+        return AppColors.warning;
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
         return AppColors.warning;
       case 'keamanan':
       case 'keamanan_rt':
@@ -511,6 +528,11 @@ class MappedResident {
       case 'kebersihan':
       case 'kebersihan_rt':
         return AppColors.chartreuse;
+      case 'anggota':
+      case 'anggota_rt':
+        return AppColors.accent;
+      case 'anggota_rw':
+        return AppColors.infoBlue;
       case 'sosial':
       case 'sosial_rt':
       case 'seksi_sosial':

@@ -353,6 +353,10 @@ func (r *inMemoryRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (
 	return nil, nil
 }
 
+func (r *inMemoryRepo) GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
 func (r *inMemoryRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
 	return &notification.NotificationTemplate{
 		ID:        "rw-tmpl-1",
@@ -747,8 +751,20 @@ func (r *inMemoryRepo) RecordRWDedup(ctx context.Context, rwID, userID, eventTyp
 	return true, nil
 }
 
+func (r *inMemoryRepo) RecordRWDedupWithStatus(ctx context.Context, rwID, userID, eventType, dedupKey, title, body, status string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
 func (r *inMemoryRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return nil, 0, nil
+}
+
+func (r *inMemoryRepo) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
+}
+
+func (r *inMemoryRepo) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	return 0, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {

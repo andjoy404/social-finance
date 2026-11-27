@@ -45,6 +45,7 @@ type Repository interface {
 	// RW-scoped template management
 	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
 	GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*NotificationTemplate, error)
 	CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error)
 	UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
 	ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
@@ -127,7 +128,10 @@ type Repository interface {
 	GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error)
 	GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error)
 	RecordRWDedup(ctx context.Context, rwID, userID, eventType, dedupKey, title, body string, payload map[string]string, senderUserID *string) (bool, error)
+	RecordRWDedupWithStatus(ctx context.Context, rwID, userID, eventType, dedupKey, title, body, status string, payload map[string]string, senderUserID *string) (bool, error)
 	ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error)
+	ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error)
+	GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error)
 }
 
 // OverdueReminderRepository is an optional extension of Repository that evaluates
@@ -970,6 +974,34 @@ func (r *pgRepository) ListRWTemplates(ctx context.Context, rwID, eventType stri
 		templates = []NotificationTemplate{}
 	}
 	return templates, rows.Err()
+}
+
+func (r *pgRepository) GetActiveRWTemplateForEvent(ctx context.Context, rwID, eventType string) (*NotificationTemplate, error) {
+	query := `
+		SELECT id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE rw_id = $1 AND event_type = $2 AND is_active = true
+		ORDER BY updated_at DESC
+		LIMIT 1;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, eventType).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
 }
 
 // GetRWTemplateByID gets an RW-scoped template by ID.
@@ -2211,11 +2243,17 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		SELECT COUNT(*)
 		FROM notification_logs nl
 		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
-		WHERE nl.rt_id = $2
+		WHERE (
+			nl.rt_id = $2
+			OR (nl.rw_id IS NOT NULL AND (
+				nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+				OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $1 AND is_active = true)
+			))
+		)
 	`)
 	query.WriteString(`
 		SELECT
-			nl.id, nl.rt_id, nl.user_id, nl.event_type, nl.dedup_key, nl.title, nl.body,
+			nl.id, nl.rt_id, nl.rw_id, nl.user_id, nl.event_type, nl.dedup_key, nl.title, nl.body,
 			CASE
 				WHEN nl.dedup_key LIKE 'schedule:%' AND nl.status = 'FAILED' AND nl.failure_reason IS NULL THEN 'UNKNOWN'
 				WHEN nl.dedup_key LIKE 'schedule:%' AND nl.status = 'PENDING' THEN 'UNKNOWN'
@@ -2226,12 +2264,18 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 			nr.read_at, nl.payload
 		FROM notification_logs nl
 		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
-		WHERE nl.rt_id = $2
+		WHERE (
+			nl.rt_id = $2
+			OR (nl.rw_id IS NOT NULL AND (
+				nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+				OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $1 AND is_active = true)
+			))
+		)
 	`)
 	args = append(args, userID, rtID)
 	argIdx := 3
 
-	personalScope := ` AND nl.user_id = $1 AND nl.user_id IS NOT NULL AND (nl.event_type NOT IN ('manual_push', 'waste_truck_arrival') OR nl.dedup_key LIKE 'recipient:%') AND nl.dedup_key NOT LIKE 'manual_push:%' AND nl.dedup_key NOT LIKE 'waste_truck:%'`
+	personalScope := ` AND nl.user_id = $1 AND nl.user_id IS NOT NULL AND (nl.event_type NOT IN ('manual_push', 'waste_truck_arrival') OR nl.dedup_key LIKE 'recipient:%' OR nl.dedup_key LIKE 'rw_manual:%') AND nl.dedup_key NOT LIKE 'manual_push:%' AND nl.dedup_key NOT LIKE 'waste_truck:%'`
 	countQuery.WriteString(personalScope)
 	query.WriteString(personalScope)
 
@@ -2276,15 +2320,26 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 	var logs []NotificationLogEntry
 	for rows.Next() {
 		var entry NotificationLogEntry
+		var rtIDVal sql.NullString
+		var rwIDVal sql.NullString
 		var isRead sql.NullBool
 		var readAt sql.NullTime
 		var payloadBytes []byte
 		if err := rows.Scan(
-			&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey,
+			&entry.ID, &rtIDVal, &rwIDVal, &entry.UserID, &entry.EventType, &entry.DedupKey,
 			&entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
 			&isRead, &readAt, &payloadBytes,
 		); err != nil {
 			return nil, 0, err
+		}
+		if rtIDVal.Valid {
+			entry.RTID = rtIDVal.String
+		}
+		if rwIDVal.Valid && rwIDVal.String != "" {
+			entry.RWID = &rwIDVal.String
+			entry.Source = "rw"
+		} else {
+			entry.Source = "rt"
 		}
 		entry.IsRead = isRead.Valid && isRead.Bool
 		if readAt.Valid {
@@ -2294,6 +2349,7 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		if len(payloadBytes) > 0 {
 			_ = json.Unmarshal(payloadBytes, &entry.Payload)
 		}
+		hydrateLogImageURL(&entry)
 		entry.ActivityRelation = "received_by_me"
 		logs = append(logs, entry)
 	}
@@ -2331,14 +2387,14 @@ func (r *pgRepository) ListManagementHistory(
 					(CASE WHEN split_part(dedup_key, ':', 4) LIKE 'c\_%' ESCAPE '\' THEN substring(split_part(dedup_key, ':', 4) FROM 3) ELSE '' END)
 			)
 			SELECT
-				nl.id, nl.rt_id, NULL::uuid, nl.event_type, nl.dedup_key, nl.title, nl.body,
+				nl.id, nl.rt_id, nl.rw_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key, nl.title, nl.body,
 				CASE
 					WHEN g.sent_count > 0 AND g.failed_count > 0 THEN 'PARTIAL'
 					WHEN g.sent_count > 0 THEN 'SENT'
 					WHEN g.failed_count > 0 THEN 'FAILED'
 					ELSE 'UNKNOWN'
 				END,
-				g.activity_time AS created_at, nl.image_url, FALSE, NULL::timestamptz, nl.payload,
+				g.activity_time AS created_at, nl.image_url, FALSE AS is_read, NULL::timestamptz AS read_at, nl.payload,
 				'system', 'system', g.recipients_count, g.sent_count, g.failed_count, TRUE
 			FROM grouped g
 			JOIN notification_logs nl ON nl.id = g.representative_id
@@ -2349,13 +2405,16 @@ func (r *pgRepository) ListManagementHistory(
 		activityQuery = `
 			WITH manual AS (
 				SELECT
-					nl.id, nl.rt_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
-					nl.title, nl.body, 'RECORDED'::text AS status, nl.created_at, nl.image_url, nl.payload,
+					nl.id, nl.rt_id, NULL::uuid AS rw_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
+					nl.title, nl.body, 'RECORDED'::text AS status, nl.created_at, nl.image_url,
+					(nr.read_at IS NOT NULL) AS is_read, nr.read_at,
+					nl.payload,
 					0::int AS recipients_count,
 					0::int AS sent_count,
 					0::int AS failed_count,
 					FALSE AS delivery_counts_available
 				FROM notification_logs nl
+				LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
 				WHERE nl.rt_id = $1
 				  AND nl.user_id = $2
 				  AND nl.event_type = 'manual_push'
@@ -2363,11 +2422,14 @@ func (r *pgRepository) ListManagementHistory(
 			),
 			waste_truck_sent AS (
 				SELECT
-				  nl.id, nl.rt_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
-				  nl.title, nl.body, nl.status, nl.created_at, nl.image_url, nl.payload,
+				  nl.id, nl.rt_id, NULL::uuid AS rw_id, NULL::uuid AS user_id, nl.event_type, nl.dedup_key,
+				  nl.title, nl.body, nl.status, nl.created_at, nl.image_url,
+				  (nr.read_at IS NOT NULL) AS is_read, nr.read_at,
+				  nl.payload,
 				  0::int AS recipients_count, 0::int AS sent_count, 0::int AS failed_count,
 				  FALSE AS delivery_counts_available
 				FROM notification_logs nl
+				LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
 				WHERE nl.rt_id = $1
 				  AND nl.sender_user_id = $2
 				  AND nl.event_type = 'waste_truck_arrival'
@@ -2375,19 +2437,31 @@ func (r *pgRepository) ListManagementHistory(
 			),
 			received_notifications AS (
 				SELECT
-				  nl.id, nl.rt_id, nl.user_id, nl.event_type, nl.dedup_key,
-				  nl.title, nl.body, nl.status, nl.created_at, nl.image_url, nl.payload,
+				  nl.id, nl.rt_id, nl.rw_id, nl.user_id, nl.event_type, nl.dedup_key,
+				  nl.title, nl.body, nl.status, nl.created_at, nl.image_url,
+				  (nr.read_at IS NOT NULL) AS is_read, nr.read_at,
+				  nl.payload,
 				  0::int AS recipients_count, 0::int AS sent_count, 0::int AS failed_count,
 				  FALSE AS delivery_counts_available
 				FROM notification_logs nl
-				WHERE nl.rt_id = $1
+				LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
+				WHERE (
+				    nl.rt_id = $1
+				    OR (nl.rw_id IS NOT NULL AND (
+				        nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $1 AND rw_id IS NOT NULL)
+				        OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $2 AND is_active = true)
+				    ))
+				)
 				  AND nl.user_id = $2
 				  AND (
 				    (
 				      nl.event_type IN ('manual_push', 'waste_truck_arrival')
-				      AND left(nl.dedup_key, length('recipient:' || nl.event_type || ':')) =
-				          'recipient:' || nl.event_type || ':'
-				      AND right(nl.dedup_key, length($2::text) + 1) = ':' || $2::text
+				      AND (
+				          (left(nl.dedup_key, length('recipient:' || nl.event_type || ':')) =
+				              'recipient:' || nl.event_type || ':'
+				           AND right(nl.dedup_key, length($2::text) + 1) = ':' || $2::text)
+				          OR nl.dedup_key LIKE 'rw_manual:%'
+				      )
 				    )
 				    OR (
 				      nl.event_type NOT IN ('manual_push', 'waste_truck_arrival')
@@ -2413,37 +2487,39 @@ func (r *pgRepository) ListManagementHistory(
 			),
 			payment_activity AS (
 				SELECT
-					nl.id, nl.rt_id, NULL::uuid AS user_id, nl.event_type,
+					nl.id, nl.rt_id, NULL::uuid AS rw_id, NULL::uuid AS user_id, nl.event_type,
 					'payment_action:' || pg.payment_id::text || ':' || pg.payment_status AS dedup_key,
 					nl.title, nl.body,
 					pg.payment_status AS status,
-					pg.activity_time AS created_at, nl.image_url, nl.payload,
+					pg.activity_time AS created_at, nl.image_url,
+					FALSE AS is_read, NULL::timestamptz AS read_at,
+					nl.payload,
 					0::int AS recipients_count, 0::int AS sent_count, 0::int AS failed_count,
 					FALSE AS delivery_counts_available
 				FROM payment_groups pg
 				JOIN notification_logs nl ON nl.id = pg.representative_id
 			)
 			SELECT
-				id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at,
-				image_url, FALSE, NULL::timestamptz, payload, 'mine', 'sent_by_me',
+				id, rt_id, rw_id, user_id, event_type, dedup_key, title, body, status, created_at,
+				image_url, is_read, read_at, payload, 'mine', 'sent_by_me',
 				recipients_count, sent_count, failed_count, delivery_counts_available
 			FROM manual
 			UNION ALL
 			SELECT
-				id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at,
-				image_url, FALSE, NULL::timestamptz, payload, 'mine', 'sent_by_me',
+				id, rt_id, rw_id, user_id, event_type, dedup_key, title, body, status, created_at,
+				image_url, is_read, read_at, payload, 'mine', 'sent_by_me',
 				recipients_count, sent_count, failed_count, delivery_counts_available
 			FROM waste_truck_sent
 			UNION ALL
 			SELECT
-				id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at,
-				image_url, FALSE, NULL::timestamptz, payload, 'mine', 'received_by_me',
+				id, rt_id, rw_id, user_id, event_type, dedup_key, title, body, status, created_at,
+				image_url, is_read, read_at, payload, 'mine', 'received_by_me',
 				recipients_count, sent_count, failed_count, delivery_counts_available
 			FROM received_notifications
 			UNION ALL
 			SELECT
-				id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at,
-				image_url, FALSE, NULL::timestamptz, payload, 'mine', 'performed_by_me',
+				id, rt_id, rw_id, user_id, event_type, dedup_key, title, body, status, created_at,
+				image_url, is_read, read_at, payload, 'mine', 'performed_by_me',
 				recipients_count, sent_count, failed_count, delivery_counts_available
 			FROM payment_activity
 		`
@@ -2473,18 +2549,29 @@ func (r *pgRepository) ListManagementHistory(
 	entries := make([]NotificationLogEntry, 0)
 	for rows.Next() {
 		var entry NotificationLogEntry
+		var rtIDVal sql.NullString
+		var rwIDVal sql.NullString
 		var userID sql.NullString
 		var isRead sql.NullBool
 		var readAt sql.NullTime
 		var payload []byte
 		if err := rows.Scan(
-			&entry.ID, &entry.RTID, &userID, &entry.EventType, &entry.DedupKey,
+			&entry.ID, &rtIDVal, &rwIDVal, &userID, &entry.EventType, &entry.DedupKey,
 			&entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
 			&isRead, &readAt, &payload, &entry.HistoryCategory, &entry.ActivityRelation,
 			&entry.RecipientsCount, &entry.SentCount, &entry.FailedCount,
 			&entry.DeliveryCountsAvailable,
 		); err != nil {
 			return nil, 0, err
+		}
+		if rtIDVal.Valid {
+			entry.RTID = rtIDVal.String
+		}
+		if rwIDVal.Valid && rwIDVal.String != "" {
+			entry.RWID = &rwIDVal.String
+			entry.Source = "rw"
+		} else {
+			entry.Source = "rt"
 		}
 		if userID.Valid {
 			entry.UserID = &userID.String
@@ -2499,9 +2586,23 @@ func (r *pgRepository) ListManagementHistory(
 				return nil, 0, fmt.Errorf("decode notification history payload: %w", err)
 			}
 		}
+		hydrateLogImageURL(&entry)
 		entries = append(entries, entry)
 	}
 	return entries, total, rows.Err()
+}
+
+func (r *pgRepository) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	var count int
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM notification_logs nl
+		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $2
+		WHERE nl.rw_id = $1
+		  AND (nl.user_id = $2 OR nl.user_id IS NULL)
+		  AND nr.read_at IS NULL
+	`, rwID, userID).Scan(&count)
+	return count, err
 }
 
 func (r *pgRepository) MarkAsRead(ctx context.Context, rtID, userID, id string, isOfficer bool) error {
@@ -2510,8 +2611,14 @@ func (r *pgRepository) MarkAsRead(ctx context.Context, rtID, userID, id string, 
 	err := r.pool.Raw().QueryRowContext(ctx, `
 		SELECT user_id, event_type, dedup_key
 		FROM notification_logs
-		WHERE id = $1 AND rt_id = $2
-	`, id, rtID).Scan(&ownerID, &eventType, &dedupKey)
+		WHERE id = $1 AND (
+			rt_id = $2
+			OR (rw_id IS NOT NULL AND (
+				rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+				OR rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $3 AND is_active = true)
+			))
+		)
+	`, id, rtID, userID).Scan(&ownerID, &eventType, &dedupKey)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
 			return sql.ErrNoRows
@@ -2558,9 +2665,17 @@ func (r *pgRepository) MarkAllAsRead(ctx context.Context, rtID, userID string, i
 			SELECT nl.id, $1, NOW()
 			FROM notification_logs nl
 			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
-			WHERE nl.rt_id = $2
+			WHERE (
+			    nl.rt_id = $2
+			    OR (nl.rw_id IS NOT NULL AND (
+			        nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+			        OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $1 AND is_active = true)
+			    ))
+			  )
 			  AND nl.user_id = $1
 			  AND nl.dedup_key NOT LIKE 'manual_push:%'
+			  AND nl.dedup_key NOT LIKE 'waste_truck:%'
+			  AND (nl.event_type NOT IN ('manual_push', 'waste_truck_arrival') OR nl.dedup_key LIKE 'recipient:%' OR nl.dedup_key LIKE 'rw_manual:%')
 			  AND nr.read_at IS NULL
 			ON CONFLICT (notification_id, user_id) DO NOTHING;
 		`
@@ -2570,7 +2685,13 @@ func (r *pgRepository) MarkAllAsRead(ctx context.Context, rtID, userID string, i
 			SELECT nl.id, $1, NOW()
 			FROM notification_logs nl
 			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
-			WHERE nl.rt_id = $2
+			WHERE (
+			    nl.rt_id = $2
+			    OR (nl.rw_id IS NOT NULL AND (
+			        nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+			        OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $1 AND is_active = true)
+			    ))
+			  )
 			  AND NOT (nl.dedup_key LIKE 'test_push:%')
 			  AND nr.read_at IS NULL
 			ON CONFLICT (notification_id, user_id) DO NOTHING;
@@ -2594,9 +2715,17 @@ func (r *pgRepository) GetUnreadCount(ctx context.Context, rtID, userID string, 
 			SELECT COUNT(*)
 			FROM notification_logs nl
 			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
-			WHERE nl.rt_id = $2
-			  AND nl.user_id = $1
+			WHERE nl.user_id = $1
+			  AND (
+			    nl.rt_id = $2
+			    OR (nl.rw_id IS NOT NULL AND (
+			        nl.rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL)
+			        OR nl.rw_id IN (SELECT rw_id FROM user_rw_memberships WHERE user_id = $1 AND is_active = true)
+			    ))
+			  )
 			  AND nl.dedup_key NOT LIKE 'manual_push:%'
+			  AND nl.dedup_key NOT LIKE 'waste_truck:%'
+			  AND (nl.event_type NOT IN ('manual_push', 'waste_truck_arrival') OR nl.dedup_key LIKE 'recipient:%' OR nl.dedup_key LIKE 'rw_manual:%')
 			  AND nr.read_at IS NULL
 		`
 	} else {
@@ -2622,15 +2751,20 @@ func (r *pgRepository) GetUnreadCount(ctx context.Context, rtID, userID string, 
 
 func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error) {
 	query := `
-		SELECT id, rt_id, user_id, sender_user_id, event_type, dedup_key, title, body, status, created_at, image_url, payload
+		SELECT id, rt_id, rw_id, user_id, sender_user_id, event_type, dedup_key, title, body, status, created_at, image_url, payload
 		FROM notification_logs
-		WHERE id = $1 AND rt_id = $2
+		WHERE id = $1 AND (
+			rt_id = $2
+			OR (rw_id IS NOT NULL AND rw_id IN (SELECT rw_id FROM rts WHERE id = $2 AND rw_id IS NOT NULL))
+		)
 		LIMIT 1;
 	`
 	var entry NotificationLogEntry
+	var rtIDVal sql.NullString
+	var rwIDVal sql.NullString
 	var payloadBytes []byte
 	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
-		&entry.ID, &entry.RTID, &entry.UserID, &entry.SenderUserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL, &payloadBytes,
+		&entry.ID, &rtIDVal, &rwIDVal, &entry.UserID, &entry.SenderUserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL, &payloadBytes,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
@@ -2638,10 +2772,35 @@ func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*Notifi
 		}
 		return nil, err
 	}
+	if rtIDVal.Valid {
+		entry.RTID = rtIDVal.String
+	}
+	if rwIDVal.Valid && rwIDVal.String != "" {
+		entry.RWID = &rwIDVal.String
+		entry.Source = "rw"
+	} else {
+		entry.Source = "rt"
+	}
 	if len(payloadBytes) > 0 {
 		_ = json.Unmarshal(payloadBytes, &entry.Payload)
 	}
+	hydrateLogImageURL(&entry)
 	return &entry, nil
+}
+
+func hydrateLogImageURL(entry *NotificationLogEntry) {
+	if entry == nil || (entry.ImageURL != nil && strings.TrimSpace(*entry.ImageURL) != "") {
+		return
+	}
+	if entry.Payload == nil {
+		return
+	}
+	if v, ok := entry.Payload["image_url"]; ok {
+		if s, okStr := v.(string); okStr && strings.TrimSpace(s) != "" {
+			img := strings.TrimSpace(s)
+			entry.ImageURL = &img
+		}
+	}
 }
 
 func (r *pgRepository) GetBroadcastRecipientLog(
@@ -2733,7 +2892,16 @@ func (r *pgRepository) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([
 	return uids, nil
 }
 
-// GetRWAndRTPengurusUserIDs returns user IDs of active RW pengurus plus active RT pengurus in the RW.
+// GetRWAndRTPengurusUserIDs returns user IDs of active RW pengurus plus active RT officials
+// in the RW. RT recipients are limited to the 6 allowed positions:
+// ketua, wakil_ketua, bendahara, sekretaris, anggota, anggota_rt.
+//
+// Authorization logic:
+// 1. If jabatan IS NOT NULL, allowed positions may receive.
+//    Users with jabatan='keamanan', 'kebersihan' are strictly excluded. Jabatan 'sosial' is allowed.
+// 2. If jabatan IS NULL (legacy role-based users), role IN ('pengurus', 'bendahara') is allowed
+//    as a backward-compatible fallback.
+// 3. RW membership is always allowed regardless of role/jabatan.
 func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
 	query := `
 		SELECT DISTINCT user_id FROM (
@@ -2742,7 +2910,18 @@ func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID strin
 			UNION
 			SELECT urm.user_id FROM user_rt_memberships urm
 			JOIN rts r ON r.id = urm.rt_id
-			WHERE r.rw_id = $1 AND r.is_active = true AND urm.is_active = true AND urm.role IN ('pengurus', 'bendahara')
+			WHERE r.rw_id = $1 AND r.is_active = true AND urm.is_active = true
+			  AND (
+			    -- Jabatan-based: strictly enforce the allowed positions.
+			    -- 'anggota_rt' added alongside 'anggota' per migration 083.
+			    -- 'anggota_rw', 'operasional', 'humas', and 'sosial' included per RW broadcast distribution rules.
+			    -- ONLY 'keamanan' and 'kebersihan' are strictly excluded.
+			    urm.jabatan IN ('ketua', 'wakil_ketua', 'bendahara', 'sekretaris', 'anggota', 'anggota_rt', 'anggota_rw', 'operasional', 'humas', 'sosial')
+			    -- Legacy role-based fallback: only when jabatan is NULL.
+			    -- This prevents users with role='pengurus' AND jabatan='keamanan' from receiving.
+			    OR (urm.jabatan IS NULL AND urm.role IN ('pengurus', 'bendahara'))
+			  )
+			  AND (urm.jabatan IS NULL OR urm.jabatan NOT IN ('keamanan', 'kebersihan'))
 		) all_pengurus;
 	`
 	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID)
@@ -2762,10 +2941,20 @@ func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID strin
 	return uids, nil
 }
 
-// RecordRWDedup records a notification delivery log scoped to an RW.
+// RecordRWDedup records a notification delivery log scoped to an RW with default SENT status.
 func (r *pgRepository) RecordRWDedup(
 	ctx context.Context,
 	rwID, userID, eventType, dedupKey, title, body string,
+	payload map[string]string,
+	senderUserID *string,
+) (bool, error) {
+	return r.RecordRWDedupWithStatus(ctx, rwID, userID, eventType, dedupKey, title, body, "SENT", payload, senderUserID)
+}
+
+// RecordRWDedupWithStatus records a notification delivery log scoped to an RW with explicit status.
+func (r *pgRepository) RecordRWDedupWithStatus(
+	ctx context.Context,
+	rwID, userID, eventType, dedupKey, title, body, status string,
 	payload map[string]string,
 	senderUserID *string,
 ) (bool, error) {
@@ -2775,14 +2964,22 @@ func (r *pgRepository) RecordRWDedup(
 		trimmed := strings.TrimSpace(userID)
 		uidParam = &trimmed
 	}
+	if strings.TrimSpace(status) == "" {
+		status = "SENT"
+	}
+	var imageURL *string
+	if img, ok := payload["image_url"]; ok && strings.TrimSpace(img) != "" {
+		trimmedImg := strings.TrimSpace(img)
+		imageURL = &trimmedImg
+	}
 	query := `
-		INSERT INTO notification_logs (rw_id, user_id, event_type, dedup_key, title, body, payload, status, sender_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'SENT', $8)
+		INSERT INTO notification_logs (rw_id, user_id, event_type, dedup_key, title, body, payload, status, sender_user_id, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (dedup_key) DO NOTHING
 		RETURNING id;
 	`
 	var id string
-	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, uidParam, eventType, dedupKey, title, body, payloadJSON, senderUserID).Scan(&id)
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, uidParam, eventType, dedupKey, title, body, payloadJSON, status, senderUserID, imageURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil // deduplicated
@@ -2839,10 +3036,114 @@ func (r *pgRepository) ListRWLogs(ctx context.Context, rwID, eventType string, o
 			return nil, 0, err
 		}
 		l.RWID = rwIDVal
+		l.Source = "rw"
 		if len(payloadJSON) > 0 {
 			_ = json.Unmarshal(payloadJSON, &l.Payload)
 		}
+		hydrateLogImageURL(&l)
 		logs = append(logs, l)
+	}
+	return logs, total, nil
+}
+
+// ListRWMyLogs lists notifications sent by a specific RW user, grouped by broadcast batch.
+func (r *pgRepository) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error) {
+	countQuery := `
+		SELECT COUNT(*) FROM (
+			SELECT 1
+			FROM notification_logs
+			WHERE rw_id = $1 AND sender_user_id = $2 AND ($3 = '' OR event_type = $3)
+			GROUP BY
+				CASE
+					WHEN dedup_key LIKE 'rw_manual:%' THEN
+						split_part(dedup_key, ':', 1) || ':' || split_part(dedup_key, ':', 2) || ':' || split_part(dedup_key, ':', 3)
+					ELSE dedup_key
+				END
+		) t;
+	`
+	var total int
+	if err := r.pool.Raw().QueryRowContext(ctx, countQuery, rwID, senderUserID, eventType).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		WITH grouped AS (
+			SELECT
+				(array_agg(id ORDER BY created_at, id))[1] AS representative_id,
+				COUNT(*)::int AS recipients_count,
+				COUNT(*) FILTER (WHERE status = 'SENT')::int AS sent_count,
+				COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed_count,
+				COUNT(*) FILTER (WHERE status = 'NO_DEVICE')::int AS no_device_count,
+				MIN(created_at) AS activity_time
+			FROM notification_logs
+			WHERE rw_id = $1 AND sender_user_id = $2 AND ($3 = '' OR event_type = $3)
+			GROUP BY
+				CASE
+					WHEN dedup_key LIKE 'rw_manual:%' THEN
+						split_part(dedup_key, ':', 1) || ':' || split_part(dedup_key, ':', 2) || ':' || split_part(dedup_key, ':', 3)
+					ELSE dedup_key
+				END
+		)
+		SELECT
+			nl.id, nl.rw_id, nl.user_id, nl.sender_user_id, nl.event_type, nl.dedup_key,
+			nl.title, nl.body, nl.payload, nl.image_url,
+			CASE
+				WHEN g.sent_count > 0 AND (g.failed_count > 0 OR g.no_device_count > 0) THEN 'PARTIAL'
+				WHEN g.sent_count > 0 THEN 'SENT'
+				WHEN g.failed_count > 0 THEN 'FAILED'
+				WHEN g.no_device_count > 0 THEN 'NO_DEVICE'
+				ELSE nl.status
+			END AS status,
+			g.activity_time AS created_at,
+			g.recipients_count, g.sent_count, g.failed_count
+		FROM grouped g
+		JOIN notification_logs nl ON nl.id = g.representative_id
+		ORDER BY created_at DESC
+		LIMIT $4 OFFSET $5;
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID, senderUserID, eventType, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []NotificationLogEntry
+	for rows.Next() {
+		var l NotificationLogEntry
+		var payloadJSON []byte
+		var rwIDVal *string
+		if err := rows.Scan(
+			&l.ID,
+			&rwIDVal,
+			&l.UserID,
+			&l.SenderUserID,
+			&l.EventType,
+			&l.DedupKey,
+			&l.Title,
+			&l.Body,
+			&payloadJSON,
+			&l.ImageURL,
+			&l.Status,
+			&l.CreatedAt,
+			&l.RecipientsCount,
+			&l.SentCount,
+			&l.FailedCount,
+		); err != nil {
+			return nil, 0, err
+		}
+		l.RWID = rwIDVal
+		l.Source = "rw"
+		l.HistoryCategory = "mine"
+		l.ActivityRelation = "sent_by_me"
+		l.DeliveryCountsAvailable = true
+		if len(payloadJSON) > 0 {
+			_ = json.Unmarshal(payloadJSON, &l.Payload)
+		}
+		hydrateLogImageURL(&l)
+		logs = append(logs, l)
+	}
+	if logs == nil {
+		logs = []NotificationLogEntry{}
 	}
 	return logs, total, nil
 }

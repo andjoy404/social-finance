@@ -41,6 +41,12 @@ import { formatPhoneDisplay } from '@/styles/format'
 
 type OccupancyStatus = 'OWNER' | 'TENANT'
 
+function formatPhoneForInput(raw: string | null | undefined): string {
+  if (!raw || !raw.trim()) return ''
+  const formatted = formatPhoneDisplay(raw)
+  return formatted === '-' || formatted === '\u2014' ? '' : formatted
+}
+
 export function ResidentDetail() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -102,12 +108,10 @@ export function ResidentDetail() {
 
   const handleStartEdit = () => {
     if (!resident) return
-    const rawPhone = resident.phone || ''
-    const formattedPhone = rawPhone ? formatPhoneDisplay(rawPhone) : ''
     setEditForm({
       fullName: resident.full_name || '',
       nik: resident.nik || '',
-      phone: formattedPhone === '-' ? '' : formattedPhone,
+      phone: formatPhoneForInput(resident.phone),
       email: resident.email || '',
       isActive: resident.is_active,
       password: '',
@@ -171,11 +175,16 @@ export function ResidentDetail() {
     setNotFound(false)
 
     try {
-      const data = await getResident(pair.accessToken, id)
+      const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+      const rtIdParam = searchParams?.get('rt_id') || undefined
+      const data = await getResident(pair.accessToken, id, rtIdParam)
       setResident(data)
 
-      // Fetch household data to populate address field (from "Tambah Warga" form)
-      if (data.household_id) {
+      // Fetch household data to populate address field (from "Tambah Warga" form).
+      // Anggota RW and any resident without household_id must never trigger GET /households/{id}.
+      const normalizedJabatan = (data.jabatan ?? '').trim().toLowerCase()
+      const requiresHousehold = Boolean(data.household_id) && normalizedJabatan !== 'anggota_rw'
+      if (requiresHousehold && data.household_id) {
         try {
           const household: ApiHousehold = await getHousehold(pair.accessToken, data.household_id)
           if (editForm.address === '') {
@@ -297,7 +306,7 @@ export function ResidentDetail() {
             initialValues={{
               full_name: resident.full_name || '',
               nik: resident.nik || '',
-              phone: formatPhoneDisplay(resident.phone || '') === '-' ? '' : formatPhoneDisplay(resident.phone || ''),
+              phone: formatPhoneForInput(resident.phone),
               email: resident.email || '',
               jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
               is_active: resident.is_active,
@@ -418,7 +427,7 @@ export function ResidentDetail() {
           initialValues={{
             full_name: resident.full_name || '',
             nik: resident.nik || '',
-            phone: formatPhoneDisplay(resident.phone || '') === '-' ? '' : formatPhoneDisplay(resident.phone || ''),
+            phone: formatPhoneForInput(resident.phone),
             email: resident.email || '',
             jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
             is_active: resident.is_active,
@@ -430,15 +439,17 @@ export function ResidentDetail() {
             if (!pair?.accessToken) { clearSessionPair(); navigate('/login'); return }
             const body: Record<string, unknown> = {
               full_name: values.full_name,
-              nik: values.nik,
-              phone: values.phone,
-              email: values.email,
               jabatan: values.jabatan,
               is_active: values.is_active,
             }
+            if (values.nik.trim()) body.nik = values.nik.trim()
+            if (values.phone.trim()) body.phone = values.phone.trim()
+            if (values.email.trim()) body.email = values.email.trim()
             if (values.password.trim()) body.password = values.password.trim()
             await updateSpecialResident(pair.accessToken, resident.id, body)
-            const updated = await getResident(pair.accessToken, resident.id)
+            const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+            const rtIdParam = searchParams?.get('rt_id') || resident.rt_id || undefined
+            const updated = await getResident(pair.accessToken, resident.id, rtIdParam)
             setResident(updated)
             setIsEditing(false)
             window.dispatchEvent(new CustomEvent('warga:refresh'))
@@ -496,7 +507,7 @@ export function ResidentDetail() {
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
-                  jabatan: resident.jabatan as 'keamanan' | 'operasional' | 'kebersihan',
+                  jabatan: resident.jabatan as JabatanValue,
                   is_active: editForm.isActive,
                 }
                 if (editForm.password.trim()) {
@@ -533,7 +544,9 @@ export function ResidentDetail() {
               }
 
               // Refresh resident details from API
-              const updated = await getResident(pair.accessToken, resident.id)
+              const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+            const rtIdParam = searchParams?.get('rt_id') || resident.rt_id || undefined
+            const updated = await getResident(pair.accessToken, resident.id, rtIdParam)
               setResident(updated || updatedResident)
             notifyIuranDataUpdated()
             setIsEditing(false)

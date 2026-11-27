@@ -15,7 +15,7 @@ import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { ResidentAvatar } from '@/components/ResidentAvatar'
-import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
+
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
@@ -91,7 +91,7 @@ function formatOccupancyStatus(status: 'OWNER' | 'TENANT' | null | undefined): {
   return status === 'OWNER' ? { label: 'Pemilik', variant: 'violet' as const } : { label: 'Penyewa', variant: 'blue' as const }
 }
 
-function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'default' {
+function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'teal' | 'chartreuse' | 'pink' | 'default' {
   if (!jabatan || jabatan.trim() === '') return 'default'
   const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
   switch (key) {
@@ -107,10 +107,6 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
     case 'bendahara':
     case 'bendahara_rt':
       return 'amber'
-    case 'sosial':
-    case 'sosial_rt':
-    case 'seksi_sosial':
-      return 'gray'
     case 'keamanan':
     case 'keamanan_rt':
     case 'seksi_keamanan':
@@ -118,10 +114,14 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
       return 'red'
     case 'operasional':
     case 'operasional_rt':
-      return 'blue'
+      return 'teal'
     case 'kebersihan':
     case 'kebersihan_rt':
-      return 'green'
+      return 'chartreuse'
+    case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
+      return 'pink'
     default:
       return 'default'
   }
@@ -158,6 +158,8 @@ function getJabatanLabel(jabatan: string | null | undefined): string {
     case 'kebersihan':
     case 'kebersihan_rt':
       return 'Kebersihan'
+    case 'anggota_rw':
+      return 'Anggota RW'
     default:
       return jabatan
   }
@@ -408,10 +410,6 @@ export function ResidentList() {
     }
   }, [filterType, statusValue, search, isSuperAdmin, selectedRtId])
 
-  const reloadResidents = useCallback(() => {
-    void fetchResidents(page, pageSize)
-  }, [fetchResidents, page, pageSize])
-
   useEffect(() => {
     void fetchResidents(page, pageSize)
   }, [page, pageSize, fetchResidents])
@@ -507,8 +505,22 @@ export function ResidentList() {
   }, [navigate, residentList])
 
   const handleEdit = useCallback((id: string) => {
+    const selected = residentList.find((item) => item.id === id)
+    if (selected) {
+      const normalizedJabatan = (selected.jabatan ?? '').trim().toLowerCase()
+      if (!selected.household_id || normalizedJabatan === 'anggota_rw') {
+        if (normalizedJabatan) {
+          navigate(`/warga/special/${id}/edit`)
+        } else {
+          navigate(`/warga/${id}`)
+        }
+        return
+      }
+      navigate(`/warga/${selected.household_id}/edit`)
+      return
+    }
     navigate(`/warga/${id}/edit`)
-  }, [navigate])
+  }, [navigate, residentList])
 
   const handleEditSpecial = useCallback((id: string) => {
     navigate(`/warga/special/${id}/edit`)
@@ -825,7 +837,6 @@ export function ResidentList() {
                     onEditSpecial={handleEditSpecial}
                     canSeePhone={canSeePhone}
                     canSeeEmail={canSeeEmail}
-                    onRefresh={reloadResidents}
                   />
                 ))}
               </tbody>
@@ -859,10 +870,9 @@ interface ResidentRowProps {
   onEditSpecial: (id: string) => void
   canSeePhone: boolean
   canSeeEmail: boolean
-  onRefresh: () => void
 }
 
-function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, onRefresh }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -923,18 +933,7 @@ function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, on
               size={32}
             />
           </span>
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>{resident.full_name}</span>
-            <ResidentPhotoManage
-              residentId={resident.id}
-              fullName={resident.full_name}
-              avatarPath={resident.avatar_path ?? null}
-              onChanged={() => {
-                void onRefresh()
-              }}
-              compact
-            />
-          </span>
+          <span>{resident.full_name}</span>
         </div>
       </td>
 

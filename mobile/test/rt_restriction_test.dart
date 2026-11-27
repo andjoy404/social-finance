@@ -46,68 +46,65 @@ void main() {
       expect(user2.rtCode, equals('002'));
     });
 
-    test(
-      'isAllowedRT gates on RT membership, not on a hardcoded RT list',
-      () {
-        // Any active RT membership is allowed; RT codes are no longer whitelisted.
-        expect(isAllowedRT({'rt': '001', 'rt_id': 'unknown-id'}), isTrue);
-        expect(isAllowedRT({'rt': '002', 'rt_id': 'any-id'}), isTrue);
-        expect(isAllowedRT({'rt': '003', 'rt_id': 'any-id'}), isTrue);
-        // Canonical ID only
-        expect(
-          isAllowedRT({
-            'rt': null,
-            'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
-          }),
-          isTrue,
-        );
-        expect(
-          isAllowedRT({
-            'rt': null,
-            'rt_id': '8dfa1e36-6727-45be-8fea-24d958efc155',
-          }),
-          isTrue,
-        );
+    test('isAllowedRT gates on RT membership, not on a hardcoded RT list', () {
+      // Any active RT membership is allowed; RT codes are no longer whitelisted.
+      expect(isAllowedRT({'rt': '001', 'rt_id': 'unknown-id'}), isTrue);
+      expect(isAllowedRT({'rt': '002', 'rt_id': 'any-id'}), isTrue);
+      expect(isAllowedRT({'rt': '003', 'rt_id': 'any-id'}), isTrue);
+      // Canonical ID only
+      expect(
+        isAllowedRT({
+          'rt': null,
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        }),
+        isTrue,
+      );
+      expect(
+        isAllowedRT({
+          'rt': null,
+          'rt_id': '8dfa1e36-6727-45be-8fea-24d958efc155',
+        }),
+        isTrue,
+      );
 
-        // RTs outside the historical whitelist are members too (backend-enforces scope).
-        expect(
-          isAllowedRT({
-            'rt': '004',
-            'rt_id': 'efb70405-09f5-48a0-ad14-34802cf09e3b',
-          }),
-          isTrue,
-        );
-        expect(
-          isAllowedRT({
-            'rt': '005',
-            'rt_id': '5106197a-c4e4-4bbc-8ef7-921d7208717d',
-          }),
-          isTrue,
-        );
-        expect(
-          isAllowedRT({
-            'rt': '006',
-            'rt_id': 'a3390720-dd56-4b28-92b1-43f384f584cd',
-          }),
-          isTrue,
-        );
+      // RTs outside the historical whitelist are members too (backend-enforces scope).
+      expect(
+        isAllowedRT({
+          'rt': '004',
+          'rt_id': 'efb70405-09f5-48a0-ad14-34802cf09e3b',
+        }),
+        isTrue,
+      );
+      expect(
+        isAllowedRT({
+          'rt': '005',
+          'rt_id': '5106197a-c4e4-4bbc-8ef7-921d7208717d',
+        }),
+        isTrue,
+      );
+      expect(
+        isAllowedRT({
+          'rt': '006',
+          'rt_id': 'a3390720-dd56-4b28-92b1-43f384f584cd',
+        }),
+        isTrue,
+      );
 
-        // Super admin passes
-        expect(isAllowedRT({'system_role': 'super_admin'}), isTrue);
+      // Super admin passes
+      expect(isAllowedRT({'system_role': 'super_admin'}), isTrue);
 
-        // Authenticated user with NO RT membership is rejected
-        expect(isAllowedRT({'role': 'warga'}), isFalse);
-        expect(isAllowedRT({'rt': null, 'rt_id': null}), isFalse);
+      // Authenticated user with NO RT membership is rejected
+      expect(isAllowedRT({'role': 'warga'}), isFalse);
+      expect(isAllowedRT({'rt': null, 'rt_id': null}), isFalse);
 
-        // Null user
-        expect(isAllowedRT(null), isFalse);
-      },
-    );
+      // Null user
+      expect(isAllowedRT(null), isFalse);
+    });
   });
 
   group('RT Restriction - Navigation Shell UI', () {
     testWidgets(
-      'security officer opens Warga first and can navigate Warga, Notifikasi, Profile',
+      'security officer opens Warga first and can navigate Warga, Sampah, Profile',
       (tester) async {
         final securityUser = {
           'id': 'user-security',
@@ -141,6 +138,18 @@ void main() {
                   path: '/home/profile',
                   builder: (context, state) => const Text('Profil Petugas'),
                 ),
+                GoRoute(
+                  path: '/home/patroli',
+                  builder: (context, state) => const Text('Patroli Page'),
+                ),
+                GoRoute(
+                  path: '/home/paket',
+                  builder: (context, state) => const Text('Paket Page'),
+                ),
+                GoRoute(
+                  path: '/home/keamanan/absen',
+                  builder: (context, state) => const Text('Absensi Page'),
+                ),
               ],
             ),
           ],
@@ -159,27 +168,21 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Daftar Warga'), findsOneWidget);
-        expect(find.text('Beranda'), findsNothing);
-        expect(find.text('Warga'), findsOneWidget);
-        expect(find.text('Notifikasi'), findsOneWidget);
-        expect(find.text('Profil'), findsOneWidget);
-        expect(
-          tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
-          lessThan(
-            tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-          ),
-        );
-        expect(
-          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-          lessThan(
-            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
-          ),
-        );
+        expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
 
-        await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+        expect(find.text('Warga'), findsOneWidget);
+        expect(find.text('Sampah'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-sampah')));
         await tester.pumpAndSettle();
         expect(find.text('Menu Notifikasi'), findsOneWidget);
 
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('nav-item-profil')));
         await tester.pumpAndSettle();
         expect(find.text('Profil Petugas'), findsOneWidget);
@@ -235,15 +238,13 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Monitoring Screen'), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
         expect(find.text('Sampah'), findsOneWidget);
         expect(find.text('Profil'), findsOneWidget);
-        expect(find.text('Beranda'), findsNothing);
-        expect(
-          tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx,
-          lessThan(
-            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
-          ),
-        );
 
         await tester.tap(find.byKey(const Key('nav-item-profil')));
         await tester.pumpAndSettle();
@@ -308,8 +309,12 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Beranda'), findsOneWidget);
-        expect(find.text('Kas'), findsOneWidget);
         expect(find.text('Iuran'), findsOneWidget);
+        expect(find.text('Menu'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+        expect(find.text('Kas'), findsOneWidget);
         expect(find.text('Warga'), findsOneWidget);
         expect(find.text('Profil'), findsOneWidget);
       },
@@ -372,8 +377,12 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Beranda'), findsOneWidget);
-        expect(find.text('Kas'), findsOneWidget);
         expect(find.text('Iuran'), findsOneWidget);
+        expect(find.text('Menu'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
+        expect(find.text('Kas'), findsOneWidget);
         expect(find.text('Warga'), findsOneWidget);
         expect(find.text('Profil'), findsOneWidget);
       },
@@ -434,9 +443,13 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Beranda'), findsOneWidget);
+        expect(find.text('Menu'), findsOneWidget);
+        expect(find.text('Iuran'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
+        await tester.pumpAndSettle();
         expect(find.text('Profil'), findsOneWidget);
         expect(find.text('Kas'), findsNothing);
-        expect(find.text('Iuran'), findsNothing);
         expect(find.text('Warga'), findsNothing);
       },
     );

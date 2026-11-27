@@ -35,6 +35,7 @@ type Activity struct {
 	Status            string     `json:"status"`             // 'upcoming', 'ongoing', 'completed', 'cancelled'
 	PublicationStatus string     `json:"publication_status"` // 'draft', 'published'
 	ShowOnBanner      bool       `json:"show_on_banner"`
+	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
 	CreatedBy         *string    `json:"created_by,omitempty"`
 	UpdatedBy         *string    `json:"updated_by,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
@@ -161,6 +162,7 @@ type OrgMember struct {
 	MembershipID string  `json:"membership_id"`
 	FullName     string  `json:"full_name"`
 	Jabatan      string  `json:"jabatan"`
+	HouseNumber  *string `json:"house_number,omitempty"`
 	Phone        *string `json:"phone,omitempty"` // only included if viewer has permission
 	AvatarURL    *string `json:"avatar_url,omitempty"`
 }

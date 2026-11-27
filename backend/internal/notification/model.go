@@ -36,6 +36,15 @@ const (
 	// RW notification event types
 	EventRWCashIn  = "rw_cash_in"
 	EventRWCashOut = "rw_cash_out"
+
+	// Security notification event types (paket & patroli)
+	EventPaketReceived    = "paket_received"
+	EventPaketPickedUp    = "paket_picked_up"
+	EventPatrolBundleSent = "patrol_bundle_submitted"
+
+	// Security attendance correction notification — sent to Ketua RT when a
+	// security officer submits a new correction request.
+	EventCorrectionSubmitted = "correction_submitted"
 )
 
 const (
@@ -58,11 +67,7 @@ func TriggerCategoryForEvent(eventType string) string {
 	switch eventType {
 	case EventBillCreated,
 		EventPaymentSubmitted,
-		EventPaymentVerified,
-		EventActivityCreated,
-		EventActivityUpdated,
-		EventActivityCancelled,
-		EventActivityCompleted:
+		EventPaymentVerified:
 		return TriggerCategoryBySystem
 	case EventPaymentReminder,
 		EventUpcomingDue3Months,
@@ -70,9 +75,16 @@ func TriggerCategoryForEvent(eventType string) string {
 		EventActivityReminder:
 		return TriggerCategoryTerjadwal
 	case EventWasteTruckArrival,
-		EventManualPush:
-		return TriggerCategoryManualTrigger
-	case EventRWCashIn,
+		EventManualPush,
+		EventActivityCreated,
+		EventActivityUpdated,
+		EventActivityCancelled,
+		EventActivityCompleted,
+		EventPaketReceived,
+		EventPaketPickedUp,
+		EventPatrolBundleSent,
+		EventCorrectionSubmitted,
+		EventRWCashIn,
 		EventRWCashOut:
 		return TriggerCategoryManualTrigger
 	}
@@ -86,10 +98,6 @@ func TriggerCategoryBySystemEvents() []string {
 		EventBillCreated,
 		EventPaymentSubmitted,
 		EventPaymentVerified,
-		EventActivityCreated,
-		EventActivityUpdated,
-		EventActivityCancelled,
-		EventActivityCompleted,
 	}
 }
 
@@ -261,11 +269,28 @@ type UpdateTemplateInput struct {
 	IsActive *bool   `json:"is_active,omitempty"`
 }
 
+// ResetTemplateInput represents payload to reset a template back to its system defaults.
+type ResetTemplateInput struct {
+	KeepName bool `json:"keep_name"` // when true, preserve the user-assigned template name
+}
+
+// ResetTemplateResult is returned after a successful template reset.
+type ResetTemplateResult struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Title             string   `json:"title"`
+	Body              string   `json:"body"`
+	AllowedVariables  []string `json:"allowed_variables"`
+	ImageURL          *string  `json:"image_url"`
+	Message           string   `json:"message"`
+}
+
 // NotificationLogEntry represents a delivery log row.
 type NotificationLogEntry struct {
 	ID                      string         `json:"id"`
 	RTID                    string         `json:"rt_id,omitempty"`
 	RWID                    *string        `json:"rw_id,omitempty"`
+	Source                  string         `json:"source,omitempty"`
 	UserID                  *string        `json:"user_id,omitempty"`
 	SenderUserID            *string        `json:"-"`
 	EventType               string         `json:"event_type"`

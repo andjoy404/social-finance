@@ -44,8 +44,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
         final now = DateTime.now();
         final currentWarga = ref.read(iuranSelectedPeriodeProvider);
         if (currentWarga.isEmpty) {
-          ref.read(iuranSelectedPeriodeProvider.notifier).state =
-              '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+          ref.read(iuranSelectedPeriodeProvider.notifier).state = '${now.year}';
         }
         final currentSaya = ref.read(iuranSayaSelectedPeriodeProvider);
         if (currentSaya.isEmpty) {
@@ -71,13 +70,15 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
   bool _checkIsWarga() {
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
     if (user == null) return false;
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'sosial') return true;
     final role = _roleValue(user['role']);
     if (role != 'warga') return false;
     // A warga with a management jabatan is not a plain warga for tab purposes.
-    // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
+    // They hold an RT position (ketua, wakil_ketua, bendahara) and
     // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
-    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
-    final managementJabatans = {'ketua', 'wakil_ketua', 'sekretaris', 'bendahara'};
+    // Sekretaris RT only sees "Iuran Saya" — they are NOT in managementJabatans.
+    final managementJabatans = {'ketua', 'wakil_ketua', 'bendahara'};
     if (managementJabatans.contains(jabatan)) return false;
     return true;
   }
@@ -155,7 +156,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
 
   Widget _buildFab(BuildContext context) {
     final accentSoft = AppColors.accentSoftColor(context);
-    return SizedBox(
+    final button = SizedBox(
+      key: const Key('kelola-iuran-create-btn'),
       height: 48,
       child: OutlinedButton(
         onPressed: () => context.push('/home/iuran/form'),
@@ -176,6 +178,10 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
           ],
         ),
       ),
+    );
+    return Tooltip(
+      message: 'Buat Iuran',
+      child: button,
     );
   }
 }
@@ -527,7 +533,7 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
                             : AppColors.lightSurface,
                         items: [
                           const DropdownMenuItem(value: null, child: Text('Semua')),
-                          const DropdownMenuItem(value: 'pending', child: Text('Menunggu')),
+                          const DropdownMenuItem(value: 'pending', child: Text('Tertunda')),
                           const DropdownMenuItem(value: 'approved', child: Text('Disetujui')),
                           const DropdownMenuItem(value: 'rejected', child: Text('Ditolak')),
                         ],
@@ -726,6 +732,7 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
                         return _IuranCard(
                           bill: filtered[index],
                           showHouseholdName: _shouldShowHouseholdName(ref),
+                          highlightPending: !widget.isMyBills,
                         );
                       },
                     ),
@@ -977,13 +984,19 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
 class _IuranCard extends StatelessWidget {
   final IuranBill bill;
   final bool showHouseholdName;
+  final bool highlightPending;
 
-  const _IuranCard({required this.bill, required this.showHouseholdName});
+  const _IuranCard({
+    required this.bill,
+    required this.showHouseholdName,
+    this.highlightPending = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final hasPending = highlightPending && bill.pendingAmount > 0;
 
     return Material(
       color: Colors.transparent,
@@ -992,6 +1005,14 @@ class _IuranCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.base),
         child: AppCard(
           padding: const EdgeInsets.all(AppSpacing.base),
+          cardColor: hasPending
+              ? (isDark
+                  ? AppColors.warning.withValues(alpha: 0.10)
+                  : AppColors.warning.withValues(alpha: 0.06))
+              : null,
+          borderColor: hasPending
+              ? AppColors.warning.withValues(alpha: isDark ? 0.55 : 0.45)
+              : null,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1043,8 +1064,8 @@ class _IuranCard extends StatelessWidget {
                     children: [
                       AppBadge(
                         label: bill.iuranType,
-                        textColor: AppColors.info,
-                        backgroundColor: AppColors.info
+                        textColor: AppColors.infoBlue,
+                        backgroundColor: AppColors.infoBlue
                             .withValues(alpha: isDark ? 0.25 : 0.12),
                       ),
                       const SizedBox(height: 6),

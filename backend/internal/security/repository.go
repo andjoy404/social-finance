@@ -949,27 +949,42 @@ func (r *Repository) CancelSchedule(ctx context.Context, rtID, scheduleID, actor
 	defer func() { _ = tx.Rollback() }()
 
 	var curStatus string
-	var attStatus sql.NullString
-	var checkedInAt sql.NullTime
+	var isDated bool
+	var hasOpenSession bool
+	var hasRecordedAtt bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT s.status, ar.status, ar.checked_in_at
+		SELECT s.status,
+		       s.shift_date IS NOT NULL AS is_dated,
+		       EXISTS (
+		           SELECT 1 FROM security_attendance_records ar
+		           WHERE ar.schedule_id = s.id
+		             AND ar.checked_in_at IS NOT NULL
+		             AND ar.checked_out_at IS NULL
+		       ) AS has_open_session,
+		       EXISTS (
+		           SELECT 1 FROM security_attendance_records ar
+		           WHERE ar.schedule_id = s.id
+		             AND (ar.checked_in_at IS NOT NULL OR (ar.status IS NOT NULL AND ar.status != 'belum_hadir'))
+		       ) AS has_recorded_att
 		FROM security_schedules s
-		LEFT JOIN security_attendance_records ar ON ar.schedule_id = s.id
 		WHERE s.id = $1 AND s.rt_id = $2
 		FOR UPDATE OF s
-	`, scheduleID, rtID).Scan(&curStatus, &attStatus, &checkedInAt)
+	`, scheduleID, rtID).Scan(&curStatus, &isDated, &hasOpenSession, &hasRecordedAtt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return newAppError(404, "not_found", "schedule not found", ErrNotFound)
 		}
 		return err
 	}
-	if checkedInAt.Valid || (attStatus.Valid && attStatus.String != StatusBelumHadir) {
+	if hasOpenSession {
+		return newAppError(409, "attendance_in_progress", "cannot deactivate schedule while an officer is currently on duty", ErrConflict)
+	}
+	if isDated && hasRecordedAtt {
 		return newAppError(409, "attendance_locked", "cannot cancel schedule after attendance has been recorded", ErrConflict)
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		UPDATE security_schedules SET status = 'cancelled', updated_by = $2, updated_at = $3
+		UPDATE security_schedules SET status = 'cancelled', is_active = false, updated_by = $2, updated_at = $3
 		WHERE id = $1 AND rt_id = $4
 	`, scheduleID, actorID, now, rtID)
 	if err != nil {
@@ -1058,14 +1073,24 @@ func (r *Repository) ListSchedules(ctx context.Context, rtID string, f ScheduleF
 		       s.crosses_midnight_snapshot, s.lateness_tolerance_minutes,
 		       s.check_in_window_before_minutes, s.check_in_window_after_minutes,
 		       s.absent_cutoff_minutes, s.missing_checkout_cutoff_minutes,
-		       s.scheduled_start_at, s.scheduled_end_at, s.notes, s.status,
+		       s.scheduled_start_at, s.scheduled_end_at, s.notes, s.status, s.is_active,
 		       COALESCE(ar.status, 'belum_hadir'), ar.checked_in_at, ar.checked_out_at,
 		       s.created_at, s.updated_at
 		FROM security_schedules s
 		JOIN users u ON u.id = s.user_id
-		LEFT JOIN security_attendance_records ar ON ar.schedule_id = s.id
+		LEFT JOIN LATERAL (
+			SELECT status, checked_in_at, checked_out_at
+			FROM security_attendance_records
+			WHERE schedule_id = s.id
+			  AND (
+			        (s.shift_date IS NOT NULL AND shift_date = s.shift_date)
+			        OR (s.shift_date IS NULL AND shift_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+			      )
+			ORDER BY checked_in_at DESC NULLS LAST, created_at DESC
+			LIMIT 1
+		) ar ON true
 		WHERE %s
-		ORDER BY s.shift_date ASC, s.scheduled_start_at ASC, u.full_name ASC
+		ORDER BY s.is_active DESC, s.created_at DESC, u.full_name ASC
 		LIMIT $%d OFFSET $%d
 	`, whereSQL, argIdx, argIdx+1)
 
@@ -1078,23 +1103,39 @@ func (r *Repository) ListSchedules(ctx context.Context, rtID string, f ScheduleF
 	var list []SecuritySchedule
 	for rows.Next() {
 		var s SecuritySchedule
-		var notes sql.NullString
-		var cin, cout sql.NullTime
+		var notes, dateNull sql.NullString
+		var cin, cout, schedStartNull, schedEndNull sql.NullTime
+		var startNull, endNull sql.NullString
 		if err := rows.Scan(
-			&s.ID, &s.AssignmentID, &s.AssignmentStartDate, &s.AssignmentEndDate,
+			&s.ID, &s.AssignmentID, &startNull, &endNull,
 			&s.RTID, &s.UserID, &s.OfficerName, &s.MembershipID, &s.ShiftConfigID, &s.ShiftVersion,
-			&s.ShiftDate, &s.ShiftName, &s.StartTime, &s.EndTime,
+			&dateNull, &s.ShiftName, &s.StartTime, &s.EndTime,
 			&s.CrossesMidnight, &s.LatenessToleranceMinutes,
 			&s.CheckInWindowBeforeMinutes, &s.CheckInWindowAfterMinutes,
 			&s.AbsentCutoffMinutes, &s.MissingCheckoutCutoffMinutes,
-			&s.ScheduledStartAt, &s.ScheduledEndAt, &notes, &s.Status,
+			&schedStartNull, &schedEndNull, &notes, &s.Status, &s.IsActive,
 			&s.AttendanceStatus, &cin, &cout, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
+		if startNull.Valid {
+			s.AssignmentStartDate = &startNull.String
+		}
+		if endNull.Valid {
+			s.AssignmentEndDate = &endNull.String
+		}
+		if dateNull.Valid {
+			s.ShiftDate = dateNull.String
+		}
 		if notes.Valid {
 			v := notes.String
 			s.Notes = &v
+		}
+		if schedStartNull.Valid {
+			s.ScheduledStartAt = schedStartNull.Time
+		}
+		if schedEndNull.Valid {
+			s.ScheduledEndAt = schedEndNull.Time
 		}
 		if cin.Valid {
 			t := cin.Time
@@ -1132,8 +1173,8 @@ func (r *Repository) CreateSwap(ctx context.Context, rtID, requesterUserID strin
 		Status    string
 		AttStatus string
 		CheckedIn sql.NullTime
-		StartAt   time.Time
-		EndAt     time.Time
+		StartAt   sql.NullTime
+		EndAt     sql.NullTime
 	}
 
 	loadSched := func(id string) (*schedInfo, error) {
@@ -1180,7 +1221,7 @@ func (r *Repository) CreateSwap(ctx context.Context, rtID, requesterUserID strin
 		tgtSched.CheckedIn.Valid || tgtSched.AttStatus != StatusBelumHadir {
 		return nil, newAppError(409, "attendance_locked", "cannot swap a schedule that already has recorded attendance or passed cutoff", ErrConflict)
 	}
-	if !reqSched.EndAt.After(now) || !tgtSched.EndAt.After(now) {
+	if (reqSched.EndAt.Valid && !reqSched.EndAt.Time.After(now)) || (tgtSched.EndAt.Valid && !tgtSched.EndAt.Time.After(now)) {
 		return nil, newAppError(400, "shift_ended", "cannot swap a shift that has already ended", ErrValidation)
 	}
 
@@ -1341,49 +1382,42 @@ func (r *Repository) DecideSwap(ctx context.Context, rtID, swapID, approverID st
 		return nil, err
 	}
 
-	// Read start/end bounds for overlap checks after swap.
-	var reqStart, reqEnd, tgtStart, tgtEnd time.Time
+	// Read start/end bounds for overlap checks after swap if dates were specified.
+	var reqStart, reqEnd, tgtStart, tgtEnd sql.NullTime
 	_ = tx.QueryRowContext(ctx, `SELECT scheduled_start_at, scheduled_end_at FROM security_schedules WHERE id = $1`, reqSchedID).Scan(&reqStart, &reqEnd)
 	_ = tx.QueryRowContext(ctx, `SELECT scheduled_start_at, scheduled_end_at FROM security_schedules WHERE id = $1`, tgtSchedID).Scan(&tgtStart, &tgtEnd)
 
 	// Check requester receiving tgtSched window doesn't overlap other schedules of requester (excluding reqSchedID & tgtSchedID).
-	var reqOverlap int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM security_schedules
-		WHERE rt_id = $1 AND user_id = $2 AND status = 'scheduled'
-		  AND id NOT IN ($3, $4) AND scheduled_start_at < $6 AND scheduled_end_at > $5
-	`, rtID, reqUser, reqSchedID, tgtSchedID, tgtStart, tgtEnd).Scan(&reqOverlap); err != nil {
-		return nil, err
-	}
-	if reqOverlap > 0 {
-		return nil, newAppError(409, "schedule_conflict", "swap creates a schedule conflict for requester", ErrConflict)
-	}
-	var tgtOverlap int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM security_schedules
-		WHERE rt_id = $1 AND user_id = $2 AND status = 'scheduled'
-		  AND id NOT IN ($3, $4) AND scheduled_start_at < $6 AND scheduled_end_at > $5
-	`, rtID, tgtUser, reqSchedID, tgtSchedID, reqStart, reqEnd).Scan(&tgtOverlap); err != nil {
-		return nil, err
-	}
-	if tgtOverlap > 0 {
-		return nil, newAppError(409, "schedule_conflict", "swap creates a schedule conflict for target officer", ErrConflict)
+	if reqStart.Valid && reqEnd.Valid && tgtStart.Valid && tgtEnd.Valid {
+		var reqOverlap int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM security_schedules
+			WHERE rt_id = $1 AND user_id = $2 AND status = 'scheduled'
+			  AND id NOT IN ($3, $4) AND scheduled_start_at < $6 AND scheduled_end_at > $5
+		`, rtID, reqUser, reqSchedID, tgtSchedID, tgtStart.Time, tgtEnd.Time).Scan(&reqOverlap); err != nil {
+			return nil, err
+		}
+		if reqOverlap > 0 {
+			return nil, newAppError(409, "schedule_conflict", "swap creates a schedule conflict for requester", ErrConflict)
+		}
+		var tgtOverlap int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM security_schedules
+			WHERE rt_id = $1 AND user_id = $2 AND status = 'scheduled'
+			  AND id NOT IN ($3, $4) AND scheduled_start_at < $6 AND scheduled_end_at > $5
+		`, rtID, tgtUser, reqSchedID, tgtSchedID, reqStart.Time, reqEnd.Time).Scan(&tgtOverlap); err != nil {
+			return nil, err
+		}
+		if tgtOverlap > 0 {
+			return nil, newAppError(409, "schedule_conflict", "swap creates a schedule conflict for target officer", ErrConflict)
+		}
 	}
 
 	// Swap owners atomically on both schedules and their attendance records.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE security_schedules SET user_id = $2, membership_id = $3, updated_by = $4, updated_at = $5
-		WHERE id = $1
-	`, reqSchedID, tgtUser, tgtMembershipID, approverID, now); err != nil {
+	// Temporarily set is_active=false on reqSchedID to prevent intermediate collisions on active assignment unique index.
+	if _, err := tx.ExecContext(ctx, `UPDATE security_schedules SET is_active = false WHERE id = $1`, reqSchedID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE security_attendance_records SET user_id = $2, updated_at = $3
-		WHERE schedule_id = $1
-	`, reqSchedID, tgtUser, now); err != nil {
-		return nil, err
-	}
-
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE security_schedules SET user_id = $2, membership_id = $3, updated_by = $4, updated_at = $5
 		WHERE id = $1
@@ -1394,6 +1428,18 @@ func (r *Repository) DecideSwap(ctx context.Context, rtID, swapID, approverID st
 		UPDATE security_attendance_records SET user_id = $2, updated_at = $3
 		WHERE schedule_id = $1
 	`, tgtSchedID, reqUser, now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE security_schedules SET user_id = $2, membership_id = $3, updated_by = $4, updated_at = $5, is_active = true
+		WHERE id = $1
+	`, reqSchedID, tgtUser, tgtMembershipID, approverID, now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE security_attendance_records SET user_id = $2, updated_at = $3
+		WHERE schedule_id = $1
+	`, reqSchedID, tgtUser, now); err != nil {
 		return nil, err
 	}
 
@@ -1424,8 +1470,8 @@ func (r *Repository) GetSwapByID(ctx context.Context, rtID, swapID string) (*Shi
 	err := r.pool.Raw().QueryRowContext(ctx, `
 		SELECT sw.id, sw.rt_id, sw.requester_user_id, ru.full_name,
 		       sw.target_user_id, tu.full_name,
-		       sw.requester_schedule_id, to_char(rs.shift_date, 'YYYY-MM-DD'), rs.shift_name_snapshot,
-		       sw.target_schedule_id, to_char(ts.shift_date, 'YYYY-MM-DD'), ts.shift_name_snapshot,
+		       sw.requester_schedule_id, COALESCE(to_char(rs.shift_date, 'YYYY-MM-DD'), ''), rs.shift_name_snapshot,
+		       sw.target_schedule_id, COALESCE(to_char(ts.shift_date, 'YYYY-MM-DD'), ''), ts.shift_name_snapshot,
 		       sw.reason, sw.status, sw.target_responded_at, sw.target_note,
 		       sw.ketua_decided_by, sw.ketua_decided_at, sw.ketua_note, sw.created_at, sw.updated_at
 		FROM security_shift_swaps sw
@@ -1488,8 +1534,8 @@ func (r *Repository) ListSwaps(ctx context.Context, rtID, userFilter, statusFilt
 	q := fmt.Sprintf(`
 		SELECT sw.id, sw.rt_id, sw.requester_user_id, ru.full_name,
 		       sw.target_user_id, tu.full_name,
-		       sw.requester_schedule_id, to_char(rs.shift_date, 'YYYY-MM-DD'), rs.shift_name_snapshot,
-		       sw.target_schedule_id, to_char(ts.shift_date, 'YYYY-MM-DD'), ts.shift_name_snapshot,
+		       sw.requester_schedule_id, COALESCE(to_char(rs.shift_date, 'YYYY-MM-DD'), ''), rs.shift_name_snapshot,
+		       sw.target_schedule_id, COALESCE(to_char(ts.shift_date, 'YYYY-MM-DD'), ''), ts.shift_name_snapshot,
 		       sw.reason, sw.status, sw.target_responded_at, sw.target_note,
 		       sw.ketua_decided_by, sw.ketua_decided_at, sw.ketua_note, sw.created_at, sw.updated_at
 		FROM security_shift_swaps sw
@@ -1561,9 +1607,55 @@ func (r *Repository) CreateQRToken(ctx context.Context, rtID, deviceID, tokenHas
 	return tokenID, err
 }
 
+func isPgUniqueConstraint(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if constraintName == "" || pgErr.ConstraintName == constraintName {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileExpiredOpenSessionsTx closes any expired past open attendance sessions
+// (status IN ('hadir', 'terlambat'), checked_out_at IS NULL, marked_missing_checkout_at IS NULL)
+// for the given officer whose shift end + missing_checkout_cutoff_minutes has already elapsed.
+// This also reconciles past check-in-only approved corrections (correction_locked = true)
+// so a forgotten checkout from an earlier shift never permanently triggers
+// uniq_security_attendance_user_open_session on future QR check-ins or correction approvals.
+func reconcileExpiredOpenSessionsTx(ctx context.Context, tx *sql.Tx, rtID, userID, excludeAttendanceID string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE security_attendance_records ar
+		SET status = 'belum_absen_pulang',
+		    marked_missing_checkout_at = COALESCE(ar.marked_missing_checkout_at, $4),
+		    updated_at = $4
+		FROM security_schedules s
+		WHERE ar.schedule_id = s.id
+		  AND ar.rt_id = $1
+		  AND ar.user_id = $2
+		  AND ($3 = '' OR ar.id::text <> $3)
+		  AND ar.checked_in_at IS NOT NULL
+		  AND ar.checked_out_at IS NULL
+		  AND ar.marked_missing_checkout_at IS NULL
+		  AND ar.status IN ('hadir', 'terlambat')
+		  AND $4 > CASE
+		        WHEN s.scheduled_end_at IS NOT NULL THEN (s.scheduled_end_at + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute'))
+		        WHEN ar.shift_date IS NOT NULL THEN (
+		            CASE
+		                WHEN s.crosses_midnight_snapshot OR s.end_time_snapshot <= s.start_time_snapshot
+		                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		                ELSE (ar.shift_date + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		            END + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute')
+		        )
+		        ELSE (ar.checked_in_at + INTERVAL '24 hours')
+		      END
+	`, rtID, userID, excludeAttendanceID, now)
+	return err
+}
+
 func (r *Repository) ConsumeQRAndRecordAttendance(
 	ctx context.Context,
-	rtID, userID, rawQRToken, action, idemKey string,
+	rtID, userID, rawQRToken, action, shiftConfigID, idemKey string,
 	now time.Time,
 ) (*AttendanceScanResult, error) {
 	tx, err := r.pool.BeginTx(ctx)
@@ -1635,10 +1727,13 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	}
 
 	// Find candidate active schedules for this officer near server `now`.
+	nowJkt := now.In(JakartaLoc)
+	todayStr := nowJkt.Format("2006-01-02")
+	yestStr := nowJkt.AddDate(0, 0, -1).Format("2006-01-02")
 	windowStartUpper := now.Add(12 * time.Hour)
 	windowEndLower := now.Add(-14 * time.Hour)
 	rows, err := tx.QueryContext(ctx, `
-		SELECT s.id, s.shift_config_id, s.shift_version, to_char(s.shift_date, 'YYYY-MM-DD'),
+		SELECT s.id, s.shift_config_id, s.shift_version, to_char(s.shift_date, 'YYYY-MM-DD'), to_char(ar.shift_date, 'YYYY-MM-DD'),
 		       s.shift_name_snapshot, to_char(s.start_time_snapshot, 'HH24:MI'), to_char(s.end_time_snapshot, 'HH24:MI'),
 		       s.crosses_midnight_snapshot, s.lateness_tolerance_minutes,
 		       s.check_in_window_before_minutes, s.check_in_window_after_minutes,
@@ -1646,15 +1741,28 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		       s.scheduled_start_at, s.scheduled_end_at,
 		       ar.id, ar.status, ar.checked_in_at, ar.checked_out_at
 		FROM security_schedules s
-		LEFT JOIN security_attendance_records ar ON ar.schedule_id = s.id
+		LEFT JOIN LATERAL (
+			SELECT id, shift_date, status, checked_in_at, checked_out_at
+			FROM security_attendance_records
+			WHERE schedule_id = s.id
+			  AND (
+			        (s.shift_date IS NOT NULL AND shift_date = s.shift_date)
+			        OR (s.shift_date IS NULL AND shift_date IN ($5::date, $6::date))
+			      )
+			ORDER BY checked_in_at DESC NULLS LAST, created_at DESC
+			LIMIT 1
+		) ar ON true
 		WHERE s.rt_id = $1
 		  AND s.user_id = $2
 		  AND s.status = 'scheduled'
-		  AND s.scheduled_start_at <= $3
-		  AND s.scheduled_end_at >= $4
-		ORDER BY s.scheduled_start_at ASC
+		  AND s.is_active = true
+		  AND (
+		        s.scheduled_start_at IS NULL
+		        OR (s.scheduled_start_at <= $3 AND s.scheduled_end_at >= $4)
+		      )
+		ORDER BY s.created_at ASC
 		FOR UPDATE OF s
-	`, rtID, userID, windowStartUpper, windowEndLower)
+	`, rtID, userID, windowStartUpper, windowEndLower, todayStr, yestStr)
 	if err != nil {
 		return nil, err
 	}
@@ -1662,7 +1770,7 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	type candidate struct {
 		scheduleID, shiftConfigID, shiftDate, shiftName, startTime, endTime string
 		shiftVersion, tolMin, winBefore, winAfter, absentMin, missOutMin    int
-		crossesMidnight                                                     bool
+		crossesMidnight, isContinuous                                       bool
 		schedStart, schedEnd                                                time.Time
 		attID, attStatus                                                    sql.NullString
 		checkedIn, checkedOut                                               sql.NullTime
@@ -1670,21 +1778,85 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
+		var schedDateNull, arDateNull sql.NullString
+		var schedStartNull, schedEndNull sql.NullTime
 		if err := rows.Scan(
-			&c.scheduleID, &c.shiftConfigID, &c.shiftVersion, &c.shiftDate,
+			&c.scheduleID, &c.shiftConfigID, &c.shiftVersion, &schedDateNull, &arDateNull,
 			&c.shiftName, &c.startTime, &c.endTime, &c.crossesMidnight,
 			&c.tolMin, &c.winBefore, &c.winAfter, &c.absentMin, &c.missOutMin,
-			&c.schedStart, &c.schedEnd,
+			&schedStartNull, &schedEndNull,
 			&c.attID, &c.attStatus, &c.checkedIn, &c.checkedOut,
 		); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		c.isContinuous = !schedDateNull.Valid
+		if schedDateNull.Valid {
+			c.shiftDate = schedDateNull.String
+		} else if arDateNull.Valid {
+			c.shiftDate = arDateNull.String
+		}
+		if schedStartNull.Valid && schedEndNull.Valid {
+			c.schedStart = schedStartNull.Time
+			c.schedEnd = schedEndNull.Time
+		} else {
+			// Compute dynamic wall-clock bounds around `now` (Asia/Jakarta)
+			nowJkt := now.In(JakartaLoc)
+			sh, sm, _, err1 := ParseHHMM(c.startTime)
+			eh, em, _, err2 := ParseHHMM(c.endTime)
+			if err1 == nil && err2 == nil {
+				tTodayStart := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), sh, sm, 0, 0, JakartaLoc)
+				tTodayEnd := time.Date(nowJkt.Year(), nowJkt.Month(), nowJkt.Day(), eh, em, 0, 0, JakartaLoc)
+				if c.crossesMidnight || !tTodayEnd.After(tTodayStart) {
+					tTodayEnd = tTodayEnd.AddDate(0, 0, 1)
+				}
+				tYestStart := tTodayStart.AddDate(0, 0, -1)
+				tYestEnd := tTodayEnd.AddDate(0, 0, -1)
+
+				// For cross-midnight shift: if officer has an open check-in during yesterday's window, or current time is in yesterday's checkout window
+				if c.crossesMidnight && c.checkedIn.Valid && !c.checkedOut.Valid && !c.checkedIn.Time.Before(tYestStart.Add(-time.Duration(c.winBefore)*time.Minute)) && c.checkedIn.Time.Before(tTodayStart.Add(-time.Duration(c.winBefore)*time.Minute)) {
+					c.schedStart = tYestStart.UTC()
+					c.schedEnd = tYestEnd.UTC()
+					c.shiftDate = tYestStart.Format("2006-01-02")
+				} else if c.crossesMidnight && nowJkt.Before(tTodayStart.Add(-time.Duration(c.winBefore)*time.Minute)) && !nowJkt.After(tYestEnd.Add(time.Duration(c.missOutMin)*time.Minute)) {
+					c.schedStart = tYestStart.UTC()
+					c.schedEnd = tYestEnd.UTC()
+					c.shiftDate = tYestStart.Format("2006-01-02")
+				} else {
+					c.schedStart = tTodayStart.UTC()
+					c.schedEnd = tTodayEnd.UTC()
+					c.shiftDate = tTodayStart.Format("2006-01-02")
+				}
+			}
+		}
+
+		// In continuous date-independent shifts, a previous completed/closed session from an earlier calendar date
+		// must not block attendance on a new date.
+		if c.isContinuous && arDateNull.Valid && arDateNull.String != c.shiftDate {
+			c.attID = sql.NullString{}
+			c.attStatus = sql.NullString{}
+			c.checkedIn = sql.NullTime{}
+			c.checkedOut = sql.NullTime{}
+		}
+
 		candidates = append(candidates, c)
 	}
 	rows.Close()
 	if len(candidates) == 0 {
 		return nil, newAppError(400, "no_matching_schedule", "you do not have an active scheduled shift right now", ErrNoActiveSchedule)
+	}
+
+	targetShiftConfigID := strings.TrimSpace(shiftConfigID)
+	if targetShiftConfigID != "" {
+		var filtered []candidate
+		for _, c := range candidates {
+			if c.shiftConfigID == targetShiftConfigID || c.scheduleID == targetShiftConfigID {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
 	}
 
 	reqAction := strings.ToLower(strings.TrimSpace(action))
@@ -1741,7 +1913,8 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		if chosen == nil {
 			// Give specific reason if already checked out vs not yet checked in.
 			for i := range candidates {
-				if candidates[i].checkedOut.Valid || (candidates[i].attStatus.Valid && candidates[i].attStatus.String == StatusSudahAbsenPulang) {
+				c := &candidates[i]
+				if c.checkedOut.Valid || (c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang) {
 					return nil, newAppError(409, "already_checked_out", "you have already checked out for this shift", ErrAlreadyCheckedOut)
 				}
 			}
@@ -1752,14 +1925,19 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		if chosen == nil {
 			for i := range candidates {
 				c := &candidates[i]
-				if c.checkedIn.Valid && !c.checkedOut.Valid {
-					return nil, newAppError(409, "already_checked_in", "you have already checked in for this shift", ErrAlreadyCheckedIn)
-				}
-				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
-					return nil, newAppError(409, "already_checked_out", "shift attendance is already completed", ErrAlreadyCheckedOut)
-				}
-				if c.attStatus.Valid && c.attStatus.String == StatusTidakHadir {
-					return nil, newAppError(400, "check_in_window_closed", "shift was already marked absent", ErrWindowClosed)
+				openAt := c.schedStart.Add(-time.Duration(c.winBefore) * time.Minute)
+				closeAt := c.schedStart.Add(time.Duration(c.winAfter) * time.Minute)
+				inWindow := !now.Before(openAt) && !now.After(closeAt)
+				if inWindow {
+					if c.checkedIn.Valid && !c.checkedOut.Valid {
+						return nil, newAppError(409, "already_checked_in", "you have already checked in for this shift", ErrAlreadyCheckedIn)
+					}
+					if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
+						return nil, newAppError(409, "already_checked_out", "shift attendance is already completed", ErrAlreadyCheckedOut)
+					}
+					if c.attStatus.Valid && c.attStatus.String == StatusTidakHadir {
+						return nil, newAppError(400, "check_in_window_closed", "shift was already marked absent", ErrWindowClosed)
+					}
 				}
 			}
 			return nil, newAppError(400, "check_in_window_closed", "current time is outside your shift check-in window", ErrWindowClosed)
@@ -1774,12 +1952,20 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 		} else {
 			for i := range candidates {
 				c := &candidates[i]
-				if c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
+				openAt := c.schedStart.Add(-time.Duration(c.winBefore) * time.Minute)
+				closeAt := c.schedStart.Add(time.Duration(c.winAfter) * time.Minute)
+				inWindow := !now.Before(openAt) && !now.After(closeAt)
+				if inWindow && c.attStatus.Valid && c.attStatus.String == StatusSudahAbsenPulang {
 					return nil, newAppError(409, "already_checked_out", "you have already completed attendance for this shift", ErrAlreadyCheckedOut)
 				}
 			}
 			return nil, newAppError(400, "check_in_window_closed", "current time is outside the allowed attendance window", ErrWindowClosed)
 		}
+	}
+
+	// Serialize concurrent attempts for this officer's schedule and date using transaction advisory lock
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2 || ':' || $3))`, rtID, chosen.scheduleID, chosen.shiftDate); err != nil {
+		return nil, err
 	}
 
 	// Ensure attendance row exists, then lock it directly via FOR UPDATE and re-verify state under READ COMMITTED.
@@ -1789,7 +1975,7 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 			INSERT INTO security_attendance_records (
 				rt_id, schedule_id, user_id, shift_config_id, shift_version, shift_date, status, created_at, updated_at
 			) VALUES ($1, $2, $3, $4, $5, $6::date, 'belum_hadir', $7, $7)
-			ON CONFLICT (schedule_id) DO UPDATE SET updated_at = security_attendance_records.updated_at
+			ON CONFLICT (schedule_id, shift_date) DO UPDATE SET updated_at = security_attendance_records.updated_at
 			RETURNING id
 		`, rtID, chosen.scheduleID, userID, chosen.shiftConfigID, chosen.shiftVersion, chosen.shiftDate, now).Scan(&insertedID)
 		if err != nil {
@@ -1822,6 +2008,10 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 	}
 
 	if resolvedAction == "check_in" {
+		if err := reconcileExpiredOpenSessionsTx(ctx, tx, rtID, userID, chosen.attID.String, now); err != nil {
+			return nil, fmt.Errorf("reconcile expired open sessions before check-in: %w", err)
+		}
+
 		deadline := chosen.schedStart.Add(time.Duration(chosen.tolMin) * time.Minute)
 		status := StatusHadir
 		arrival := StatusHadir
@@ -1846,6 +2036,9 @@ func (r *Repository) ConsumeQRAndRecordAttendance(
 			    updated_at = $7
 			WHERE id = $1
 		`, chosen.attID.String, status, arrival, lateMinutes, deviceID, qrID, now); err != nil {
+			if isPgUniqueConstraint(err, "uniq_security_attendance_user_open_session") {
+				return nil, newAppError(409, "active_open_session_exists", "petugas masih memiliki sesi absensi aktif pada shift lain yang belum absen pulang", ErrConflict)
+			}
 			return nil, err
 		}
 	} else {
@@ -1914,7 +2107,7 @@ func (r *Repository) getAttendanceByIDTx(ctx context.Context, q interface {
 }, rtID, id string) (*AttendanceRecord, error) {
 	var rec AttendanceRecord
 	var arrStatus, inDevID, inDevName, outDevID, outDevName sql.NullString
-	var cin, cout, absAt, missAt sql.NullTime
+	var cin, cout, absAt, missAt, schedStartNull, schedEndNull sql.NullTime
 	err := q.QueryRowContext(ctx, `
 		SELECT ar.id, ar.rt_id, ar.schedule_id, ar.user_id, u.full_name,
 		       ar.shift_config_id, ar.shift_version, to_char(ar.shift_date, 'YYYY-MM-DD'),
@@ -1935,13 +2128,19 @@ func (r *Repository) getAttendanceByIDTx(ctx context.Context, q interface {
 		&rec.ID, &rec.RTID, &rec.ScheduleID, &rec.UserID, &rec.OfficerName,
 		&rec.ShiftConfigID, &rec.ShiftVersion, &rec.ShiftDate,
 		&rec.ShiftName, &rec.StartTime, &rec.EndTime, &rec.CrossesMidnight,
-		&rec.ScheduledStartAt, &rec.ScheduledEndAt,
+		&schedStartNull, &schedEndNull,
 		&rec.Status, &arrStatus, &rec.LateMinutes,
 		&inDevID, &inDevName, &outDevID, &outDevName,
 		&cin, &cout, &absAt, &missAt, &rec.CorrectionLocked, &rec.CreatedAt, &rec.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if schedStartNull.Valid {
+		rec.ScheduledStartAt = schedStartNull.Time
+	}
+	if schedEndNull.Valid {
+		rec.ScheduledEndAt = schedEndNull.Time
 	}
 	assignAttendanceOptionals(&rec, arrStatus, inDevID, inDevName, outDevID, outDevName, cin, cout, absAt, missAt)
 	return &rec, nil
@@ -2002,7 +2201,7 @@ type AttendanceFilter struct {
 }
 
 func (r *Repository) ListAttendance(ctx context.Context, rtID string, f AttendanceFilter) ([]AttendanceRecord, int, error) {
-	where := []string{"ar.rt_id = $1", "s.status = 'scheduled'"}
+	where := []string{"ar.rt_id = $1"}
 	args := []any{rtID}
 	idx := 2
 
@@ -2082,17 +2281,23 @@ func (r *Repository) ListAttendance(ctx context.Context, rtID string, f Attendan
 	for rows.Next() {
 		var rec AttendanceRecord
 		var arrStatus, inDevID, inDevName, outDevID, outDevName sql.NullString
-		var cin, cout, absAt, missAt sql.NullTime
+		var cin, cout, absAt, missAt, schedStartNull, schedEndNull sql.NullTime
 		if err := rows.Scan(
 			&rec.ID, &rec.RTID, &rec.ScheduleID, &rec.UserID, &rec.OfficerName,
 			&rec.ShiftConfigID, &rec.ShiftVersion, &rec.ShiftDate,
 			&rec.ShiftName, &rec.StartTime, &rec.EndTime, &rec.CrossesMidnight,
-			&rec.ScheduledStartAt, &rec.ScheduledEndAt,
+			&schedStartNull, &schedEndNull,
 			&rec.Status, &arrStatus, &rec.LateMinutes,
 			&inDevID, &inDevName, &outDevID, &outDevName,
 			&cin, &cout, &absAt, &missAt, &rec.CorrectionLocked, &rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
+		}
+		if schedStartNull.Valid {
+			rec.ScheduledStartAt = schedStartNull.Time
+		}
+		if schedEndNull.Valid {
+			rec.ScheduledEndAt = schedEndNull.Time
 		}
 		assignAttendanceOptionals(&rec, arrStatus, inDevID, inDevName, outDevID, outDevName, cin, cout, absAt, missAt)
 		list = append(list, rec)
@@ -2119,29 +2324,91 @@ func (r *Repository) CreateCorrection(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var attRecordID string
 	var scheduleID, officerUserID, origStatus string
 	var origCin, origCout sql.NullTime
-	err = tx.QueryRowContext(ctx, `
-		SELECT schedule_id, user_id, status, checked_in_at, checked_out_at
-		FROM security_attendance_records
-		WHERE id = $1 AND rt_id = $2
-		FOR UPDATE
-	`, req.AttendanceRecordID, rtID).Scan(&scheduleID, &officerUserID, &origStatus, &origCin, &origCout)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, newAppError(404, "not_found", "attendance record not found", ErrNotFound)
+	var shiftDateStr, startTimeStr string
+	var winBefore int
+
+	if strings.TrimSpace(req.AttendanceRecordID) != "" {
+		attRecordID = strings.TrimSpace(req.AttendanceRecordID)
+		err = tx.QueryRowContext(ctx, `
+			SELECT ar.schedule_id, ar.user_id, ar.status, ar.checked_in_at, ar.checked_out_at,
+			       to_char(ar.shift_date, 'YYYY-MM-DD'),
+			       to_char(COALESCE(s.start_time_snapshot, '00:00'::time), 'HH24:MI'),
+			       COALESCE(s.check_in_window_before_minutes, 15)
+			FROM security_attendance_records ar
+			LEFT JOIN security_schedules s ON s.id = ar.schedule_id
+			WHERE ar.id = $1 AND ar.rt_id = $2
+			FOR UPDATE OF ar
+		`, attRecordID, rtID).Scan(&scheduleID, &officerUserID, &origStatus, &origCin, &origCout, &shiftDateStr, &startTimeStr, &winBefore)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, newAppError(404, "not_found", "attendance record not found", ErrNotFound)
+			}
+			return nil, err
 		}
-		return nil, err
+	} else if strings.TrimSpace(req.ScheduleID) != "" && strings.TrimSpace(req.ShiftDate) != "" {
+		scheduleID = strings.TrimSpace(req.ScheduleID)
+		shiftDateStr = strings.TrimSpace(req.ShiftDate)
+		var shiftConfigID string
+		var shiftVersion int
+		err = tx.QueryRowContext(ctx, `
+			SELECT s.user_id, s.shift_config_id, s.shift_version,
+			       to_char(COALESCE(s.start_time_snapshot, '00:00'::time), 'HH24:MI'),
+			       COALESCE(s.check_in_window_before_minutes, 15)
+			FROM security_schedules s
+			WHERE s.id = $1 AND s.rt_id = $2 AND s.is_active = true
+			FOR UPDATE
+		`, scheduleID, rtID).Scan(&officerUserID, &shiftConfigID, &shiftVersion, &startTimeStr, &winBefore)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, newAppError(404, "not_found", "schedule assignment not found", ErrNotFound)
+			}
+			return nil, err
+		}
+
+		// Idempotently ensure the attendance row exists for (schedule_id, shift_date)
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO security_attendance_records (
+				rt_id, schedule_id, user_id, shift_config_id, shift_version, shift_date, status, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6::date, 'belum_hadir', $7, $7)
+			ON CONFLICT (schedule_id, shift_date) DO UPDATE SET updated_at = security_attendance_records.updated_at
+			RETURNING id, status, checked_in_at, checked_out_at
+		`, rtID, scheduleID, officerUserID, shiftConfigID, shiftVersion, shiftDateStr, now).
+			Scan(&attRecordID, &origStatus, &origCin, &origCout)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, newAppError(400, "validation_error", "attendance_record_id or (schedule_id and shift_date) is required", ErrValidation)
 	}
+
 	if !isManager && officerUserID != requesterID {
 		return nil, newAppError(403, "forbidden", "you can only request corrections for your own attendance", ErrForbidden)
+	}
+
+	// Verify occurrence has started (cannot correct future shifts before they start)
+	if !origCin.Valid && shiftDateStr != "" && startTimeStr != "" {
+		sh, sm, _, err1 := ParseHHMM(startTimeStr)
+		if err1 == nil {
+			tShiftDate, err2 := time.Parse("2006-01-02", shiftDateStr)
+			if err2 == nil {
+				occStart := time.Date(tShiftDate.Year(), tShiftDate.Month(), tShiftDate.Day(), sh, sm, 0, 0, JakartaLoc)
+				allowedEarliest := occStart.Add(-time.Duration(winBefore) * time.Minute)
+				nowJkt := now.In(JakartaLoc)
+				if nowJkt.Before(allowedEarliest) {
+					return nil, newAppError(400, "cannot_correct_future_shift", "cannot request correction for a future shift that has not started yet", ErrValidation)
+				}
+			}
+		}
 	}
 
 	var pendingCnt int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM security_attendance_corrections
 		WHERE attendance_record_id = $1 AND status = 'pending'
-	`, req.AttendanceRecordID).Scan(&pendingCnt); err != nil {
+	`, attRecordID).Scan(&pendingCnt); err != nil {
 		return nil, err
 	}
 	if pendingCnt > 0 {
@@ -2157,12 +2424,53 @@ func (r *Repository) CreateCorrection(
 			reason, status, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14, $14)
 		RETURNING id
-	`, rtID, req.AttendanceRecordID, scheduleID, officerUserID, requesterID,
+	`, rtID, attRecordID, scheduleID, officerUserID, requesterID,
 		req.RequestType, origStatus, origCin, origCout,
 		req.RequestedStatus, reqCin, reqCout, strings.TrimSpace(req.Reason), now,
 	).Scan(&corrID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Notify Ketua RT of the new correction request.
+	var officerName string
+	_ = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(full_name, 'Petugas Keamanan') FROM users WHERE id = $1
+	`, officerUserID).Scan(&officerName)
+	var ketuaIDs []string
+	notifyRows, nErr := tx.QueryContext(ctx, `
+		SELECT DISTINCT u.id
+		FROM users u
+		JOIN user_rt_memberships urm ON urm.user_id = u.id
+		WHERE urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan = 'ketua'
+	`, rtID)
+	if nErr == nil {
+		for notifyRows.Next() {
+			var ketuaID string
+			if err := notifyRows.Scan(&ketuaID); err == nil {
+				ketuaIDs = append(ketuaIDs, ketuaID)
+			}
+		}
+		notifyRows.Close()
+	}
+	for _, ketuaID := range ketuaIDs {
+		// Skip notifying the requester themselves.
+		if ketuaID == requesterID {
+			continue
+		}
+		dedup := fmt.Sprintf("correction:%s:%s", corrID, ketuaID)
+		_, _ = tx.ExecContext(ctx, `
+			INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+			VALUES ($1::uuid, $2::uuid, 'correction_submitted', $3, 'Pengajuan Koreksi Absensi', $4, 'SENT', $5, json_build_object(
+				'correction_id', $6::text,
+				'officer_user_id', $7::text,
+				'officer_name', $8::text,
+				'shift_date', $9::text
+			)::jsonb)
+			ON CONFLICT (dedup_key) DO NOTHING
+		`, rtID, ketuaID, dedup,
+			fmt.Sprintf("Petugas %s mengajukan koreksi absensi untuk shift %s. Silakan tinjau pengajuan.", officerName, shiftDateStr),
+			now, corrID, officerUserID, officerName, shiftDateStr)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -2211,9 +2519,23 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		if err != nil {
 			return nil, err
 		}
-		_ = insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_rejected", "security_attendance_correction", correctionID,
-			map[string]any{"status": origStatus, "checked_in_at": origCin.Time},
-			map[string]any{"decision": "rejected", "note": note}, ip)
+		if !origCin.Valid && origStatus == StatusBelumHadir {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE security_attendance_records
+				SET status = 'tidak_hadir',
+				    marked_absent_at = COALESCE(marked_absent_at, $2),
+				    correction_locked = true,
+				    updated_at = $2
+				WHERE id = $1 AND checked_in_at IS NULL AND status = 'belum_hadir'
+			`, attID, now); err != nil {
+				return nil, fmt.Errorf("finalize absent attendance on correction reject: %w", err)
+			}
+		}
+		if err := insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_rejected", "security_attendance_correction", correctionID,
+			map[string]any{"status": origStatus, "checked_in_at": nullableTimePtr(origCin)},
+			map[string]any{"decision": "rejected", "note": note}, ip); err != nil {
+			return nil, fmt.Errorf("insert rejection audit log: %w", err)
+		}
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
@@ -2222,18 +2544,23 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 
 	// Load current attendance record and schedule to compute final values cleanly.
 	var curStatus string
-	var curCin, curCout sql.NullTime
-	var schedStart time.Time
+	var curCin, curCout, schedStartNull sql.NullTime
 	var tolMin int
 	err = tx.QueryRowContext(ctx, `
-		SELECT ar.status, ar.checked_in_at, ar.checked_out_at, s.scheduled_start_at, s.lateness_tolerance_minutes
+		SELECT ar.status, ar.checked_in_at, ar.checked_out_at,
+		       COALESCE(s.scheduled_start_at, (ar.shift_date + s.start_time_snapshot) AT TIME ZONE 'Asia/Jakarta'),
+		       s.lateness_tolerance_minutes
 		FROM security_attendance_records ar
 		JOIN security_schedules s ON s.id = ar.schedule_id
 		WHERE ar.id = $1 AND ar.rt_id = $2
 		FOR UPDATE OF ar
-	`, attID, rtID).Scan(&curStatus, &curCin, &curCout, &schedStart, &tolMin)
+	`, attID, rtID).Scan(&curStatus, &curCin, &curCout, &schedStartNull, &tolMin)
 	if err != nil {
 		return nil, err
+	}
+	schedStart := now
+	if schedStartNull.Valid {
+		schedStart = schedStartNull.Time
 	}
 
 	finalCin := curCin
@@ -2243,14 +2570,22 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 	finalCout := curCout
 	if reqCout.Valid {
 		finalCout = reqCout
+	} else if reqStatus == StatusHadir || reqStatus == StatusTerlambat {
+		finalCout = sql.NullTime{Valid: false}
 	}
 
 	var arrivalStatus sql.NullString
 	lateMin := 0
 	if reqStatus == StatusHadir {
 		arrivalStatus = sql.NullString{String: StatusHadir, Valid: true}
+		if !finalCin.Valid {
+			finalCin = sql.NullTime{Time: schedStart, Valid: true}
+		}
 	} else if reqStatus == StatusTerlambat {
 		arrivalStatus = sql.NullString{String: StatusTerlambat, Valid: true}
+		if !finalCin.Valid {
+			finalCin = sql.NullTime{Time: schedStart.Add(time.Duration(tolMin+1) * time.Minute), Valid: true}
+		}
 		if finalCin.Valid && finalCin.Time.After(schedStart) {
 			lateMin = int(finalCin.Time.Sub(schedStart) / time.Minute)
 			if lateMin < 1 {
@@ -2269,6 +2604,15 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		}
 	}
 
+	// If approving an open check-in status (hadir/terlambat without checkout),
+	// reconcile any expired past open sessions for this officer first so
+	// uniq_security_attendance_user_open_session is not violated by stale shifts.
+	if (reqStatus == StatusHadir || reqStatus == StatusTerlambat) && finalCin.Valid && !finalCout.Valid {
+		if err := reconcileExpiredOpenSessionsTx(ctx, tx, rtID, officerID, attID, now); err != nil {
+			return nil, fmt.Errorf("reconcile expired open sessions before correction approve: %w", err)
+		}
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		UPDATE security_attendance_records
 		SET status = $2,
@@ -2281,6 +2625,9 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		WHERE id = $1
 	`, attID, reqStatus, arrivalStatus, lateMin, finalCin, finalCout, now)
 	if err != nil {
+		if isPgUniqueConstraint(err, "uniq_security_attendance_user_open_session") {
+			return nil, newAppError(409, "active_open_session_exists", "petugas masih memiliki sesi absensi aktif pada shift lain yang belum absen pulang", ErrConflict)
+		}
 		return nil, err
 	}
 
@@ -2294,11 +2641,13 @@ func (r *Repository) DecideCorrection(ctx context.Context, rtID, correctionID, a
 		return nil, err
 	}
 
-	_ = insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_approved", "security_attendance_correction", correctionID,
+	if err := insertAuditLog(ctx, tx, rtID, &approverID, "security_correction_approved", "security_attendance_correction", correctionID,
 		map[string]any{"status": curStatus, "checked_in_at": nullableTimePtr(curCin), "checked_out_at": nullableTimePtr(curCout)},
-		map[string]any{"status": reqStatus, "checked_in_at": nullableTimePtr(finalCin), "checked_out_at": nullableTimePtr(finalCout), "attendance_record_id": attID},
+		map[string]any{"status": reqStatus, "checked_in_at": nullableTimePtr(finalCin), "checked_out_at": nullableTimePtr(finalCout), "attendance_record_id": attID, "note": note},
 		ip,
-	)
+	); err != nil {
+		return nil, fmt.Errorf("insert approval audit log: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -2353,7 +2702,7 @@ func (r *Repository) listCorrectionsQuery(ctx context.Context, rtID, officerFilt
 		SELECT c.id, c.rt_id, c.attendance_record_id, c.schedule_id,
 		       c.officer_user_id, ou.full_name,
 		       c.requested_by, ru.full_name,
-		       to_char(s.shift_date, 'YYYY-MM-DD'), s.shift_name_snapshot,
+		       COALESCE(to_char(ar.shift_date, 'YYYY-MM-DD'), to_char(s.shift_date, 'YYYY-MM-DD'), ''), s.shift_name_snapshot,
 		       c.request_type, c.original_status, c.original_checked_in_at, c.original_checked_out_at,
 		       c.requested_status, c.requested_checked_in_at, c.requested_checked_out_at,
 		       c.reason, c.status, c.decided_by, du.full_name, c.decided_at, c.decision_note,
@@ -2361,6 +2710,7 @@ func (r *Repository) listCorrectionsQuery(ctx context.Context, rtID, officerFilt
 		       c.created_at, c.updated_at
 		FROM security_attendance_corrections c
 		JOIN security_schedules s ON s.id = c.schedule_id
+		LEFT JOIN security_attendance_records ar ON ar.id = c.attendance_record_id
 		JOIN users ou ON ou.id = c.officer_user_id
 		JOIN users ru ON ru.id = c.requested_by
 		LEFT JOIN users du ON du.id = c.decided_by
@@ -2444,11 +2794,11 @@ func (r *Repository) CreateGuestBook(ctx context.Context, rtID, deviceID string,
 	err := r.pool.Raw().QueryRowContext(ctx, `
 		INSERT INTO security_guest_books (
 			rt_id, device_id, guest_name, phone, purpose, host_household_id,
-			destination_label, vehicle_plate, notes, checked_in_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $10)
+			destination_label, vehicle_plate, notes, photo_key, checked_in_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11)
 		RETURNING id
 	`, rtID, deviceID, strings.TrimSpace(req.GuestName), req.Phone, strings.TrimSpace(req.Purpose),
-		req.HostHouseholdID, strings.TrimSpace(req.DestinationLabel), req.VehiclePlate, req.Notes, now).Scan(&id)
+		req.HostHouseholdID, strings.TrimSpace(req.DestinationLabel), req.VehiclePlate, req.Notes, req.PhotoKey, now).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -2564,7 +2914,7 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 
 	q := fmt.Sprintf(`
 		SELECT g.id, g.rt_id, g.device_id, d.device_name, g.guest_name, g.phone,
-		       g.purpose, g.host_household_id, g.destination_label, g.vehicle_plate, g.notes,
+		       g.purpose, g.host_household_id, g.destination_label, g.vehicle_plate, g.notes, g.photo_key,
 		       g.checked_in_at, g.checked_out_at, g.checkout_device_id, g.created_at, g.updated_at
 		FROM security_guest_books g
 		JOIN security_devices d ON d.id = g.device_id
@@ -2582,11 +2932,11 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 	var list []GuestBookEntry
 	for rows.Next() {
 		var g GuestBookEntry
-		var phone, hostID, plate, notes, outDev sql.NullString
+		var phone, hostID, plate, notes, photoKey, outDev sql.NullString
 		var cout sql.NullTime
 		if err := rows.Scan(
 			&g.ID, &g.RTID, &g.DeviceID, &g.DeviceName, &g.GuestName, &phone,
-			&g.Purpose, &hostID, &g.DestinationLabel, &plate, &notes,
+			&g.Purpose, &hostID, &g.DestinationLabel, &plate, &notes, &photoKey,
 			&g.CheckedInAt, &cout, &outDev, &g.CreatedAt, &g.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
@@ -2605,9 +2955,13 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 			v := plate.String
 			g.VehiclePlate = &v
 		}
-		if notes.Valid {
+ 	if notes.Valid {
 			v := notes.String
 			g.Notes = &v
+		}
+		if photoKey.Valid {
+			v := photoKey.String
+			g.PhotoKey = &v
 		}
 		if outDev.Valid {
 			v := outDev.String
@@ -2855,24 +3209,54 @@ func (r *Repository) GetOnDutyOfficers(ctx context.Context, rtID string, now tim
 	// cross-midnight shifts working: at 02:00 the schedule that started
 	// "yesterday" 20:00 and ends "today" 08:00 still contains now.
 	rows, err := r.pool.Raw().QueryContext(ctx, `
-		SELECT s.user_id, u.full_name, s.shift_name_snapshot,
-		       to_char(s.start_time_snapshot, 'HH24:MI'), to_char(s.end_time_snapshot, 'HH24:MI'),
-		       COALESCE(ar.status, 'belum_hadir'), u.phone,
-		       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1),
-		       (SELECT r.avatar_thumb_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)
-		FROM security_schedules s
-		JOIN users u ON u.id = s.user_id
-		JOIN security_attendance_records ar ON ar.schedule_id = s.id
-		JOIN user_rt_memberships um ON um.id = s.membership_id AND um.rt_id = s.rt_id AND um.is_active = true
-		WHERE s.rt_id = $1
-		  AND s.status = 'scheduled'
-		  AND s.scheduled_start_at <= $2
-		  AND s.scheduled_end_at > $2
-		  AND u.is_active = true
-		  AND ar.checked_in_at IS NOT NULL
-		  AND ar.checked_out_at IS NULL
-		  AND ar.status IN ('hadir', 'terlambat', 'belum_absen_pulang')
-		ORDER BY ar.checked_in_at ASC NULLS LAST, s.scheduled_start_at ASC, u.full_name ASC
+		WITH duty AS (
+			SELECT s.user_id, u.full_name, s.shift_name_snapshot,
+			       to_char(s.start_time_snapshot, 'HH24:MI') AS shift_start,
+			       to_char(s.end_time_snapshot, 'HH24:MI') AS shift_end,
+			       COALESCE(ar.status, 'belum_hadir') AS status,
+			       COALESCE(u.phone, (SELECT r.phone FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)) AS phone,
+			       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1) AS avatar_path,
+			       (SELECT r.avatar_thumb_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1) AS avatar_thumb_path,
+			       ar.checked_in_at, s.scheduled_start_at,
+			       ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY ar.checked_in_at ASC NULLS LAST, s.scheduled_start_at ASC) as rn
+			FROM security_schedules s
+			JOIN users u ON u.id = s.user_id
+			JOIN security_attendance_records ar ON ar.schedule_id = s.id
+			JOIN user_rt_memberships um ON (um.id = s.membership_id OR (um.user_id = s.user_id AND um.rt_id = s.rt_id)) AND um.is_active = true
+			WHERE s.rt_id = $1
+			  AND s.status = 'scheduled'
+			  AND s.is_active = true
+			  AND (
+			        (s.scheduled_start_at IS NOT NULL AND (
+			            (s.scheduled_start_at <= $2 AND s.scheduled_end_at > $2)
+			            OR (
+			                 ar.checked_in_at IS NOT NULL
+			                 AND ar.checked_in_at <= $2
+			                 AND s.scheduled_end_at > $2
+			                 AND $2 >= (s.scheduled_start_at - (s.check_in_window_before_minutes || ' minutes')::interval)
+			               )
+			        ))
+			        OR
+			        (s.scheduled_start_at IS NULL AND (
+			            ar.checked_in_at IS NOT NULL
+			            AND ar.checked_in_at <= $2
+			            AND $2 < CASE
+			                WHEN s.crosses_midnight_snapshot OR s.end_time_snapshot <= s.start_time_snapshot
+			                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot + (COALESCE(s.missing_checkout_cutoff_minutes, 60) || ' minutes')::interval) AT TIME ZONE 'Asia/Jakarta'
+			                ELSE (ar.shift_date + s.end_time_snapshot + (COALESCE(s.missing_checkout_cutoff_minutes, 60) || ' minutes')::interval) AT TIME ZONE 'Asia/Jakarta'
+			            END
+			        ))
+			      )
+			  AND u.is_active = true
+			  AND (ar.checked_in_at IS NOT NULL OR LOWER(ar.status) IN ('hadir', 'terlambat'))
+			  AND ar.checked_out_at IS NULL
+			  AND LOWER(ar.status) IN ('hadir', 'terlambat')
+			  AND ar.marked_missing_checkout_at IS NULL
+		)
+		SELECT user_id, full_name, shift_name_snapshot, shift_start, shift_end, status, phone, avatar_path, avatar_thumb_path
+		FROM duty
+		WHERE rn = 1
+		ORDER BY checked_in_at ASC NULLS LAST, scheduled_start_at ASC, full_name ASC
 	`, rtID, now)
 	if err != nil {
 		return nil, err
@@ -2936,7 +3320,8 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 
 	res := &SchedulerTickResult{AcquiredLock: true}
 
-	// Ensure any active schedule without an attendance row yet gets initialized cleanly first.
+	// Ensure any active legacy schedule with explicit shift_date without an attendance row yet gets initialized cleanly.
+	// For date-independent shifts (shift_date IS NULL), attendance rows are NEVER pre-inserted by scheduler.
 	_, err = conn.ExecContext(ctx, `
 		INSERT INTO security_attendance_records (
 			rt_id, schedule_id, user_id, shift_config_id, shift_version, shift_date, status, created_at, updated_at
@@ -2944,14 +3329,14 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 		SELECT s.rt_id, s.id, s.user_id, s.shift_config_id, s.shift_version, s.shift_date, 'belum_hadir', $1, $1
 		FROM security_schedules s
 		LEFT JOIN security_attendance_records ar ON ar.schedule_id = s.id
-		WHERE s.status = 'scheduled' AND ar.id IS NULL
-		ON CONFLICT (schedule_id) DO NOTHING
+		WHERE s.status = 'scheduled' AND ar.id IS NULL AND s.shift_date IS NOT NULL
+		ON CONFLICT (schedule_id, shift_date) DO NOTHING
 	`, now)
 	if err != nil {
 		return nil, err
 	}
 
-	// 1. Mark Tidak Hadir once absent cutoff has elapsed with no check-in.
+	// 1. Mark Tidak Hadir once absent cutoff has elapsed with no check-in (only for legacy date-specified schedules).
 	absRes, err := conn.ExecContext(ctx, `
 		UPDATE security_attendance_records ar
 		SET status = 'tidak_hadir',
@@ -2963,6 +3348,8 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 		  AND ar.correction_locked = false
 		  AND ar.status = 'belum_hadir'
 		  AND ar.checked_in_at IS NULL
+		  AND s.shift_date IS NOT NULL
+		  AND s.scheduled_start_at IS NOT NULL
 		  AND $1 > (s.scheduled_start_at + (s.absent_cutoff_minutes * INTERVAL '1 minute'))
 	`, now)
 	if err != nil {
@@ -2973,6 +3360,7 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 	}
 
 	// 2. Mark Belum Absen Pulang once shift end + missing_checkout_cutoff has elapsed with no check-out.
+	// Supports both legacy scheduled_end_at and date-independent dynamic wall-clock end.
 	missRes, err := conn.ExecContext(ctx, `
 		UPDATE security_attendance_records ar
 		SET status = 'belum_absen_pulang',
@@ -2984,7 +3372,16 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 		  AND ar.correction_locked = false
 		  AND ar.status IN ('hadir', 'terlambat')
 		  AND ar.checked_out_at IS NULL
-		  AND $1 > (s.scheduled_end_at + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute'))
+		  AND $1 > CASE
+		        WHEN s.scheduled_end_at IS NOT NULL THEN (s.scheduled_end_at + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute'))
+		        ELSE (
+		            CASE
+		                WHEN s.crosses_midnight_snapshot OR s.end_time_snapshot <= s.start_time_snapshot
+		                THEN (ar.shift_date + interval '1 day' + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		                ELSE (ar.shift_date + s.end_time_snapshot) AT TIME ZONE 'Asia/Jakarta'
+		            END + (s.missing_checkout_cutoff_minutes * INTERVAL '1 minute')
+		        )
+		  END
 	`, now)
 	if err != nil {
 		return nil, err
@@ -2994,4 +3391,1055 @@ func (r *Repository) RunSchedulerTick(ctx context.Context, now time.Time) (*Sche
 	}
 
 	return res, nil
+}
+
+// ── Patrol & Paket Repository Methods ───────────────────────────────────────
+
+func (r *Repository) ListPatrolTemplates(ctx context.Context, rtID string) ([]PatrolTemplate, error) {
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT id, rt_id, name, location_label, is_active, created_by, created_at, updated_at
+		FROM patrol_templates
+		WHERE rt_id = $1 AND is_active = true
+		ORDER BY name ASC
+	`, rtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []PatrolTemplate
+	for rows.Next() {
+		var t PatrolTemplate
+		var createdBy sql.NullString
+		if err := rows.Scan(&t.ID, &t.RTID, &t.Name, &t.LocationLabel, &t.IsActive, &createdBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if createdBy.Valid {
+			t.CreatedBy = &createdBy.String
+		}
+		templates = append(templates, t)
+	}
+	if templates == nil {
+		templates = []PatrolTemplate{}
+	}
+	return templates, nil
+}
+
+func (r *Repository) CreatePatrolTemplate(ctx context.Context, rtID, name, locationLabel, createdBy string) (*PatrolTemplate, error) {
+	var id string
+	now := time.Now()
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO patrol_templates (rt_id, name, location_label, is_active, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, true, $4, $5, $5)
+		RETURNING id
+	`, rtID, strings.TrimSpace(name), strings.TrimSpace(locationLabel), createdBy, now).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &PatrolTemplate{
+		ID:            id,
+		RTID:          rtID,
+		Name:          strings.TrimSpace(name),
+		LocationLabel: strings.TrimSpace(locationLabel),
+		IsActive:      true,
+		CreatedBy:     &createdBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}, nil
+}
+
+func (r *Repository) UpdatePatrolTemplate(ctx context.Context, rtID, templateID, name, locationLabel string, isActive *bool) (*PatrolTemplate, error) {
+	var current PatrolTemplate
+	var createdBy sql.NullString
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT id, rt_id, name, location_label, is_active, created_by, created_at, updated_at
+		FROM patrol_templates
+		WHERE id = $1 AND rt_id = $2
+	`, templateID, rtID).Scan(&current.ID, &current.RTID, &current.Name, &current.LocationLabel, &current.IsActive, &createdBy, &current.CreatedAt, &current.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, newAppError(404, "not_found", "template gang patroli tidak ditemukan", ErrNotFound)
+		}
+		return nil, err
+	}
+	if createdBy.Valid {
+		current.CreatedBy = &createdBy.String
+	}
+
+	name = strings.TrimSpace(name)
+	if name != "" {
+		current.Name = name
+	}
+	locationLabel = strings.TrimSpace(locationLabel)
+	if locationLabel != "" {
+		current.LocationLabel = locationLabel
+	}
+	if isActive != nil {
+		current.IsActive = *isActive
+	}
+	now := time.Now()
+	_, err = r.pool.Raw().ExecContext(ctx, `
+		UPDATE patrol_templates
+		SET name = $1, location_label = $2, is_active = $3, updated_at = $4
+		WHERE id = $5 AND rt_id = $6
+	`, current.Name, current.LocationLabel, current.IsActive, now, templateID, rtID)
+	if err != nil {
+		return nil, err
+	}
+	current.UpdatedAt = now
+	return &current, nil
+}
+
+func (r *Repository) DeletePatrolTemplate(ctx context.Context, rtID, templateID string) error {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM patrol_templates WHERE id = $1 AND rt_id = $2)
+	`, templateID, rtID).Scan(&exists)
+	if err != nil || !exists {
+		return newAppError(404, "not_found", "template gang patroli tidak ditemukan", ErrNotFound)
+	}
+
+	var count int
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int FROM patrol_photos WHERE patrol_template_id = $1
+	`, templateID).Scan(&count)
+
+	if count > 0 {
+		_, err = r.pool.Raw().ExecContext(ctx, `
+			UPDATE patrol_templates SET is_active = false, updated_at = NOW() WHERE id = $1 AND rt_id = $2
+		`, templateID, rtID)
+		return err
+	}
+
+	_, err = r.pool.Raw().ExecContext(ctx, `
+		DELETE FROM patrol_templates WHERE id = $1 AND rt_id = $2
+	`, templateID, rtID)
+	return err
+}
+
+func (r *Repository) CreatePatrolBundle(ctx context.Context, rtID, createdBy string, notes *string, photos []CreatePatrolPhoto) (*PatrolBundle, error) {
+	if len(photos) == 0 {
+		return nil, newAppError(400, "empty_photos", "minimal satu foto patroli harus disertakan", ErrValidation)
+	}
+
+	tx, err := r.pool.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var bundleID string
+	now := time.Now()
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO patrol_bundles (rt_id, created_by, submitted_at, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $3, $3)
+		RETURNING id
+	`, rtID, createdBy, now, notes).Scan(&bundleID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range photos {
+		if strings.HasPrefix(p.ImageKey, "community/") && !strings.HasPrefix(p.ImageKey, "community/"+rtID+"/") {
+			return nil, newAppError(403, "forbidden", "foto milik RT lain tidak dapat digunakan", ErrForbidden)
+		}
+
+		var photoID string
+		captured := p.CapturedAt
+		if captured.IsZero() {
+			captured = now
+		}
+		var tName, tLoc sql.NullString
+		err = tx.QueryRowContext(ctx, `
+			SELECT name, location_label FROM patrol_templates WHERE id = $1 AND rt_id = $2
+		`, p.PatrolTemplateID, rtID).Scan(&tName, &tLoc)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, newAppError(400, "invalid_template", "template patroli tidak valid atau milik RT lain", ErrValidation)
+			}
+			return nil, err
+		}
+
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO patrol_photos (patrol_bundle_id, patrol_template_id, template_name, location_label, image_key, captured_at, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id
+		`, bundleID, p.PatrolTemplateID, tName.String, tLoc.String, p.ImageKey, captured, now).Scan(&photoID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Insert notifications for Ketua RT only
+	var officerIDs []string
+	oRows, err := tx.QueryContext(ctx, `
+		SELECT u.id FROM users u
+		JOIN user_rt_memberships urm ON urm.user_id = u.id
+		WHERE urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan = 'ketua'
+	`, rtID)
+	if err == nil {
+		for oRows.Next() {
+			var oid string
+			if err := oRows.Scan(&oid); err == nil {
+				officerIDs = append(officerIDs, oid)
+			}
+		}
+		oRows.Close()
+		for _, oid := range officerIDs {
+			dedupKey := fmt.Sprintf("patrol:%s:%s", bundleID, oid)
+			_, _ = tx.ExecContext(ctx, `
+				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+				VALUES ($1, $2, 'patrol_bundle_submitted', $3, 'Laporan Patroli Baru', 'Petugas telah menyelesaikan dan mengirim laporan patroli wilayah.', 'SENT', $4, json_build_object('bundle_id', $5::text))
+				ON CONFLICT DO NOTHING
+			`, rtID, oid, dedupKey, now, bundleID)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetPatrolBundle(ctx, rtID, bundleID)
+}
+
+func (r *Repository) ListPatrolBundles(ctx context.Context, rtID string, limit, offset int) ([]PatrolBundle, int, error) {
+	var total int
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM patrol_bundles WHERE rt_id = $1
+	`, rtID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT pb.id, pb.rt_id, pb.created_by, COALESCE(u.full_name, ''), pb.submitted_at, pb.notes,
+		       COUNT(pp.id)::int AS photo_count, pb.created_at, pb.updated_at
+		FROM patrol_bundles pb
+		LEFT JOIN users u ON u.id = pb.created_by
+		LEFT JOIN patrol_photos pp ON pp.patrol_bundle_id = pb.id
+		WHERE pb.rt_id = $1
+		GROUP BY pb.id, u.full_name
+		ORDER BY pb.submitted_at DESC
+		LIMIT $2 OFFSET $3
+	`, rtID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var bundles []PatrolBundle
+	bundleIndexMap := make(map[string]int)
+	for rows.Next() {
+		var b PatrolBundle
+		var notes sql.NullString
+		if err := rows.Scan(&b.ID, &b.RTID, &b.CreatedBy, &b.CreatedByName, &b.SubmittedAt, &notes, &b.PhotoCount, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		if notes.Valid {
+			b.Notes = &notes.String
+		}
+		b.Photos = []PatrolPhoto{}
+		bundleIndexMap[b.ID] = len(bundles)
+		bundles = append(bundles, b)
+	}
+
+	if len(bundles) > 0 {
+		photoRows, pErr := r.pool.Raw().QueryContext(ctx, `
+			SELECT pp.id, pp.patrol_bundle_id, COALESCE(pp.patrol_template_id::text, ''),
+			       COALESCE(NULLIF(pp.template_name, ''), pt.name, ''),
+			       COALESCE(NULLIF(pp.location_label, ''), pt.location_label, ''),
+			       pp.image_key, pp.captured_at, pp.created_at
+			FROM patrol_photos pp
+			LEFT JOIN patrol_templates pt ON pt.id = pp.patrol_template_id
+			WHERE pp.patrol_bundle_id IN (
+				SELECT pb2.id FROM patrol_bundles pb2
+				WHERE pb2.rt_id = $1
+				ORDER BY pb2.submitted_at DESC
+				LIMIT $2 OFFSET $3
+			)
+			ORDER BY pp.created_at ASC
+		`, rtID, limit, offset)
+		if pErr == nil {
+			defer photoRows.Close()
+			for photoRows.Next() {
+				var p PatrolPhoto
+				if err := photoRows.Scan(&p.ID, &p.PatrolBundleID, &p.PatrolTemplateID, &p.TemplateName, &p.LocationLabel, &p.ImageKey, &p.CapturedAt, &p.CreatedAt); err == nil {
+					p.ImageURL = "/api/v1/security/patrol/photos/" + p.ID
+					if idx, ok := bundleIndexMap[p.PatrolBundleID]; ok {
+						bundles[idx].Photos = append(bundles[idx].Photos, p)
+					}
+				}
+			}
+		}
+	}
+
+	if bundles == nil {
+		bundles = []PatrolBundle{}
+	}
+	return bundles, total, nil
+}
+
+func (r *Repository) GetPatrolBundle(ctx context.Context, rtID, bundleID string) (*PatrolBundle, error) {
+	var b PatrolBundle
+	var notes sql.NullString
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT pb.id, pb.rt_id, pb.created_by, COALESCE(u.full_name, ''), pb.submitted_at, pb.notes, pb.created_at, pb.updated_at
+		FROM patrol_bundles pb
+		LEFT JOIN users u ON u.id = pb.created_by
+		WHERE pb.id = $1 AND pb.rt_id = $2
+	`, bundleID, rtID).Scan(&b.ID, &b.RTID, &b.CreatedBy, &b.CreatedByName, &b.SubmittedAt, &notes, &b.CreatedAt, &b.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, newAppError(404, "not_found", "patrol bundle tidak ditemukan", ErrNotFound)
+		}
+		return nil, err
+	}
+	if notes.Valid {
+		b.Notes = &notes.String
+	}
+
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT pp.id, pp.patrol_bundle_id, COALESCE(pp.patrol_template_id::text, ''),
+		       COALESCE(NULLIF(pp.template_name, ''), pt.name, ''),
+		       COALESCE(NULLIF(pp.location_label, ''), pt.location_label, ''),
+		       pp.image_key, pp.captured_at, pp.created_at
+		FROM patrol_photos pp
+		LEFT JOIN patrol_templates pt ON pt.id = pp.patrol_template_id
+		WHERE pp.patrol_bundle_id = $1
+		ORDER BY pp.created_at ASC
+	`, bundleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var p PatrolPhoto
+		if err := rows.Scan(&p.ID, &p.PatrolBundleID, &p.PatrolTemplateID, &p.TemplateName, &p.LocationLabel, &p.ImageKey, &p.CapturedAt, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		p.ImageURL = "/api/v1/security/patrol/photos/" + p.ID
+		b.Photos = append(b.Photos, p)
+	}
+	b.PhotoCount = len(b.Photos)
+	return &b, nil
+}
+
+func (r *Repository) CreatePaketReport(ctx context.Context, rtID, createdBy, receiverWargaID string, items []CreatePaketItem) (*PaketReport, error) {
+	if len(items) == 0 {
+		return nil, newAppError(400, "empty_items", "minimal satu item paket harus disertakan", ErrValidation)
+	}
+
+	tx, err := r.pool.BeginTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var residentExists bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM residents WHERE id = $1 AND rt_id = $2)
+	`, receiverWargaID, rtID).Scan(&residentExists)
+	if err != nil || !residentExists {
+		return nil, newAppError(400, "invalid_receiver", "penerima warga tidak valid atau bukan warga RT ini", ErrValidation)
+	}
+
+	var reportID string
+	now := time.Now()
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO paket_reports (rt_id, receiver_warga_id, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $4)
+		RETURNING id
+	`, rtID, receiverWargaID, createdBy, now).Scan(&reportID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, it := range items {
+		var itemID string
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO paket_items (paket_report_id, description, status, created_at, updated_at)
+			VALUES ($1, $2, 'dititipkan', $3, $3)
+			RETURNING id
+		`, reportID, it.Description, now).Scan(&itemID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, k := range it.ImageKeys {
+			if strings.HasPrefix(k, "community/") && !strings.HasPrefix(k, "community/"+rtID+"/") {
+				return nil, newAppError(403, "forbidden", "foto milik RT lain tidak dapat digunakan", ErrForbidden)
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO paket_photos (paket_item_id, paket_report_id, image_key, photo_type, captured_at, created_at)
+				VALUES ($1, $2, $3, 'paket', $4, $4)
+			`, itemID, reportID, k, now)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Notify receiver warga if linked to user account
+	var receiverUserID sql.NullString
+	_ = tx.QueryRowContext(ctx, `
+		SELECT user_id FROM residents WHERE id = $1 AND rt_id = $2
+	`, receiverWargaID, rtID).Scan(&receiverUserID)
+	if receiverUserID.Valid && receiverUserID.String != "" {
+		dedup := fmt.Sprintf("paket_recv:%s:%s", reportID, receiverUserID.String)
+		_, _ = tx.ExecContext(ctx, `
+			INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+			VALUES ($1, $2, 'paket_received', $3, 'Paket Baru Dititipkan', 'Ada paket baru yang dititipkan di pos keamanan untuk Anda.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text))
+			ON CONFLICT DO NOTHING
+		`, rtID, receiverUserID.String, dedup, now, reportID)
+	}
+
+	// Notify Ketua RT
+	var ketuaIDs []string
+	kRows, err := tx.QueryContext(ctx, `
+		SELECT u.id FROM users u
+		JOIN user_rt_memberships urm ON urm.user_id = u.id
+		WHERE urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan = 'ketua'
+	`, rtID)
+	if err == nil {
+		for kRows.Next() {
+			var kid string
+			if err := kRows.Scan(&kid); err == nil {
+				ketuaIDs = append(ketuaIDs, kid)
+			}
+		}
+		kRows.Close()
+		for _, kid := range ketuaIDs {
+			dedup := fmt.Sprintf("paket_ketua:%s:%s", reportID, kid)
+			_, _ = tx.ExecContext(ctx, `
+				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+				VALUES ($1, $2, 'paket_received', $3, 'Laporan Paket Masuk', 'Ada paket titipan baru di pos keamanan.', 'SENT', $4, json_build_object('report_id', $5::text, 'paket_id', $5::text, 'package_id', $5::text))
+				ON CONFLICT DO NOTHING
+			`, rtID, kid, dedup, now, reportID)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetPaketReport(ctx, rtID, reportID)
+}
+
+func (r *Repository) ListPaketReports(ctx context.Context, rtID string, limit, offset int) ([]PaketReport, int, error) {
+	var total int
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM paket_reports WHERE rt_id = $1
+	`, rtID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT pr.id, pr.rt_id, pr.receiver_warga_id, COALESCE(res.full_name, ''), COALESCE(h.house_number, ''),
+		       pr.created_by, COALESCE(u.full_name, ''), pr.created_at, pr.updated_at
+		FROM paket_reports pr
+		LEFT JOIN residents res ON res.id = pr.receiver_warga_id
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residency_periods rp
+			JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id
+			JOIN physical_houses ph ON ph.id = ho.physical_house_id
+			WHERE rp.resident_id = res.id AND rp.end_date IS NULL
+			LIMIT 1
+		) h ON true
+		LEFT JOIN users u ON u.id = pr.created_by
+		WHERE pr.rt_id = $1
+		ORDER BY pr.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, rtID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var reports []PaketReport
+	for rows.Next() {
+		var rep PaketReport
+		if err := rows.Scan(&rep.ID, &rep.RTID, &rep.ReceiverWargaID, &rep.ReceiverName, &rep.ReceiverHouseNumber,
+			&rep.CreatedBy, &rep.CreatedByName, &rep.CreatedAt, &rep.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		items, err := r.getPaketItemsForReport(ctx, rep.ID)
+		if err == nil {
+			rep.Items = items
+		}
+		enrichPaketReportAudit(&rep)
+		reports = append(reports, rep)
+	}
+	if reports == nil {
+		reports = []PaketReport{}
+	}
+	return reports, total, nil
+}
+
+func enrichPaketReportAudit(rep *PaketReport) {
+	rep.OverallStatus = computeOverallPaketStatus(rep.Items)
+	rep.TotalItems = len(rep.Items)
+	handedOverCount := 0
+	pendingCount := 0
+	officerMap := make(map[string]string) // userID -> name
+	for _, it := range rep.Items {
+		if it.Status == "sudah_diambil" || it.HandedOverAt != nil {
+			handedOverCount++
+			if it.HandedOverBy != nil && *it.HandedOverBy != "" {
+				officerMap[*it.HandedOverBy] = it.HandedOverByName
+			}
+			if rep.HandedOverAt == nil || (it.HandedOverAt != nil && it.HandedOverAt.After(*rep.HandedOverAt)) {
+				rep.HandedOverAt = it.HandedOverAt
+			}
+		} else {
+			pendingCount++
+		}
+	}
+	rep.HandedOverItemsCount = handedOverCount
+	rep.PendingItemsCount = pendingCount
+
+	if handedOverCount == len(rep.Items) && len(rep.Items) > 0 {
+		if len(officerMap) == 1 {
+			for uid, name := range officerMap {
+				uidCopy := uid
+				rep.HandedOverBy = &uidCopy
+				rep.HandedOverByName = name
+			}
+		} else if len(officerMap) > 1 {
+			rep.HandedOverBy = nil
+			rep.HandedOverByName = "Beberapa Petugas"
+		} else {
+			rep.HandedOverBy = nil
+			rep.HandedOverByName = ""
+		}
+	} else if handedOverCount > 0 {
+		rep.HandedOverBy = nil
+		rep.HandedOverByName = "Sebagian Diserahkan"
+	} else {
+		rep.HandedOverBy = nil
+		rep.HandedOverByName = ""
+		rep.HandedOverAt = nil
+	}
+}
+
+func (r *Repository) GetPaketReport(ctx context.Context, rtID, reportID string) (*PaketReport, error) {
+	var rep PaketReport
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT pr.id, pr.rt_id, pr.receiver_warga_id, COALESCE(res.full_name, ''), COALESCE(h.house_number, ''),
+		       pr.created_by, COALESCE(u.full_name, ''), pr.created_at, pr.updated_at
+		FROM paket_reports pr
+		LEFT JOIN residents res ON res.id = pr.receiver_warga_id
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residency_periods rp
+			JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id
+			JOIN physical_houses ph ON ph.id = ho.physical_house_id
+			WHERE rp.resident_id = res.id AND rp.end_date IS NULL
+			LIMIT 1
+		) h ON true
+		LEFT JOIN users u ON u.id = pr.created_by
+		WHERE (pr.id = $1 OR pr.id IN (SELECT pi.paket_report_id FROM paket_items pi WHERE pi.id = $1))
+		  AND pr.rt_id = $2
+		LIMIT 1
+	`, reportID, rtID).Scan(&rep.ID, &rep.RTID, &rep.ReceiverWargaID, &rep.ReceiverName, &rep.ReceiverHouseNumber,
+		&rep.CreatedBy, &rep.CreatedByName, &rep.CreatedAt, &rep.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, newAppError(404, "not_found", "laporan paket tidak ditemukan", ErrNotFound)
+		}
+		return nil, err
+	}
+
+	items, err := r.getPaketItemsForReport(ctx, rep.ID)
+	if err != nil {
+		return nil, err
+	}
+	rep.Items = items
+	enrichPaketReportAudit(&rep)
+	return &rep, nil
+}
+
+func (r *Repository) getPaketItemsForReport(ctx context.Context, reportID string) ([]PaketItem, error) {
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT pi.id, pi.paket_report_id, pi.description, pi.status, pi.status_changed_at, pi.status_changed_by,
+		       COALESCE(u.full_name, ''), pi.created_at, pi.updated_at,
+		       pi.handed_over_at, pi.handed_over_by_user_id, COALESCE(hu.full_name, '')
+		FROM paket_items pi
+		LEFT JOIN users u ON u.id = pi.status_changed_by
+		LEFT JOIN users hu ON hu.id = pi.handed_over_by_user_id
+		WHERE pi.paket_report_id = $1
+		ORDER BY pi.created_at ASC, pi.id ASC
+	`, reportID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []PaketItem
+	for rows.Next() {
+		var it PaketItem
+		var desc, changedBy, changedByName, handedOverBy, handedOverByName sql.NullString
+		var changedAt, handedOverAt sql.NullTime
+		if err := rows.Scan(
+			&it.ID, &it.PaketReportID, &desc, &it.Status, &changedAt, &changedBy, &changedByName, &it.CreatedAt, &it.UpdatedAt,
+			&handedOverAt, &handedOverBy, &handedOverByName,
+		); err != nil {
+			return nil, err
+		}
+		if desc.Valid {
+			it.Description = &desc.String
+		}
+		if changedAt.Valid {
+			it.StatusChangedAt = &changedAt.Time
+		}
+		if changedBy.Valid {
+			it.StatusChangedBy = &changedBy.String
+		}
+		if changedByName.Valid {
+			it.ChangedByName = changedByName.String
+		}
+		if handedOverAt.Valid {
+			it.HandedOverAt = &handedOverAt.Time
+		}
+		if handedOverBy.Valid {
+			it.HandedOverBy = &handedOverBy.String
+		}
+		if handedOverByName.Valid {
+			it.HandedOverByName = handedOverByName.String
+		}
+
+		pRows, err := r.pool.Raw().QueryContext(ctx, `
+			SELECT id, paket_item_id, paket_report_id, image_key, photo_type, captured_at, created_at
+			FROM paket_photos
+			WHERE paket_item_id = $1
+			ORDER BY created_at ASC
+		`, it.ID)
+		if err == nil {
+			for pRows.Next() {
+				var p PaketPhoto
+				if err := pRows.Scan(&p.ID, &p.PaketItemID, &p.PaketReportID, &p.ImageKey, &p.PhotoType, &p.CapturedAt, &p.CreatedAt); err == nil {
+					p.ImageURL = "/api/v1/security/paket/photos/" + p.ID
+					it.Photos = append(it.Photos, p)
+				}
+			}
+			pRows.Close()
+		}
+		items = append(items, it)
+	}
+	if items == nil {
+		items = []PaketItem{}
+	}
+	return items, nil
+}
+
+func computeOverallPaketStatus(items []PaketItem) string {
+	if len(items) == 0 {
+		return "dititipkan"
+	}
+	hasPending := false
+	hasDelivered := false
+	for _, it := range items {
+		if it.Status == "dititipkan" {
+			hasPending = true
+		} else if it.Status == "sudah_diambil" {
+			hasDelivered = true
+		}
+	}
+	if hasPending {
+		return "dititipkan"
+	}
+	if hasDelivered {
+		return "sudah_diambil"
+	}
+	return "dibatalkan"
+}
+
+func (r *Repository) UpdatePaketItemStatus(ctx context.Context, rtID, reportID, itemID, newStatus, userID string, proofImageKey *string) error {
+	if newStatus != "sudah_diambil" && newStatus != "dibatalkan" && newStatus != "dititipkan" {
+		return newAppError(400, "invalid_status", "status tidak valid", ErrValidation)
+	}
+
+	tx, err := r.pool.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentStatus string
+	err = tx.QueryRowContext(ctx, `
+		SELECT pi.status
+		FROM paket_items pi
+		JOIN paket_reports pr ON pr.id = pi.paket_report_id
+		WHERE pi.id = $1 AND pr.rt_id = $2 AND pr.id = $3
+		FOR UPDATE
+	`, itemID, rtID, reportID).Scan(&currentStatus)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return newAppError(404, "not_found", "item paket tidak ditemukan pada laporan ini", ErrNotFound)
+		}
+		return err
+	}
+
+	if currentStatus == "sudah_diambil" && newStatus == "sudah_diambil" {
+		// Idempotent: already marked as picked up
+		return nil
+	}
+	if currentStatus == "dibatalkan" {
+		return newAppError(400, "invalid_transition", "paket yang sudah dibatalkan tidak dapat diubah statusnya", ErrValidation)
+	}
+	if currentStatus == "sudah_diambil" && newStatus != "sudah_diambil" {
+		return newAppError(400, "invalid_transition", "paket yang sudah diambil tidak dapat dikembalikan ke status sebelumnya", ErrValidation)
+	}
+
+	if newStatus == "sudah_diambil" && (proofImageKey == nil || *proofImageKey == "") {
+		return newAppError(400, "proof_required", "foto bukti pengambilan wajib disertakan saat pengambilan paket", ErrValidation)
+	}
+
+	if proofImageKey != nil && *proofImageKey != "" {
+		if strings.HasPrefix(*proofImageKey, "community/") && !strings.HasPrefix(*proofImageKey, "community/"+rtID+"/") {
+			return newAppError(403, "forbidden", "foto bukti milik RT lain tidak dapat digunakan", ErrForbidden)
+		}
+	}
+
+	now := time.Now()
+	if newStatus == "sudah_diambil" {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE paket_items
+			SET status = $1, status_changed_at = $2, status_changed_by = $3,
+			    handed_over_at = $2, handed_over_by_user_id = $3, updated_at = $2
+			WHERE id = $4
+		`, newStatus, now, userID, itemID)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE paket_items
+			SET status = $1, status_changed_at = $2, status_changed_by = $3, updated_at = $2
+			WHERE id = $4
+		`, newStatus, now, userID, itemID)
+	}
+	if err != nil {
+		return err
+	}
+
+	if proofImageKey != nil && *proofImageKey != "" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO paket_photos (paket_item_id, paket_report_id, image_key, photo_type, captured_at, created_at)
+			VALUES ($1, $2, $3, 'bukti_pengambilan', $4, $4)
+		`, itemID, reportID, *proofImageKey, now)
+		if err != nil {
+			return err
+		}
+	}
+
+	if newStatus == "sudah_diambil" {
+		var officerName string
+		_ = tx.QueryRowContext(ctx, `
+			SELECT COALESCE(full_name, 'Petugas Keamanan') FROM users WHERE id = $1
+		`, userID).Scan(&officerName)
+		if officerName == "" {
+			officerName = "Petugas Keamanan"
+		}
+
+		var receiverUserID sql.NullString
+		var residentName, itemDesc string
+		_ = tx.QueryRowContext(ctx, `
+			SELECT r.user_id, COALESCE(r.full_name, 'Warga'), COALESCE(pi.description, 'Barang titipan')
+			FROM paket_items pi
+			JOIN paket_reports pr ON pr.id = pi.paket_report_id
+			JOIN residents r ON r.id = pr.receiver_warga_id
+			WHERE pi.id = $1 AND pr.rt_id = $2
+		`, itemID, rtID).Scan(&receiverUserID, &residentName, &itemDesc)
+
+		loc, errLoc := time.LoadLocation("Asia/Jakarta")
+		if errLoc != nil {
+			loc = time.FixedZone("WIB", 7*3600)
+		}
+		timeStr := now.In(loc).Format("02 Jan 2006, 15:04 WIB")
+
+		// 1. Notify recipient Warga
+		if receiverUserID.Valid && receiverUserID.String != "" {
+			dedup := fmt.Sprintf("paket_pickup:%s:%s", itemID, receiverUserID.String)
+			body := fmt.Sprintf("Paket Anda (%s) telah diambil pada %s dengan bukti penyerahan oleh %s.", itemDesc, timeStr, officerName)
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+				VALUES ($1::uuid, $2::uuid, 'paket_picked_up', $3, 'Paket Telah Diambil', $4, 'SENT', $5, json_build_object(
+					'report_id', $6::text,
+					'paket_id', $6::text,
+					'package_id', $6::text,
+					'item_id', $7::text,
+					'recipient_user_id', $2::text,
+					'handed_over_by', $8::text,
+					'handed_over_at', $5::timestamptz
+				)::jsonb)
+				ON CONFLICT (dedup_key) DO NOTHING
+			`, rtID, receiverUserID.String, dedup, body, now, reportID, itemID, officerName)
+			if err != nil {
+				return fmt.Errorf("failed to insert warga pickup notification: %w", err)
+			}
+		}
+
+		// 2. Notify Ketua RT and all RT staff with notification.manage permission in the same RT
+		var managerUserIDs []string
+		mRows, err := tx.QueryContext(ctx, `
+			SELECT DISTINCT u.id
+			FROM users u
+			JOIN user_rt_memberships urm ON urm.user_id = u.id
+			LEFT JOIN position_permissions pp ON pp.position = urm.jabatan
+			LEFT JOIN permission_types pt ON pt.id = pp.permission_id AND pt.code = 'notification.manage'
+			WHERE urm.rt_id = $1 AND urm.is_active = true
+			  AND (urm.jabatan = 'ketua' OR pt.id IS NOT NULL)
+		`, rtID)
+		if err == nil {
+			for mRows.Next() {
+				var mid string
+				if err := mRows.Scan(&mid); err == nil {
+					if receiverUserID.Valid && receiverUserID.String == mid {
+						continue
+					}
+					managerUserIDs = append(managerUserIDs, mid)
+				}
+			}
+			mRows.Close()
+
+			managerBody := fmt.Sprintf("Paket untuk %s (%s) telah diserahkan pada %s oleh %s.", residentName, itemDesc, timeStr, officerName)
+			for _, mid := range managerUserIDs {
+				mDedup := fmt.Sprintf("paket_diserahkan:%s:%s", itemID, mid)
+				recipientUID := ""
+				if receiverUserID.Valid {
+					recipientUID = receiverUserID.String
+				}
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at, payload)
+					VALUES ($1::uuid, $2::uuid, 'paket_picked_up', $3, 'Paket Telah Diserahkan', $4, 'SENT', $5, json_build_object(
+						'report_id', $6::text,
+						'paket_id', $6::text,
+						'package_id', $6::text,
+						'item_id', $7::text,
+						'recipient_user_id', $8::text,
+						'handed_over_by', $9::text,
+						'handed_over_at', $5::timestamptz
+					)::jsonb)
+					ON CONFLICT (dedup_key) DO NOTHING
+				`, rtID, mid, mDedup, managerBody, now, reportID, itemID, recipientUID, officerName)
+				if err != nil {
+					return fmt.Errorf("failed to insert manager handover notification: %w", err)
+				}
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *Repository) SearchWargaMasked(ctx context.Context, rtID, query string, limit int) ([]MaskedWargaSearchResult, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	q := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
+	rows, err := r.pool.Raw().QueryContext(ctx, `
+		SELECT r.id, r.full_name, COALESCE(h.house_number, '')
+		FROM residents r
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residency_periods rp
+			JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id
+			JOIN physical_houses ph ON ph.id = ho.physical_house_id
+			WHERE rp.resident_id = r.id AND rp.end_date IS NULL
+			LIMIT 1
+		) h ON true
+		WHERE r.rt_id = $1 AND r.is_active = true
+		  AND (LOWER(r.full_name) LIKE $2 OR LOWER(COALESCE(h.house_number, '')) LIKE $2)
+		ORDER BY r.full_name ASC
+		LIMIT $3
+	`, rtID, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []MaskedWargaSearchResult
+	for rows.Next() {
+		var res MaskedWargaSearchResult
+		if err := rows.Scan(&res.ID, &res.FullName, &res.HouseNumber); err != nil {
+			return nil, err
+		}
+		results = append(results, res)
+	}
+	if results == nil {
+		results = []MaskedWargaSearchResult{}
+	}
+	return results, nil
+}
+
+func (r *Repository) MarkReadReceipt(ctx context.Context, userID, rtID, domain string, itemIDs []string) error {
+	domain = strings.TrimSpace(domain)
+	if domain != "correction" && domain != "patrol" && domain != "paket" {
+		return newAppError(400, "invalid_domain", "domain must be correction, patrol, or paket", ErrValidation)
+	}
+
+	if len(itemIDs) > 0 {
+		for _, id := range itemIDs {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			_, _ = r.pool.Raw().ExecContext(ctx, `
+				INSERT INTO security_read_receipts (user_id, rt_id, domain, item_id, read_at)
+				VALUES ($1, $2, $3, $4, NOW())
+				ON CONFLICT (user_id, domain, item_id) DO UPDATE SET read_at = NOW()
+			`, userID, rtID, domain, id)
+		}
+		return nil
+	}
+
+	switch domain {
+	case "correction":
+		_, err := r.pool.Raw().ExecContext(ctx, `
+			INSERT INTO security_read_receipts (user_id, rt_id, domain, item_id, read_at)
+			SELECT $1, $2, 'correction', id, NOW()
+			FROM security_attendance_corrections
+			WHERE rt_id = $2 AND status = 'pending'
+			ON CONFLICT (user_id, domain, item_id) DO NOTHING
+		`, userID, rtID)
+		return err
+	case "patrol":
+		_, err := r.pool.Raw().ExecContext(ctx, `
+			INSERT INTO security_read_receipts (user_id, rt_id, domain, item_id, read_at)
+			SELECT $1, $2, 'patrol', id, NOW()
+			FROM patrol_bundles
+			WHERE rt_id = $2
+			ON CONFLICT (user_id, domain, item_id) DO NOTHING
+		`, userID, rtID)
+		return err
+	case "paket":
+		_, err := r.pool.Raw().ExecContext(ctx, `
+			INSERT INTO security_read_receipts (user_id, rt_id, domain, item_id, read_at)
+			SELECT $1, $2, 'paket', id, NOW()
+			FROM paket_reports
+			WHERE rt_id = $2
+			ON CONFLICT (user_id, domain, item_id) DO NOTHING
+		`, userID, rtID)
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) GetSecurityAlerts(ctx context.Context, rtID, userID string) (*SecurityAlertsResult, error) {
+	var res SecurityAlertsResult
+
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int
+		FROM security_attendance_corrections
+		WHERE rt_id = $1 AND status = 'pending'
+	`, rtID).Scan(&res.PendingCorrections)
+
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int
+		FROM patrol_bundles
+		WHERE rt_id = $1 AND submitted_at >= NOW() - INTERVAL '24 hours'
+	`, rtID).Scan(&res.RecentPatrols)
+
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int
+		FROM security_attendance_corrections c
+		WHERE c.rt_id = $1 AND c.status = 'pending'
+		  AND NOT EXISTS (
+			  SELECT 1 FROM security_read_receipts r
+			  WHERE r.user_id = $2 AND r.domain = 'correction' AND r.item_id = c.id
+		  )
+	`, rtID, userID).Scan(&res.PendingCorrectionsUnread)
+
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int
+		FROM patrol_bundles pb
+		WHERE pb.rt_id = $1 AND pb.created_by != $2
+		  AND pb.submitted_at >= NOW() - INTERVAL '7 days'
+		  AND NOT EXISTS (
+			  SELECT 1 FROM security_read_receipts r
+			  WHERE r.user_id = $2 AND r.domain = 'patrol' AND r.item_id = pb.id
+		  )
+	`, rtID, userID).Scan(&res.PatrolUnread)
+
+	_ = r.pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)::int
+		FROM paket_reports pr
+		WHERE pr.rt_id = $1
+		  AND pr.created_at >= NOW() - INTERVAL '7 days'
+		  AND NOT EXISTS (
+			  SELECT 1 FROM security_read_receipts r
+			  WHERE r.user_id = $2 AND r.domain = 'paket' AND r.item_id = pr.id
+		  )
+	`, rtID, userID).Scan(&res.PaketUnread)
+
+	res.HasAlert = res.PendingCorrectionsUnread > 0 || res.PatrolUnread > 0 || res.PaketUnread > 0
+	return &res, nil
+}
+
+func (r *Repository) GetPatrolPhotoKey(ctx context.Context, rtID, photoID string) (string, error) {
+	var key string
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT pp.image_key
+		FROM patrol_photos pp
+		JOIN patrol_bundles pb ON pb.id = pp.patrol_bundle_id
+		WHERE pp.id = $1 AND pb.rt_id = $2
+	`, photoID, rtID).Scan(&key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", newAppError(404, "not_found", "patrol photo not found", ErrNotFound)
+		}
+		return "", err
+	}
+	return key, nil
+}
+
+func (r *Repository) GetPaketPhotoKey(ctx context.Context, rtID, photoID string) (string, error) {
+	var key string
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT pp.image_key
+		FROM paket_photos pp
+		JOIN paket_reports pr ON pr.id = pp.paket_report_id
+		WHERE pp.id = $1 AND pr.rt_id = $2
+	`, photoID, rtID).Scan(&key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", newAppError(404, "not_found", "paket photo not found", ErrNotFound)
+		}
+		return "", err
+	}
+	return key, nil
+}
+
+func (r *Repository) IsPaketReceiver(ctx context.Context, rtID, reportID, userID string) (bool, error) {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM paket_reports pr
+			JOIN residents res ON res.id = pr.receiver_warga_id
+			WHERE (pr.id = $1 OR pr.id IN (SELECT pi.paket_report_id FROM paket_items pi WHERE pi.id = $1))
+			  AND pr.rt_id = $2
+			  AND res.rt_id = $2
+			  AND res.user_id = $3
+		)
+	`, reportID, rtID, userID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *Repository) IsPaketPhotoReceiver(ctx context.Context, rtID, photoID, userID string) (bool, error) {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM paket_photos pp
+			JOIN paket_reports pr ON pr.id = pp.paket_report_id
+			JOIN residents res ON res.id = pr.receiver_warga_id
+			WHERE pp.id = $1 AND pr.rt_id = $2 AND res.rt_id = $2 AND res.user_id = $3
+		)
+	`, photoID, rtID, userID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }

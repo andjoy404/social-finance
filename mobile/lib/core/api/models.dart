@@ -4,6 +4,7 @@ class RWMembership {
   final String? rwName;
   final String? jabatan;
   final String? source; // 'explicit' | 'rt_inferred'
+  final List<String>? permissions;
 
   const RWMembership({
     required this.rwId,
@@ -11,9 +12,11 @@ class RWMembership {
     this.rwName,
     this.jabatan,
     this.source,
+    this.permissions,
   });
 
   factory RWMembership.fromJson(Map<String, dynamic> json) {
+    final rawPerms = json['permissions'];
     return RWMembership(
       rwId: json['rw_id'] as String? ?? '',
       rwNumber: json['rw_number'] != null
@@ -22,6 +25,9 @@ class RWMembership {
       rwName: json['rw_name'] as String?,
       jabatan: json['jabatan'] as String?,
       source: json['source'] as String?,
+      permissions: rawPerms is List
+          ? rawPerms.whereType<String>().toList()
+          : null,
     );
   }
 
@@ -32,6 +38,7 @@ class RWMembership {
       if (rwName != null) 'rw_name': rwName,
       if (jabatan != null) 'jabatan': jabatan,
       if (source != null) 'source': source,
+      if (permissions != null) 'permissions': permissions,
     };
   }
 

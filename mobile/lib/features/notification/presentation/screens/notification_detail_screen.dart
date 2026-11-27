@@ -12,6 +12,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/error_state.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
@@ -198,7 +199,11 @@ class _NotificationDetailScreenState
   String _formatCategoryLabel(String? eventType) {
     switch ((eventType ?? '').trim()) {
       case 'manual_push':
-        return 'Pengumuman RT';
+        return 'Pengumuman';
+      case 'rw_cash_in':
+        return 'Kas Masuk RW';
+      case 'rw_cash_out':
+        return 'Kas Keluar RW';
       case 'waste_truck_arrival':
         return 'Kedatangan Truk Sampah';
       case 'iuran_bill_created':
@@ -220,7 +225,11 @@ class _NotificationDetailScreenState
     return formatted == '-' ? null : formatted;
   }
 
-  void _openFullScreenImage(BuildContext context, String resolvedImageUrl) {
+  void _openFullScreenImage(
+    BuildContext context,
+    String resolvedImageUrl, {
+    String? rtId,
+  }) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -236,24 +245,38 @@ class _NotificationDetailScreenState
                 minScale: 0.8,
                 maxScale: 4.0,
                 child: Center(
-                  child: Image.network(
-                    resolvedImageUrl,
+                  child: AuthenticatedNetworkImage(
+                    imageUrl: resolvedImageUrl,
+                    rtId: rtId,
                     fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const Padding(
-                      padding: EdgeInsets.all(24),
+                    errorBuilder: (ctx, retry) => Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.broken_image_outlined,
                             color: Colors.white70,
                             size: 48,
                           ),
-                          SizedBox(height: 12),
-                          Text(
+                          const SizedBox(height: 12),
+                          const Text(
                             'Gambar lampiran tidak dapat dimuat.',
                             style: TextStyle(color: Colors.white70),
                             textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: retry,
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Muat Ulang',
+                              style: TextStyle(color: Colors.white),
+                            ),
                           ),
                         ],
                       ),
@@ -290,9 +313,13 @@ class _NotificationDetailScreenState
     final effectiveBody = (_fetchedEntry?.body.trim().isNotEmpty == true)
         ? _fetchedEntry!.body.trim()
         : (widget.initialBody?.trim() ?? '');
+    final payloadImage = _fetchedEntry?.payload?['image_url'] as String? ??
+        _fetchedEntry?.payload?['image'] as String?;
     final rawImageUrl = (_fetchedEntry?.imageUrl?.trim().isNotEmpty == true)
         ? _fetchedEntry!.imageUrl!.trim()
-        : (widget.initialImageUrl?.trim());
+        : ((widget.initialImageUrl?.trim().isNotEmpty == true)
+            ? widget.initialImageUrl!.trim()
+            : (payloadImage?.trim().isNotEmpty == true ? payloadImage!.trim() : null));
     final resolvedImageUrl = ApiConfig.resolveImageUrl(
       rawImageUrl,
       fallbackBaseUrl: activeBaseUrl,
@@ -455,35 +482,26 @@ class _NotificationDetailScreenState
                                 onTap: () => _openFullScreenImage(
                                   context,
                                   resolvedImageUrl,
+                                  rtId: _fetchedEntry?.rtId.trim().isNotEmpty == true
+                                      ? _fetchedEntry!.rtId.trim()
+                                      : null,
                                 ),
                                 child: ClipRRect(
                                   borderRadius:
                                       BorderRadius.circular(AppRadius.base),
-                                  child: Image.network(
-                                    resolvedImageUrl,
+                                  child: AuthenticatedNetworkImage(
+                                    imageUrl: resolvedImageUrl,
+                                    rtId: _fetchedEntry?.rtId.trim().isNotEmpty == true
+                                        ? _fetchedEntry!.rtId.trim()
+                                        : null,
                                     width: double.infinity,
                                     fit: BoxFit.cover,
-                                    loadingBuilder:
-                                        (context, child, loadingProgress) {
-                                      if (loadingProgress == null) return child;
-                                      return Container(
-                                        height: 180,
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: isDark
-                                              ? Colors.white
-                                                  .withValues(alpha: 0.04)
-                                              : Colors.black
-                                                  .withValues(alpha: 0.04),
-                                          borderRadius: BorderRadius.circular(
-                                            AppRadius.base,
-                                          ),
+                                    errorBuilder: (_, retry) =>
+                                        _buildImageFallback(
+                                          theme,
+                                          isDark,
+                                          onRetry: retry,
                                         ),
-                                        child: const LoadingIndicator(),
-                                      );
-                                    },
-                                    errorBuilder: (_, _, _) =>
-                                        _buildImageFallback(theme, isDark),
                                   ),
                                 ),
                               ),
@@ -532,7 +550,11 @@ class _NotificationDetailScreenState
     );
   }
 
-  Widget _buildImageFallback(ThemeData theme, bool isDark) {
+  Widget _buildImageFallback(
+    ThemeData theme,
+    bool isDark, {
+    VoidCallback? onRetry,
+  }) {
     return Container(
       key: const Key('notification_detail_image_fallback'),
       width: double.infinity,
@@ -562,6 +584,21 @@ class _NotificationDetailScreenState
               ),
             ),
           ),
+          if (onRetry != null) ...[
+            const SizedBox(width: 8),
+            TextButton.icon(
+              key: const Key('notification_detail_image_retry_button'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Muat Ulang'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
         ],
       ),
     );

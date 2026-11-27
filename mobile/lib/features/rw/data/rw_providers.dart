@@ -5,6 +5,7 @@ import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_repository.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/security/data/security_models.dart';
 
 /// Provider untuk RwApiClient (PR 4 — RW API operasional agregat).
 final rwApiClientProvider = Provider<RwApiClient>((ref) {
@@ -52,9 +53,47 @@ final rwNotificationLogsProvider = FutureProvider.autoDispose
   return client.getNotifications(arg.rwId, page: arg.page, eventType: arg.eventType);
 });
 
+/// RW notification logs sent by current user (paginated).
+final rwNotificationLogsMineProvider = FutureProvider.autoDispose
+    .family<RwNotificationLogsPage, ({String rwId, int page, String? eventType})>((ref, arg) async {
+  ref.watch(authRepositoryProvider); // invalidate cache on auth/session change
+  final client = ref.watch(rwApiClientProvider);
+  return client.getNotificationLogsMine(arg.rwId, page: arg.page, eventType: arg.eventType);
+});
+
 final rwNotificationTemplatesProvider = FutureProvider.autoDispose
     .family<List<RwNotificationTemplate>, String>((ref, rwId) async {
   ref.watch(authRepositoryProvider); // invalidate cache on auth/session change
   final client = ref.watch(rwApiClientProvider);
   return client.listNotificationTemplates(rwId);
+});
+
+final rwUnreadCountProvider = FutureProvider.autoDispose
+    .family<int, String>((ref, rwId) async {
+  ref.watch(authRepositoryProvider);
+  final client = ref.watch(rwApiClientProvider);
+  return client.getRWUnreadCount(rwId);
+});
+
+final securityAlertsDataProvider =
+    FutureProvider.autoDispose<SecurityAlertsData>((ref) async {
+  ref.watch(authRepositoryProvider);
+  final client = ref.watch(apiClientProvider);
+  try {
+    final res = await client.dio.get('/api/v1/security/alerts');
+    final data = res.data;
+    if (data is Map && data['data'] is Map) {
+      return SecurityAlertsData.fromJson(
+        (data['data'] as Map).cast<String, dynamic>(),
+      );
+    }
+    return const SecurityAlertsData();
+  } catch (_) {
+    return const SecurityAlertsData();
+  }
+});
+
+final securityAlertsProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final data = await ref.watch(securityAlertsDataProvider.future);
+  return data.hasAlert;
 });

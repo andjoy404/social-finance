@@ -225,5 +225,70 @@ describe('RwKasList', () => {
     expect(screen.getByText('Catat Kas Masuk')).toBeInTheDocument()
     expect(screen.getByText('Catat Kas Keluar')).toBeInTheDocument()
   })
+
+  it('Anggota RT read-only: does not call apiListRWRTRs or apiListCategories and hides category filter', async () => {
+    const listRTRsSpy = vi.spyOn(rwApi, 'apiListRWRTRs').mockResolvedValue([])
+    const apiModule = await import('@/app/api')
+    const listCategoriesSpy = vi.spyOn(apiModule, 'apiListCategories').mockResolvedValue([])
+
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-anggota-rt',
+        name: 'Anggota RT 002',
+        role: 'pengurus',
+        jabatan: 'anggota_rt',
+        rwId: 'rw-002',
+        rwMemberships: [
+          { rw_id: 'rw-002', rw_name: 'RW 002', jabatan: 'anggota_rt', source: 'rt_inferred' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
+      opening_balance: '500000.00',
+      total_income: '2000000.00',
+      total_expense: '1000000.00',
+      net_balance: '1000000.00',
+      total_balance: '1500000.00',
+      transaction_count: 5,
+    } as any)
+
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue({
+      data: [
+        {
+          id: 'tx-10',
+          rw_id: 'rw-002',
+          type: 'income',
+          amount: '500000.00',
+          description: 'Iuran RT 01',
+          status: 'posted',
+          occurred_at: '2026-11-01T10:00:00Z',
+          created_at: '2026-11-01T10:00:00Z',
+        },
+      ],
+      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    } as any)
+
+    render(<RwKasList rwId="rw-002" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Iuran RT 01')).toBeInTheDocument()
+    })
+
+    // Assert that unnecessary write endpoints are NOT called in read-only mode
+    expect(listRTRsSpy).not.toHaveBeenCalled()
+    expect(listCategoriesSpy).not.toHaveBeenCalled()
+
+    // Assert read-only UI: no write buttons, no category filter
+    expect(screen.queryByText('Catat Kas Masuk')).not.toBeInTheDocument()
+    expect(screen.queryByText('Catat Kas Keluar')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Filter Kategori')).not.toBeInTheDocument()
+    expect(screen.getByText('Buku kas RW (Mode Read-Only)')).toBeInTheDocument()
+  })
 })
 

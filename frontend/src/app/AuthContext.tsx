@@ -11,6 +11,7 @@ export interface RWMembership {
   rw_number?: number
   jabatan: string
   source?: RWMembershipSource
+  permissions?: string[]
 }
 
 export interface AuthUser {
@@ -76,8 +77,9 @@ export function hasRwWriteAccess(
 /**
  * Check whether a user has access to RW sub-features (KAS, Lokasi Dana, Notifikasi RW).
  *
- * Only explicit RW members (any valid jabatan) and Super Admin have access.
- * RT-inferred members are strictly limited to Beranda RW (dashboard).
+ * Explicit RW members (any valid jabatan) have full access.
+ * All RT officials with rt_inferred membership get READ access to Kas RW and Beranda RW.
+ * RW sub-features beyond Kas (Lokasi Dana, Notifikasi RW) remain inaccessible for rt_inferred.
  */
 export function hasRwFeatureAccess(
   user: AuthUser | null | undefined,
@@ -88,8 +90,120 @@ export function hasRwFeatureAccess(
   const memberships = user.rwMemberships ?? []
   if (!rwId) return false
   const membership = memberships.find((m) => m.rw_id === rwId)
+  if (membership) {
+    if (membership.source === 'explicit') return true
+    // All RT officials with rt_inferred membership get READ access to Kas RW.
+    return true
+  }
+  if (user.rwId === rwId) return true
+  return false
+}
+
+const RW_NOTIFICATION_WRITE_PERMS = new Set([
+  'rw.notification.write',
+  'rw.notification.manage',
+  'notification.manage',
+  'notification.write',
+])
+
+const RW_NOTIFICATION_READ_PERMS = new Set([
+  'rw.notification.read',
+  'notification.read',
+])
+
+const RW_SCOPED_NOTIFICATION_PERMS = new Set([
+  'rw.notification.write',
+  'rw.notification.manage',
+  'rw.notification.read',
+])
+
+const ALL_NOTIFICATION_PERM_ALIASES = new Set([
+  'rw.notification.write',
+  'rw.notification.manage',
+  'rw.notification.read',
+  'notification.manage',
+  'notification.write',
+  'notification.read',
+])
+
+function findExplicitRwMembership(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): RWMembership | null {
+  if (!user || !rwId) return null
+  const memberships = user.rwMemberships ?? ((user as any)?.rw_memberships as RWMembership[] | undefined) ?? []
+  const found = memberships.find((m) => m.rw_id === rwId && m.source === 'explicit')
+  return found ?? null
+}
+
+/**
+ * RW Notification WRITE permission check (UI convenience; server enforces).
+ *
+ * Resolution priority:
+ * 1. Super Admin -> allowed.
+ * 2. Matching explicit RW membership for `rwId` is required.
+ * 3. Server-resolved `membership.permissions` for that `rwId` (primary source of truth).
+ * 4. Fallback for minimal/legacy payloads without `membership.permissions` without
+ *    letting unrelated RT-only `effectivePermissions` suppress RW write access.
+ */
+export function canManageRwNotifications(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
+  if (!user || !rwId) return false
+  if (isSuperAdminUser(user)) return true
+
+  const membership = findExplicitRwMembership(user, rwId)
   if (!membership) return false
-  return membership.source === 'explicit'
+
+  if (Array.isArray(membership.permissions) && membership.permissions.length > 0) {
+    return membership.permissions.some((p) => RW_NOTIFICATION_WRITE_PERMS.has(p.trim()))
+  }
+
+  const effPerms = user.effectivePermissions ?? []
+  if (effPerms.length > 0) {
+    const trimmed = effPerms.map((p) => p.trim())
+    if (trimmed.some((p) => RW_SCOPED_NOTIFICATION_PERMS.has(p))) {
+      return trimmed.some((p) => RW_NOTIFICATION_WRITE_PERMS.has(p))
+    }
+    if (trimmed.every((p) => ALL_NOTIFICATION_PERM_ALIASES.has(p))) {
+      return trimmed.some((p) => RW_NOTIFICATION_WRITE_PERMS.has(p))
+    }
+  }
+
+  const cleanJabatan = (membership.jabatan || '').trim().toLowerCase()
+  return cleanJabatan === 'ketua' || cleanJabatan === 'bendahara'
+}
+
+/**
+ * RW Notification READ permission check (UI convenience; server enforces).
+ */
+export function canReadRwNotifications(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
+  if (!user || !rwId) return false
+  if (canManageRwNotifications(user, rwId)) return true
+
+  const membership = findExplicitRwMembership(user, rwId)
+  if (!membership) return false
+
+  if (Array.isArray(membership.permissions) && membership.permissions.length > 0) {
+    return membership.permissions.some((p) => RW_NOTIFICATION_READ_PERMS.has(p.trim()))
+  }
+
+  const effPerms = user.effectivePermissions ?? []
+  if (effPerms.length > 0) {
+    const trimmed = effPerms.map((p) => p.trim())
+    if (
+      trimmed.some((p) => RW_SCOPED_NOTIFICATION_PERMS.has(p)) ||
+      trimmed.every((p) => ALL_NOTIFICATION_PERM_ALIASES.has(p))
+    ) {
+      return trimmed.some((p) => RW_NOTIFICATION_READ_PERMS.has(p))
+    }
+  }
+
+  return true
 }
 
 export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {
@@ -161,6 +275,7 @@ function mapUser(raw: ApiUser): AuthUser {
         source: m.source === 'explicit' || m.source === 'rt_inferred'
           ? (m.source as RWMembershipSource)
           : undefined,
+        permissions: Array.isArray(m.permissions) ? m.permissions : undefined,
       }))
     : []
   return {
@@ -294,10 +409,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      const token = getSessionPair()?.accessToken
+      const pair = getSessionPair()
+      const token = pair?.accessToken
       if (token && typeof token === 'string' && token.length > 0) {
         try {
-          await apiLogout(token)
+          await apiLogout(token, pair?.refreshToken)
         } catch {
           /* best-effort — always clear locally below */
         }

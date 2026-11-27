@@ -42,7 +42,7 @@ func (r *Repository) BeginTx(ctx context.Context) (*sql.Tx, error) {
 // Activities
 // -----------------------------------------------------------------------------
 
-func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubStatus, status string, limit, offset int) ([]Activity, int, error) {
+func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubStatus, status string, includeArchived bool, limit, offset int) ([]Activity, int, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -60,16 +60,24 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		argIdx++
 	}
 	if status != "" {
-		// Filter by DYNAMIC execution status (single source of truth):
-		// cancelled is stored; upcoming/ongoing/completed derive from starts_at/ends_at.
-		whereClause += fmt.Sprintf(` AND CASE
-			WHEN status = 'cancelled' THEN 'cancelled'
-			WHEN ends_at IS NOT NULL AND ends_at <= NOW() THEN 'completed'
-			WHEN starts_at <= NOW() THEN 'ongoing'
-			ELSE 'upcoming'
-		END = $%d`, argIdx)
-		args = append(args, status)
-		argIdx++
+		if status == "archived" {
+			// Archived filter: only show activities with archived_at set
+			whereClause += fmt.Sprintf(" AND archived_at IS NOT NULL")
+		} else {
+			// Filter by DYNAMIC execution status (single source of truth):
+			// cancelled is stored; upcoming/ongoing/completed derive from starts_at/ends_at.
+			whereClause += fmt.Sprintf(` AND CASE
+				WHEN status = 'cancelled' THEN 'cancelled'
+				WHEN ends_at IS NOT NULL AND ends_at <= NOW() THEN 'completed'
+				WHEN starts_at <= NOW() THEN 'ongoing'
+				ELSE 'upcoming'
+			END = $%d`, argIdx)
+			args = append(args, status)
+			argIdx++
+		}
+	}
+	if !includeArchived && status == "" {
+		whereClause += fmt.Sprintf(" AND archived_at IS NULL")
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM activities %s", whereClause)
@@ -81,7 +89,7 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 	query := fmt.Sprintf(`
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       created_by, updated_by, created_at, updated_at
+		       archived_at, created_by, updated_by, created_at, updated_at
 		FROM activities
 		%s
 		ORDER BY starts_at ASC, created_at DESC
@@ -100,10 +108,11 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		var a Activity
 		var desc, poster, loc, org, cBy, uBy sql.NullString
 		var endsAt sql.NullTime
+		var archivedAt sql.NullTime
 		if err := rows.Scan(
 			&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 			&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-			&cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+			&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan activity: %w", err)
 		}
@@ -122,6 +131,9 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		if org.Valid {
 			a.Organizer = &org.String
 		}
+		if archivedAt.Valid {
+			a.ArchivedAt = &archivedAt.Time
+		}
 		if cBy.Valid {
 			a.CreatedBy = &cBy.String
 		}
@@ -138,17 +150,17 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	query := `
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       created_by, updated_by, created_at, updated_at
+		       archived_at, created_by, updated_by, created_at, updated_at
 		FROM activities
 		WHERE rt_id = $1 AND id = $2
 	`
 	var a Activity
 	var desc, poster, loc, org, cBy, uBy sql.NullString
-	var endsAt sql.NullTime
+	var endsAt, archivedAt sql.NullTime
 	err := r.db(tx).QueryRowContext(ctx, query, rtID, id).Scan(
 		&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 		&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-		&cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+		&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -171,6 +183,9 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	if org.Valid {
 		a.Organizer = &org.String
 	}
+	if archivedAt.Valid {
+		a.ArchivedAt = &archivedAt.Time
+	}
 	if cBy.Valid {
 		a.CreatedBy = &cBy.String
 	}
@@ -185,16 +200,16 @@ func (r *Repository) CreateActivity(ctx context.Context, tx *sql.Tx, a *Activity
 		INSERT INTO activities (
 			rt_id, title, description, poster_url, starts_at, ends_at,
 			location, organizer, status, publication_status, show_on_banner,
-			created_by, updated_by, created_at, updated_at
+			archived_at, created_by, updated_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		a.RTID, a.Title, a.Description, a.PosterURL, a.StartsAt, a.EndsAt,
 		a.Location, a.Organizer, a.Status, a.PublicationStatus, a.ShowOnBanner,
-		a.CreatedBy,
+		a.ArchivedAt, a.CreatedBy,
 	).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt)
 }
 
@@ -249,6 +264,40 @@ func (r *Repository) CancelActivity(ctx context.Context, tx *sql.Tx, rtID, id, u
 func (r *Repository) DeleteActivity(ctx context.Context, tx *sql.Tx, rtID, id string) error {
 	query := "DELETE FROM activities WHERE rt_id = $1 AND id = $2"
 	res, err := r.db(tx).ExecContext(ctx, query, rtID, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repository) ArchiveActivity(ctx context.Context, tx *sql.Tx, rtID, id, userID string) error {
+	query := `
+		UPDATE activities
+		SET archived_at = NOW(), updated_by = $3, updated_at = NOW()
+		WHERE rt_id = $1 AND id = $2
+	`
+	res, err := r.db(tx).ExecContext(ctx, query, rtID, id, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *Repository) UnarchiveActivity(ctx context.Context, tx *sql.Tx, rtID, id, userID string) error {
+	query := `
+		UPDATE activities
+		SET archived_at = NULL, updated_by = $3, updated_at = NOW()
+		WHERE rt_id = $1 AND id = $2 AND archived_at IS NOT NULL
+	`
+	res, err := r.db(tx).ExecContext(ctx, query, rtID, id, userID)
 	if err != nil {
 		return err
 	}
@@ -776,13 +825,49 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 		return nil, fmt.Errorf("get rt info: %w", err)
 	}
 
-	// 2. Query active positions and members
+	// 2. Query active positions and members (with avatar from residents)
+	// Phone numbers for key positions (Ketua RT, Keamanan) are always visible
+	// to all authenticated RT members as an emergency contact directory.
+	// Email is only visible when the caller has full contact permission (Ketua RT).
 	query := `
 		SELECT m.id, u.id, u.full_name, m.jabatan,
+		       ph.house_number,
 		       CASE WHEN $2 = true THEN u.phone ELSE NULL END AS phone,
-		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email
+		       CASE WHEN $2 = true THEN u.email ELSE NULL END AS email,
+		       COALESCE(r.avatar_thumb_path, r.avatar_path, '') AS avatar_path
 		FROM user_rt_memberships m
 		JOIN users u ON m.user_id = u.id
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residents res
+			JOIN residency_periods rp ON rp.resident_id = res.id AND (rp.end_date IS NULL OR rp.end_date >= CURRENT_DATE)
+			JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND (ho.end_date IS NULL OR ho.end_date >= CURRENT_DATE)
+			JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
+			WHERE (
+				res.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(res.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					res.phone = u.phone
+					OR regexp_replace(res.phone, '^(\\+62|62|0)', '') = regexp_replace(u.phone, '^(\\+62|62|0)', '')
+				))
+			) AND res.rt_id = $1 AND res.is_active = true
+			ORDER BY CASE WHEN res.user_id = u.id THEN 0 ELSE 1 END, (rp.end_date IS NULL) DESC, rp.created_at DESC
+			LIMIT 1
+		) ph ON true
+		LEFT JOIN LATERAL (
+			SELECT r.avatar_thumb_path, r.avatar_path
+			FROM residents r
+			WHERE (
+				r.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(r.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					r.phone = u.phone
+					OR regexp_replace(r.phone, '^(\\+62|62|0)', '') = regexp_replace(u.phone, '^(\\+62|62|0)', '')
+				))
+			) AND r.rt_id = $1 AND r.is_active = true
+			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, r.updated_at DESC
+			LIMIT 1
+		) r ON true
 		WHERE m.rt_id = $1 AND m.is_active = true AND u.is_active = true AND m.jabatan IS NOT NULL
 		ORDER BY m.created_at ASC
 	`
@@ -795,8 +880,9 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 	membersByJabatan := make(map[string][]OrgMember)
 	for rows.Next() {
 		var memID, userID, fullName, jab string
-		var phone, email sql.NullString
-		if err := rows.Scan(&memID, &userID, &fullName, &jab, &phone, &email); err != nil {
+		var houseNumber, phone, email sql.NullString
+		var avatarThumbPath sql.NullString
+		if err := rows.Scan(&memID, &userID, &fullName, &jab, &houseNumber, &phone, &email, &avatarThumbPath); err != nil {
 			return nil, fmt.Errorf("scan org member: %w", err)
 		}
 		om := OrgMember{
@@ -805,8 +891,15 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 			FullName:     fullName,
 			Jabatan:      jab,
 		}
+		if houseNumber.Valid && houseNumber.String != "" {
+			om.HouseNumber = &houseNumber.String
+		}
 		if phone.Valid && phone.String != "" {
 			om.Phone = &phone.String
+		}
+		if avatarThumbPath.Valid && avatarThumbPath.String != "" {
+			avatarURL := avatarThumbPath.String
+			om.AvatarURL = &avatarURL
 		}
 		membersByJabatan[jab] = append(membersByJabatan[jab], om)
 	}
@@ -822,6 +915,7 @@ func (r *Repository) GetOrganizationStructure(ctx context.Context, tx *sql.Tx, r
 		{Position: "wakil_ketua", PositionLabel: "Wakil Ketua", Level: 2, Parent: "ketua"},
 		{Position: "sekretaris", PositionLabel: "Sekretaris", Level: 2, Parent: "ketua"},
 		{Position: "bendahara", PositionLabel: "Bendahara", Level: 3, Parent: "sekretaris"},
+		{Position: "humas", PositionLabel: "Humas", Level: 3, Parent: "sekretaris"},
 		{Position: "keamanan", PositionLabel: "Keamanan", Level: 4, Parent: "ketua"},
 		{Position: "kebersihan", PositionLabel: "Kebersihan", Level: 4, Parent: "ketua"},
 		{Position: "sosial", PositionLabel: "Seksi Sosial", Level: 4, Parent: "ketua"},

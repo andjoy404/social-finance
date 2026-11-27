@@ -19,6 +19,7 @@ node_modules/
 frontend/node_modules/
 
 # Build artifacts
+arfifacts/
 backend/tmp/
 backend/*.exe
 backend/*.exe.stack

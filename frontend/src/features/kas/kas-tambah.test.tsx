@@ -15,9 +15,14 @@ vi.mock('@/app/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }))
 
-vi.mock('@/app/wargaAuth', () => ({
-  hasWargaWriteAccess: vi.fn(() => true),
-}))
+vi.mock('@/app/wargaAuth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/app/wargaAuth')>()
+  return {
+    ...actual,
+    hasWargaWriteAccess: vi.fn(() => true),
+    hasKasWriteAccess: vi.fn(() => true),
+  }
+})
 
 vi.mock('@/utils/jakartaTime', () => ({
   toJakartaIso8601: vi.fn((d: string) => `${d}T10:00:00.000+07:00`),

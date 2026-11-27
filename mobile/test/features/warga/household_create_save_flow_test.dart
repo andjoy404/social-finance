@@ -199,7 +199,8 @@ class _MockApiClient extends ApiClient {
 
 /// Mock repository using the mock client.
 class _FakeWargaRepository extends WargaRepository {
-  _FakeWargaRepository() : super(client: _MockApiClient());
+  final bool shouldFail;
+  _FakeWargaRepository({this.shouldFail = false}) : super(client: _MockApiClient());
 
   @override
   Future<String> createHousehold({
@@ -207,6 +208,7 @@ class _FakeWargaRepository extends WargaRepository {
     String? rtId,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (shouldFail) throw Exception('Simpan gagal');
     return 'household-created-id';
   }
 
@@ -262,11 +264,12 @@ GlobalKey<NavigatorState> _createNavigatorKey() => GlobalKey<NavigatorState>();
 Widget _buildApp({
   required GlobalKey<NavigatorState> navigatorKey,
   bool isSuperAdmin = false,
+  bool shouldFail = false,
 }) {
   return ProviderScope(
     key: ValueKey('household-create-save-test-${DateTime.now().millisecondsSinceEpoch}'),
     overrides: [
-      wargaRepositoryProvider.overrideWithValue(_FakeWargaRepository()),
+      wargaRepositoryProvider.overrideWithValue(_FakeWargaRepository(shouldFail: shouldFail)),
       wargaListProvider.overrideWith(
         () => _StaticWargaListNotifier(),
       ),
@@ -277,10 +280,16 @@ Widget _buildApp({
         navigatorKey: navigatorKey,
         routes: [
           GoRoute(
-            path: '/home/warga/baru',
-            pageBuilder: (context, state) => MaterialPage(
-              child: HouseholdCreateScreen(isSuperAdmin: isSuperAdmin),
-            ),
+            path: '/home/warga',
+            builder: (context, state) => const Scaffold(body: Text('Warga List')),
+            routes: [
+              GoRoute(
+                path: 'baru',
+                pageBuilder: (context, state) => MaterialPage(
+                  child: HouseholdCreateScreen(isSuperAdmin: isSuperAdmin),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -362,7 +371,10 @@ void main() {
       'Simpan gagal → dialog tidak muncul, form tetap tampil dengan error',
       (tester) async {
         final navigatorKey = _createNavigatorKey();
-        await tester.pumpWidget(_buildApp(navigatorKey: navigatorKey));
+        await tester.pumpWidget(_buildApp(
+          navigatorKey: navigatorKey,
+          shouldFail: true,
+        ));
         await tester.pumpAndSettle();
 
         // Fill fields
@@ -386,7 +398,10 @@ void main() {
       'Setelah save gagal, pengguna tetap dapat membatalkan form normal',
       (tester) async {
         final navigatorKey = _createNavigatorKey();
-        await tester.pumpWidget(_buildApp(navigatorKey: navigatorKey));
+        await tester.pumpWidget(_buildApp(
+          navigatorKey: navigatorKey,
+          shouldFail: true,
+        ));
         await tester.pumpAndSettle();
 
         // Fill fields

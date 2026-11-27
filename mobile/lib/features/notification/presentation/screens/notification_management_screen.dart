@@ -7,14 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/app/app.dart';
-import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/notification/push_notification_service.dart';
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/error_state.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
@@ -39,6 +41,7 @@ class _NotificationManagementScreenState
   late final TabController _tabController;
   late final TabController _historyTabController;
   late final TabController _configTabController;
+  final Set<String> _openingLogDetailIds = <String>{};
 
   static const Map<String, String> _knownEventNames = {
     'manual_push': 'Pengumuman Pengurus',
@@ -215,13 +218,21 @@ class _NotificationManagementScreenState
         //   where user_id matches the current user. No null, no broadcast,
         //   no dispatch records leak through.
         final isAdminViewing = category != null;
-        final filtered = isAdminViewing
+        var filtered = isAdminViewing
             ? resp.data
             : resp.data.where((log) => log.userId == snapshotUserId).toList();
+        if (category == 'mine' && _selectedLogStatus != 'all') {
+          if (_selectedLogStatus == 'unread') {
+            filtered = filtered.where((l) => !l.isRead).toList();
+          } else if (_selectedLogStatus == 'read') {
+            filtered = filtered.where((l) => l.isRead).toList();
+          }
+        }
         setState(() {
           _logs = filtered;
           _isLoadingLogs = false;
         });
+        ref.read(notificationUnreadCountProvider.notifier).refresh();
       }
     } catch (e) {
       // Only show the error if the user hasn't changed.
@@ -263,6 +274,7 @@ class _NotificationManagementScreenState
     try {
       final repo = ref.read(notificationRepositoryProvider);
       await repo.markAllAsRead();
+      ref.read(notificationUnreadCountProvider.notifier).clear();
       if (mounted) {
         setState(() {
           _logs = _logs
@@ -289,68 +301,108 @@ class _NotificationManagementScreenState
     }
   }
 
-  void _openLogDetail(NotificationLogEntry log) {
-    if (_historyCategory == null && !log.isRead) {
-      ref
-          .read(notificationRepositoryProvider)
-          .markAsRead(log.id)
-          .then((_) {
-            if (mounted) {
-              setState(() {
-                _logs = _logs
-                    .map(
-                      (l) => l.id == log.id
-                          ? l.copyWith(isRead: true, readAt: DateTime.now())
-                          : l,
-                    )
-                    .toList();
-              });
-            }
-          })
-          .catchError((_) {});
-    }
-
-    final combinedPayload = <String, dynamic>{
-      if (log.payload != null) ...log.payload!,
-      if (log.variables.isNotEmpty) ...log.variables,
-      'type': log.eventType,
-      'title': log.title,
-      'body': log.body,
-      if (log.imageUrl != null) 'image_url': log.imageUrl,
-      if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
-      'notification_id': log.id,
-    };
-
-    final deepLink = log.payload?['deep_link'] as String?;
-    var target = normalizeNotificationTarget(
-      deepLink,
-      payload: combinedPayload,
-    );
-    if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
-      final sep = target.contains('?') ? '&' : '?';
-      target = '$target${sep}from=notifikasi';
-    }
-
-    final router = GoRouter.maybeOf(context);
-    if (router != null) {
-      router.push(target);
+  Future<void> _openLogDetail(NotificationLogEntry log) async {
+    final logId = log.id.trim();
+    if (logId.isNotEmpty && _openingLogDetailIds.contains(logId)) {
       return;
     }
+    if (logId.isNotEmpty) {
+      _openingLogDetailIds.add(logId);
+    }
+    try {
+      final isPersonalCategory =
+          _historyCategory == null || _historyCategory == 'mine';
 
-    final id = log.id.trim();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NotificationDetailScreen(
-          notificationId: id.isNotEmpty ? id : null,
-          initialTitle: log.title,
-          initialBody: log.body,
-          initialImageUrl: log.imageUrl,
-          initialEventType: log.eventType,
-          initialSentAt: log.createdAt?.toIso8601String(),
-          openedFromNotificationList: true,
-        ),
-      ),
-    );
+      Future<void> doMarkRead() async {
+        if (!isPersonalCategory || log.isRead) return;
+        try {
+          await ref.read(notificationRepositoryProvider).markAsRead(log.id);
+          if (!mounted) return;
+          setState(() {
+            _logs = _logs
+                .map(
+                  (l) => l.id == log.id
+                      ? l.copyWith(isRead: true, readAt: DateTime.now())
+                      : l,
+                )
+                .toList();
+          });
+          await _loadLogs(category: _historyCategory);
+          await ref.read(notificationUnreadCountProvider.notifier).refresh();
+        } catch (_) {
+          // Jika request markAsRead gagal, jangan menampilkan status read permanen secara palsu
+        }
+      }
+
+      final combinedPayload = <String, dynamic>{
+        if (log.payload != null) ...log.payload!,
+        if (log.variables.isNotEmpty) ...log.variables,
+        'type': log.eventType,
+        'title': log.title,
+        'body': log.body,
+        'dedup_key': log.dedupKey,
+        if (log.imageUrl != null) 'image_url': log.imageUrl,
+        if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
+        'notification_id': log.id,
+      };
+
+      final deepLink = log.payload?['deep_link'] as String?;
+      var target = normalizeNotificationTarget(
+        deepLink,
+        payload: combinedPayload,
+      );
+      if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
+        final sep = target.contains('?') ? '&' : '?';
+        target = '$target${sep}from=notifikasi';
+      }
+
+      final router = GoRouter.maybeOf(context);
+      if (router != null) {
+        try {
+          final uri = Uri.tryParse(target);
+          if (uri == null) {
+            // Navigasi gagal; notifikasi tetap unread
+            return;
+          }
+          final matches = router.configuration.findMatch(uri);
+          if (matches.isEmpty) {
+            // Navigasi gagal; notifikasi tetap unread
+            return;
+          }
+          router.push(target);
+        } catch (_) {
+          // Navigasi gagal; notifikasi tetap unread
+          return;
+        }
+        await doMarkRead();
+        return;
+      }
+
+      try {
+        final id = log.id.trim();
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => NotificationDetailScreen(
+              notificationId: id.isNotEmpty ? id : null,
+              initialTitle: log.title,
+              initialBody: log.body,
+              initialImageUrl: log.imageUrl,
+              initialEventType: log.eventType,
+              initialSentAt: log.createdAt?.toIso8601String(),
+              openedFromNotificationList: true,
+            ),
+          ),
+        );
+      } catch (_) {
+        // Navigasi gagal; notifikasi tetap unread
+        return;
+      }
+      await doMarkRead();
+    } finally {
+      if (logId.isNotEmpty) {
+        _openingLogDetailIds.remove(logId);
+      }
+    }
   }
 
   void _showPreviewBanner({
@@ -480,12 +532,11 @@ class _NotificationManagementScreenState
                             const SizedBox(height: 10),
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                ApiConfig.resolveImageUrl(imageUrl) ?? imageUrl,
+                              child: AuthenticatedNetworkImage(
+                                imageUrl: imageUrl,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    const SizedBox.shrink(),
+                                errorWidget: const SizedBox.shrink(),
                               ),
                             ),
                           ],
@@ -495,6 +546,7 @@ class _NotificationManagementScreenState
                     const SizedBox(height: 24),
                     // Label info
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 8,
@@ -504,20 +556,25 @@ class _NotificationManagementScreenState
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 16,
-                            color: AppColors.accent,
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.info_outline,
+                              size: 16,
+                              color: AppColors.accent,
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            eventName,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.accent,
+                          Expanded(
+                            child: Text(
+                              eventName,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.accent,
+                              ),
                             ),
                           ),
                         ],
@@ -582,7 +639,12 @@ class _NotificationManagementScreenState
             ],
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Batal'),
             ),
@@ -649,6 +711,56 @@ class _NotificationManagementScreenState
         SnackBar(content: Text('Gagal uji notifikasi: $e')),
       );
     }
+  }
+
+  void _showResetTemplateDialog(NotificationTemplate template) {
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Atur Ulang Template'),
+          content: Text(
+            'Apakah Anda yakin ingin mengatur ulang template "${template.name}" ke pengaturan default sistem? Perubahan ini akan mengembalikan pesan ke format asli.',
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  final repo = ref.read(notificationRepositoryProvider);
+                  await repo.deleteTemplate(template.id);
+                  ref.invalidate(notificationTemplatesProvider);
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Template berhasil diatur ulang ke default'),
+                    ),
+                  );
+                } catch (e) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal mengatur ulang template: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Atur Ulang'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showAddEditTemplateDialog({
@@ -917,10 +1029,13 @@ class _NotificationManagementScreenState
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Gambar Lampiran Pengumuman (Opsional)',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
+                            Expanded(
+                              child: Text(
+                                'Gambar Lampiran Pengumuman (Opsional)',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (pickedImageBytes != null ||
@@ -1055,13 +1170,10 @@ class _NotificationManagementScreenState
                             borderRadius: BorderRadius.circular(AppRadius.base),
                             child: AspectRatio(
                               aspectRatio: 16 / 9,
-                              child: Image.network(
-                                ApiConfig.resolveImageUrl(
-                                      imageController.text,
-                                    ) ??
-                                    imageController.text,
+                              child: AuthenticatedNetworkImage(
+                                imageUrl: imageController.text,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => Container(
+                                errorWidget: Container(
                                   color: Colors.grey.withValues(alpha: 0.1),
                                   alignment: Alignment.center,
                                   child: const Text(
@@ -1139,7 +1251,14 @@ class _NotificationManagementScreenState
                           Row(
                             children: [
                               Expanded(
-                                child: OutlinedButton.icon(
+                                child: AppButton.accentSoft(
+                                  buttonKey: const Key(
+                                    'notifMgmtProofCameraBtn',
+                                  ),
+                                  text: 'Kamera',
+                                  icon: Icons.camera_alt_outlined,
+                                  size: AppButtonSize.medium,
+                                  fullWidth: true,
                                   onPressed: () async {
                                     setSheetState(() {
                                       imageUploadError = null;
@@ -1191,16 +1310,18 @@ class _NotificationManagementScreenState
                                       });
                                     }
                                   },
-                                  icon: const Icon(Icons.camera_alt, size: 16),
-                                  label: const Text(
-                                    'Kamera',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: AppSpacing.sm),
                               Expanded(
-                                child: OutlinedButton.icon(
+                                child: AppButton.accentSoft(
+                                  buttonKey: const Key(
+                                    'notifMgmtProofGalleryBtn',
+                                  ),
+                                  text: 'Galeri',
+                                  icon: Icons.photo_library_outlined,
+                                  size: AppButtonSize.medium,
+                                  fullWidth: true,
                                   onPressed: () async {
                                     setSheetState(() {
                                       imageUploadError = null;
@@ -1252,14 +1373,6 @@ class _NotificationManagementScreenState
                                       });
                                     }
                                   },
-                                  icon: const Icon(
-                                    Icons.photo_library,
-                                    size: 16,
-                                  ),
-                                  label: const Text(
-                                    'Galeri',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
                                 ),
                               ),
                             ],
@@ -1327,17 +1440,68 @@ class _NotificationManagementScreenState
                         const SizedBox(height: 16),
                       ],
 
+                      // Reset button (create mode only)
+                      if (!isEditing && selectedEvent.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              final match = systemTypes?.firstWhere(
+                                (s) => s.eventType == selectedEvent,
+                                orElse: () => const SystemNotificationType(
+                                  eventType: '',
+                                  name: '',
+                                  trigger: '',
+                                  recipientsRule: '',
+                                  defaultTitle: '',
+                                  defaultBody: '',
+                                  allowedVariables: [],
+                                ),
+                              );
+                              if (match != null && match.eventType.isNotEmpty) {
+                                setSheetState(() {
+                                  nameController.text = 'Template ${match.name}';
+                                  titleController.text = match.defaultTitle;
+                                  bodyController.text = match.defaultBody;
+                                  imageController.text = '';
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Template berhasil direset ke default sistem'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('Atur Ulang'),
+                            style: TextButton.styleFrom(
+                              backgroundColor: AppColors.warning,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+
                       // Actions
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.of(ctx).pop(),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.danger,
-                                foregroundColor: Colors.white,
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.danger,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                child: const Text('Batal'),
                               ),
-                              child: const Text('Batal'),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1411,7 +1575,7 @@ class _NotificationManagementScreenState
                                 }
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.accent,
+                                backgroundColor: AppColors.success,
                                 foregroundColor: Colors.white,
                               ),
                               child: Text(isEditing ? 'Simpan' : 'Buat'),
@@ -1441,11 +1605,21 @@ class _NotificationManagementScreenState
             'Setelah dihapus, sistem akan otomatis menggunakan pesan default bawaan.',
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Batal'),
             ),
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () async {
                 Navigator.of(ctx).pop();
                 final messenger = ScaffoldMessenger.of(context);
@@ -1462,7 +1636,6 @@ class _NotificationManagementScreenState
                   messenger.showSnackBar(SnackBar(content: Text(e.toString())));
                 }
               },
-              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
               child: const Text('Hapus'),
             ),
           ],
@@ -1485,6 +1658,18 @@ class _NotificationManagementScreenState
       return Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: Navigator.of(context).canPop(),
+          leading: (user?['jabatan'] == 'anggota_rw' && !Navigator.of(context).canPop())
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    final memberships = (user?['rw_memberships'] as List?)?.whereType<Map<String, dynamic>>().toList();
+                    final rwId = (memberships != null && memberships.isNotEmpty)
+                        ? (memberships.first['rw_id'] as String? ?? (user?['rw_id'] ?? '').toString())
+                        : (user?['rw_id'] ?? '').toString();
+                    context.go('/rw/$rwId/keuangan?tab=beranda');
+                  },
+                )
+              : null,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Notifikasi'),
           actions: [
@@ -1512,7 +1697,13 @@ class _NotificationManagementScreenState
         automaticallyImplyLeading: Navigator.of(context).canPop(),
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
-        actions: [],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.done_all_rounded),
+            tooltip: 'Tandai Semua Dibaca',
+            onPressed: _markAllAsRead,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabAlignment: TabAlignment.fill,
@@ -1552,10 +1743,20 @@ class _NotificationManagementScreenState
                     ? AppColors.darkTextMuted
                     : AppColors.lightTextMuted,
                 indicatorColor: AppColors.accent,
-                tabs: const [
-                  Tab(text: 'SISTEM'),
-                  Tab(text: 'RIWAYAT SAYA'),
-                ],
+                tabs: systemTypesAsync.when(
+                  data: (types) => [
+                    Tab(text: 'SISTEM (${types.length})'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                  loading: () => const [
+                    Tab(text: 'SISTEM'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                  error: (_, _) => const [
+                    Tab(text: 'SISTEM'),
+                    Tab(text: 'RIWAYAT SAYA'),
+                  ],
+                ),
               ),
               Expanded(
                 child: TabBarView(
@@ -1592,17 +1793,50 @@ class _NotificationManagementScreenState
                     ? AppColors.darkTextMuted
                     : AppColors.lightTextMuted,
                 indicatorColor: AppColors.accent,
-                tabs: const [
-                  Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
-                  Tab(
-                    icon: Icon(Icons.bookmark_border_rounded, size: 14),
-                    text: 'KUSTOM',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.schedule_rounded, size: 14),
-                    text: 'PENJADWALAN',
-                  ),
-                ],
+                tabs: systemTypesAsync.when(
+                  data: (types) => [
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM (${types.length})',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
+                  ],
+                  loading: () => const [
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
+                  ],
+                  error: (_, _) => const [
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 14),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                      text: 'KUSTOM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.schedule_rounded, size: 14),
+                      text: 'PENJADWALAN',
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: TabBarView(
@@ -1667,13 +1901,6 @@ class _NotificationManagementScreenState
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.end,
                                             children: [
-                                              const AppBadge(
-                                                label: 'FCM PUSH',
-                                                backgroundColor:
-                                                    AppColors.accent,
-                                                textColor: Colors.white,
-                                              ),
-                                              const SizedBox(height: 4),
                                               _buildTriggerCategoryBadge(
                                                 st.eventType,
                                                 isDark,
@@ -1812,12 +2039,10 @@ class _NotificationManagementScreenState
                                         ),
                                       ],
                                       const SizedBox(height: 12),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          SizedBox(
-                                            width: 135,
+                                          Expanded(
                                             child: ElevatedButton(
                                               onPressed: () =>
                                                   _showPreviewBanner(
@@ -1826,7 +2051,7 @@ class _NotificationManagementScreenState
                                                     eventName: st.name,
                                                   ),
                                               style: ElevatedButton.styleFrom(
-                                                backgroundColor: AppColors.info,
+                                                backgroundColor: AppColors.infoBlue,
                                                 foregroundColor: Colors.white,
                                                 padding:
                                                     const EdgeInsets.symmetric(
@@ -1835,17 +2060,14 @@ class _NotificationManagementScreenState
                                                     ),
                                               ),
                                               child: const Text(
-                                                'Preview Banner',
+                                                'Preview',
                                               ),
                                             ),
                                           ),
-                                          if (!isBySystemTriggerEvent(
-                                            st.eventType,
-                                            apiTriggerCategory:
-                                                st.triggerCategory,
-                                          ))
-                                            SizedBox(
-                                              width: 135,
+                                          const SizedBox(width: 8),
+                                          // Kustomisasi: show for all events if isAdmin
+                                          if (isAdmin)
+                                            Expanded(
                                               child: ElevatedButton(
                                                 onPressed: () =>
                                                     _showAddEditTemplateDialog(
@@ -1872,69 +2094,39 @@ class _NotificationManagementScreenState
                                             ),
                                         ],
                                       ),
-                                      if (st.eventType == 'manual_push' ||
-                                          (isSuperAdmin &&
-                                              st.supportsTest)) ...[
+                                      // Test Notifikasi: only for super_admin + supportsTest
+                                      if (isSuperAdmin && st.supportsTest) ...[
                                         const SizedBox(height: 8),
                                         Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
-                                            if (isSuperAdmin && st.supportsTest)
-                                              SizedBox(
-                                                width: 135,
-                                                child: OutlinedButton.icon(
-                                                  onPressed: () =>
-                                                      _handleTestPush(
-                                                        eventType: st.eventType,
-                                                        title: st.defaultTitle,
-                                                        body: st.defaultBody,
-                                                      ),
-                                                  icon: const Icon(
-                                                    Icons.send_outlined,
-                                                    size: 16,
-                                                  ),
-                                                  label: const Text(
-                                                    'Test Notifikasi',
-                                                  ),
-                                                  style:
-                                                      OutlinedButton.styleFrom(
-                                                        foregroundColor:
-                                                            AppColors.info,
-                                                        side: const BorderSide(
-                                                          color: AppColors.info,
-                                                        ),
-                                                      ),
+                                            SizedBox(
+                                              width: 135,
+                                              child: OutlinedButton.icon(
+                                                onPressed: () =>
+                                                    _handleTestPush(
+                                                      eventType: st.eventType,
+                                                      title: st.defaultTitle,
+                                                      body: st.defaultBody,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.send_outlined,
+                                                  size: 16,
                                                 ),
-                                              ),
-                                            if (st.eventType == 'manual_push')
-                                              SizedBox(
-                                                width: 135,
-                                                child: ElevatedButton.icon(
-                                                  onPressed: () =>
-                                                      _confirmSendBroadcastDialog(
-                                                        eventType: st.eventType,
-                                                        title: st.defaultTitle,
-                                                        body: st.defaultBody,
-                                                      ),
-                                                  icon: const Icon(
-                                                    Icons.campaign_outlined,
-                                                    size: 16,
-                                                  ),
-                                                  label: const Text(
-                                                    'Kirim Notifikasi',
-                                                    softWrap: true,
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                        backgroundColor:
-                                                            AppColors.success,
-                                                        foregroundColor:
-                                                            Colors.white,
-                                                      ),
+                                                label: const Text(
+                                                  'Test Notifikasi',
                                                 ),
+                                                style:
+                                                    OutlinedButton.styleFrom(
+                                                      foregroundColor:
+                                                          AppColors.infoBlue,
+                                                      side: const BorderSide(
+                                                        color: AppColors.infoBlue,
+                                                      ),
+                                                    ),
                                               ),
+                                            ),
                                           ],
                                         ),
                                       ],
@@ -2181,11 +2373,11 @@ class _NotificationManagementScreenState
                                                   AppBadge(
                                                     label: 'Gambar Terlampir',
                                                     backgroundColor: AppColors
-                                                        .info
+                                                        .infoBlue
                                                         .withValues(
                                                           alpha: 0.15,
                                                         ),
-                                                    textColor: AppColors.info,
+                                                    textColor: AppColors.infoBlue,
                                                   ),
                                               ],
                                             ),
@@ -2231,7 +2423,7 @@ class _NotificationManagementScreenState
                                                     icon: const Icon(
                                                       Icons.send_outlined,
                                                       size: 20,
-                                                      color: AppColors.info,
+                                                      color: AppColors.infoBlue,
                                                     ),
                                                     tooltip:
                                                         'Test Notifikasi (Super Admin)',
@@ -2269,9 +2461,9 @@ class _NotificationManagementScreenState
                                                   icon: const Icon(
                                                     Icons.preview_rounded,
                                                     size: 20,
-                                                    color: AppColors.info,
+                                                    color: AppColors.infoBlue,
                                                   ),
-                                                  tooltip: 'Preview Banner',
+                                                  tooltip: 'Preview',
                                                   onPressed: () =>
                                                       _showPreviewBanner(
                                                         title: tmpl.title,
@@ -2657,7 +2849,7 @@ class _NotificationManagementScreenState
                             icon: const Icon(
                               Icons.preview_rounded,
                               size: 20,
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                             ),
                             tooltip: 'Preview Notifikasi',
                             onPressed: () {
@@ -2716,7 +2908,12 @@ class _NotificationManagementScreenState
               : 'Apakah Anda yakin ingin mengaktifkan jadwal "${schedule.name}"? Notifikasi akan dikirim sesuai jadwal yang ditetapkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Batal'),
           ),
@@ -2767,13 +2964,22 @@ class _NotificationManagementScreenState
           'Hapus jadwal "${schedule.name}"? Tindakan tidak dapat dibatalkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Batal'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             child: const Text('Hapus'),
           ),
         ],
@@ -3171,11 +3377,12 @@ class _NotificationManagementScreenState
               ),
               actions: [
                 ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,
+                    elevation: 0,
                   ),
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -3321,7 +3528,7 @@ class _NotificationManagementScreenState
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
+                    backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
                   ),
                   child: _isSavingSchedule
@@ -3467,12 +3674,11 @@ class _NotificationManagementScreenState
                       ),
                     ),
                   ),
-                  if (!isAdmin)
-                    IconButton(
-                      icon: const Icon(Icons.done_all_rounded, size: 20),
-                      tooltip: 'Tandai Semua Dibaca',
-                      onPressed: _markAllAsRead,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.done_all_rounded, size: 20),
+                    tooltip: 'Tandai Semua Dibaca',
+                    onPressed: _markAllAsRead,
+                  ),
                 ],
               ),
             ),
@@ -3536,7 +3742,8 @@ class _NotificationManagementScreenState
                           _ => AppColors.lightTextMuted,
                         };
                       }
-                      final showReadState = category == null;
+                      final showReadState =
+                          category == null || category == 'mine';
                       final dateStr = formatJakartaDateTime(log.createdAt);
                       final activityRelationLabel =
                           switch (log.activityRelation) {
@@ -3546,136 +3753,155 @@ class _NotificationManagementScreenState
                             _ => null,
                           };
 
+                      final isUnread = showReadState && !log.isRead;
+                      final unreadBg = isDark
+                          ? theme.colorScheme.primary.withOpacity(0.12)
+                          : theme.colorScheme.primary.withOpacity(0.05);
+
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: InkWell(
                           key: Key('notification_log_item_${log.id}'),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           onTap: () => _openLogDetail(log),
-                          child: AppCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  alignment: WrapAlignment.spaceBetween,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  spacing: 8,
-                                  runSpacing: 4,
-                                  children: [
-                                    Text(
-                                      dateStr,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: isDark
-                                                ? AppColors.darkTextMuted
-                                                : AppColors.lightTextMuted,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            child: AppCard(
+                              cardColor: isUnread ? unreadBg : null,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        dateStr,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                            ),
+                                      ),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        children: [
+                                          AppBadge(
+                                            label: log.isRW ? 'RW' : 'RT',
+                                            backgroundColor: log.isRW
+                                                ? const Color(0xFF7C3AED)
+                                                : AppColors.accent,
+                                            textColor: Colors.white,
                                           ),
-                                    ),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (showReadState && !log.isRead) ...[
-                                          const Padding(
-                                            padding: EdgeInsets.only(right: 6),
-                                            child: AppBadge(
+                                          if (showReadState && !log.isRead)
+                                            const AppBadge(
                                               label: 'BARU',
                                               backgroundColor: AppColors.accent,
                                               textColor: Colors.white,
                                             ),
+                                          AppBadge(
+                                            label: deliveryStatusLabel,
+                                            backgroundColor:
+                                                deliveryStatusColor,
+                                            textColor: Colors.white,
                                           ),
                                         ],
-                                        AppBadge(
-                                          label: deliveryStatusLabel,
-                                          backgroundColor: deliveryStatusColor,
-                                          textColor: Colors.white,
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        if (showReadState && !log.isRead)
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            margin: const EdgeInsets.only(
-                                              right: 6,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          if (showReadState && !log.isRead)
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              margin: const EdgeInsets.only(
+                                                right: 6,
+                                              ),
+                                              decoration: const BoxDecoration(
+                                                color: AppColors.accent,
+                                                shape: BoxShape.circle,
+                                              ),
                                             ),
-                                            decoration: const BoxDecoration(
-                                              color: AppColors.accent,
-                                              shape: BoxShape.circle,
+                                          Expanded(
+                                            child: Text(
+                                              log.title,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight:
+                                                        !showReadState ||
+                                                            log.isRead
+                                                        ? FontWeight.w600
+                                                        : FontWeight.bold,
+                                                  ),
                                             ),
                                           ),
-                                        Expanded(
+                                        ],
+                                      ),
+                                      if (activityRelationLabel != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 2,
+                                          ),
                                           child: Text(
-                                            log.title,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
+                                            activityRelationLabel,
+                                            style: theme.textTheme.labelSmall
                                                 ?.copyWith(
-                                                  fontWeight:
-                                                      !showReadState ||
-                                                          log.isRead
-                                                      ? FontWeight.w600
-                                                      : FontWeight.bold,
+                                                  color: AppColors.accent,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                           ),
                                         ),
-                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  NotificationBodyText(
+                                    text: log.body,
+                                    eventType: log.eventType,
+                                    dedupKey: log.dedupKey,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: isDark
+                                          ? AppColors.darkTextMuted
+                                          : AppColors.lightTextMuted,
                                     ),
-                                    if (activityRelationLabel != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text(
-                                          activityRelationLabel,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color: AppColors.accent,
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                    onOpenUrl: (url) {
+                                      ref
+                                          .read(pushNotificationServiceProvider)
+                                          .openExternalUrl(url);
+                                    },
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        _knownEventNames[log.eventType] ??
+                                            log.eventType,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted,
                                         ),
                                       ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                NotificationBodyText(
-                                  text: log.body,
-                                  eventType: log.eventType,
-                                  dedupKey: log.dedupKey,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: isDark
-                                        ? AppColors.darkTextMuted
-                                        : AppColors.lightTextMuted,
-                                  ),
-                                  onOpenUrl: (url) {
-                                    ref
-                                        .read(pushNotificationServiceProvider)
-                                        .openExternalUrl(url);
-                                  },
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _knownEventNames[log.eventType] ??
-                                          log.eventType,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? AppColors.darkTextMuted
-                                            : AppColors.lightTextMuted,
-                                      ),
-                                    ),
-                                    if (isAdmin)
-                                      Flexible(
-                                        child: Text(
+                                      if (isAdmin)
+                                        Text(
                                           log.deliveryCountsAvailable
                                               ? 'Terkirim: ${log.sentCount} / ${log.recipientsCount} penerima'
                                                     '${log.failedCount > 0 ? ' - Gagal: ${log.failedCount}' : ''}'
@@ -3690,10 +3916,10 @@ class _NotificationManagementScreenState
                                                 : AppColors.lightTextMuted,
                                           ),
                                         ),
-                                      ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),

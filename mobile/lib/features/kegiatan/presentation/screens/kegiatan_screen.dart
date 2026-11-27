@@ -11,6 +11,7 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -30,7 +31,7 @@ class KegiatanScreen extends ConsumerStatefulWidget {
 
 class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
   String _selectedFilter =
-      'all'; // all, upcoming, ongoing, completed, cancelled
+      'all'; // all, upcoming, ongoing, completed, cancelled, archived
   List<CommunityActivity> _activities = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
@@ -56,6 +57,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
         return 'completed';
       case 'cancelled':
         return 'cancelled';
+      case 'archived':
+        return 'archived';
       default:
         return null;
     }
@@ -155,6 +158,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   _buildFilterChip('Selesai', 'completed', isDark),
                   const SizedBox(width: 8),
                   _buildFilterChip('Dibatalkan', 'cancelled', isDark),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('Diarsipkan', 'archived', isDark),
                 ],
               ),
             ),
@@ -335,8 +340,14 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     if (act.posterUrl != null && act.posterUrl!.isNotEmpty)
                       AppBadge(
                         label: 'Gambar Terlampir',
-                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
-                        textColor: AppColors.info,
+                        backgroundColor: AppColors.infoBlue.withValues(alpha: 0.15),
+                        textColor: AppColors.infoBlue,
+                      ),
+                    if (act.archivedAt != null)
+                      AppBadge(
+                        label: 'Diarsipkan',
+                        backgroundColor: AppColors.lightTextMuted.withValues(alpha: 0.15),
+                        textColor: AppColors.lightTextMuted,
                       ),
                   ],
                 ),
@@ -398,7 +409,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                       icon: const Icon(
                         Icons.visibility_outlined,
                         size: 20,
-                        color: AppColors.info,
+                        color: AppColors.infoBlue,
                       ),
                       tooltip: 'Detail',
                       onPressed: () => context.push('/home/kegiatan/${act.id}'),
@@ -423,6 +434,26 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           tooltip: 'Hapus',
                           onPressed: () =>
                               _showDeleteConfirmationDialog(context, act),
+                        ),
+                      if (act.archivedAt == null)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.archive_outlined,
+                            size: 20,
+                            color: AppColors.warning,
+                          ),
+                          tooltip: 'Arsipkan',
+                          onPressed: () => _confirmArchiveDialog(context, act),
+                        ),
+                      if (act.archivedAt != null)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.unarchive_outlined,
+                            size: 20,
+                            color: AppColors.success,
+                          ),
+                          tooltip: 'Buka dari Arsip',
+                          onPressed: () => _confirmUnarchiveDialog(context, act),
                         ),
                     ],
                   ],
@@ -590,25 +621,24 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   ),
                   const SizedBox(height: 8),
                 ],
+                if (canManage && act.status == 'cancelled' && act.archivedAt == null)
+                  const SizedBox(height: 8),
                 if (canManage && act.status != 'cancelled') ...[
+                  if (act.archivedAt != null)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _confirmUnarchiveDialog(context, act),
+                        icon: const Icon(Icons.unarchive_outlined),
+                        label: const Text('Buka dari Arsip'),
+                      ),
+                    ),
+                  if (act.archivedAt != null)
+                    const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        try {
-                          await ref
-                              .read(communityRepositoryProvider)
-                              .cancelActivity(act.id);
-                          _loadActivities();
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal membatalkan: $e')),
-                            );
-                          }
-                        }
-                      },
+                      onPressed: () => _showCancelConfirmationDialog(context, act),
                       icon: const Icon(Icons.cancel_outlined),
                       label: const Text('Batalkan Kegiatan'),
                       style: OutlinedButton.styleFrom(
@@ -616,14 +646,13 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  if (act.archivedAt == null)
+                    const SizedBox(height: 8),
                 ],
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -886,30 +915,51 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Batal'),
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            child: const Text('Batal'),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (titleCtrl.text.trim().isEmpty ||
-                                locationCtrl.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Judul dan lokasi wajib diisi'),
-                                ),
-                              );
-                              return;
-                            }
-                            final messenger = ScaffoldMessenger.of(context);
-                            Navigator.pop(ctx);
-                            try {
-                              await ref
-                                  .read(communityRepositoryProvider)
-                                  .createActivity({
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            onPressed: () async {
+                              if (titleCtrl.text.trim().isEmpty ||
+                                  locationCtrl.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Judul dan lokasi wajib diisi'),
+                                  ),
+                                );
+                                return;
+                              }
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.pop(ctx);
+                              try {
+                                await ref
+                                    .read(communityRepositoryProvider)
+                                    .createActivity({
                                     'title': titleCtrl.text.trim(),
                                     'location': locationCtrl.text.trim(),
                                     'description': descCtrl.text.trim(),
@@ -936,7 +986,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           child: const Text('Simpan'),
                         ),
                       ),
-                    ],
+                    ),
+                  ],
                   ),
                 ],
               ),
@@ -1198,30 +1249,51 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Batal'),
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            child: const Text('Batal'),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (titleCtrl.text.trim().isEmpty ||
-                                locationCtrl.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Judul dan lokasi wajib diisi'),
-                                ),
-                              );
-                              return;
-                            }
-                            final messenger = ScaffoldMessenger.of(context);
-                            Navigator.pop(ctx);
-                            try {
-                              await ref
-                                  .read(communityRepositoryProvider)
-                                  .updateActivity(act.id, {
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                              ),
+                            ),
+                            onPressed: () async {
+                              if (titleCtrl.text.trim().isEmpty ||
+                                  locationCtrl.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Judul dan lokasi wajib diisi'),
+                                  ),
+                                );
+                                return;
+                              }
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.pop(ctx);
+                              try {
+                                await ref
+                                    .read(communityRepositoryProvider)
+                                    .updateActivity(act.id, {
                                     'title': titleCtrl.text.trim(),
                                     'location': locationCtrl.text.trim(),
                                     'description': descCtrl.text.trim(),
@@ -1247,7 +1319,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           child: const Text('Simpan Perubahan'),
                         ),
                       ),
-                    ],
+                    ),
+                  ],
                   ),
                 ],
               ),
@@ -1270,7 +1343,12 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           'Apakah Anda yakin ingin menghapus kegiatan "${act.title}"? Tindakan ini tidak dapat dibatalkan.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Batal'),
           ),
@@ -1324,5 +1402,134 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
       'Des',
     ];
     return m >= 1 && m <= 12 ? months[m] : '';
+  }
+
+  void _confirmArchiveDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Arsipkan Kegiatan?'),
+        content: Text(
+          'Apakah Anda yakin ingin mengarsipkan kegiatan "${act.title}"? Kegiatan akan disembunyikan dari daftar aktif.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .archiveActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal mengarsip: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Arsipkan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmUnarchiveDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Buka dari Arsip?'),
+        content: Text(
+          'Apakah Anda yakin ingin membuka kegiatan "${act.title}" dari arsip? Kegiatan akan kembali muncul di daftar aktif.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .unarchiveActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal membuka arsip: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Buka'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCancelConfirmationDialog(BuildContext context, CommunityActivity act) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Batalkan Kegiatan?'),
+        content: Text(
+          'Apakah Anda yakin ingin membatalkan kegiatan "${act.title}"? Banner di Beranda akan dinonaktifkan.',
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .cancelActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal membatalkan kegiatan: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ya, Batalkan', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 }

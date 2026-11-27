@@ -34,6 +34,7 @@ vi.mock('@/app/api', async () => {
     apiGetNotificationLogs: vi.fn(),
     apiGetNotificationManagementHistory: vi.fn(),
     apiUploadNotificationImage: vi.fn(),
+    apiGetNotificationImageBlob: vi.fn(),
     apiTriggerManualPush: vi.fn().mockResolvedValue({ status: 'accepted', message: 'dispatched' }),
     apiTestPush: vi.fn().mockResolvedValue({ status: 'dispatched', message: 'dispatched', dispatched_count: 1 }),
     apiMarkNotificationAsRead: vi.fn().mockResolvedValue(undefined),
@@ -132,6 +133,9 @@ describe('NotificationScreen', () => {
     vi.mocked(api.apiGetNotificationTemplates).mockResolvedValue(mockTemplates)
     vi.mocked(api.apiGetNotificationLogs).mockResolvedValue(mockLogs)
     vi.mocked(api.apiGetNotificationManagementHistory).mockResolvedValue(mockLogs)
+    vi.mocked(api.apiGetNotificationImageBlob).mockResolvedValue(
+      new Blob(['mock-png'], { type: 'image/png' }),
+    )
   })
 
   it('renders correctly with tabs and loads system notification cards', async () => {
@@ -178,7 +182,7 @@ describe('NotificationScreen', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByText('Riwayat Notifikasi')).toBeInTheDocument()
+    expect(await screen.findByText('RIWAYAT NOTIFIKASI')).toBeInTheDocument()
     expect(await screen.findByText('TERKIRIM')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Riwayat Saya/ })).not.toBeInTheDocument()
     expect(api.apiGetNotificationLogs).toHaveBeenCalledWith(
@@ -446,7 +450,7 @@ describe('NotificationScreen', () => {
 
     // Riwayat content is rendered directly
     await waitFor(() => {
-      expect(screen.getByText('Riwayat Notifikasi')).toBeInTheDocument()
+      expect(screen.getByText('RIWAYAT NOTIFIKASI')).toBeInTheDocument()
       expect(screen.getByText('Total riwayat tersimpan: 1')).toBeInTheDocument()
       expect(screen.getByText('Segera bayar tagihan nomor 101 ya.')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Tandai Semua Dibaca/i })).toBeInTheDocument()
@@ -671,7 +675,301 @@ describe('NotificationScreen', () => {
     fireEvent.click(addScheduleBtn)
     expect(screen.getByText('Buat Jadwal Baru')).toBeInTheDocument()
   })
+
+  it('deduplicates in-flight mark-read requests for the same log id and still allows different ids in parallel', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: { id: 'usr-warga', name: 'Warga RT', email: 'warga@rt.local', systemRole: 'member', role: 'warga', jabatan: null, rt: null },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    vi.mocked(api.apiGetNotificationLogs).mockResolvedValue({
+      data: [
+        {
+          id: 'log-1',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_bill_created',
+          dedup_key: 'dedup-1',
+          title: 'Tagihan Satu',
+          body: 'Body satu',
+          status: 'sent',
+          is_read: false,
+          created_at: '2026-10-29T01:00:00Z',
+        },
+        {
+          id: 'log-2',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_bill_created',
+          dedup_key: 'dedup-2',
+          title: 'Tagihan Dua',
+          body: 'Body dua',
+          status: 'sent',
+          is_read: false,
+          created_at: '2026-10-29T02:00:00Z',
+        },
+      ],
+      pagination: { page: 1, page_size: 15, total: 2, total_pages: 1 },
+    } as any)
+
+    let resolveFirst: (() => void) | null = null
+    let resolveSecond: (() => void) | null = null
+    let callCount = 0
+    vi.mocked(api.apiMarkNotificationAsRead).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          callCount += 1
+          if (callCount === 1) resolveFirst = resolve
+          else resolveSecond = resolve
+        }),
+    )
+
+    render(
+      <MemoryRouter>
+        <AuthModule.AuthProvider>
+          <NotificationScreen />
+        </AuthModule.AuthProvider>
+      </MemoryRouter>,
+    )
+
+    const detailButtons = await screen.findAllByRole('button', { name: /Detail/i })
+    expect(detailButtons.length).toBeGreaterThanOrEqual(2)
+
+    fireEvent.click(detailButtons[0])
+    fireEvent.click(detailButtons[0])
+    await waitFor(() => {
+      expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(detailButtons[1])
+    await waitFor(() => {
+      expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(2)
+    })
+
+    expect(resolveFirst).toBeTruthy()
+    expect(resolveSecond).toBeTruthy()
+    resolveFirst!()
+    resolveSecond!()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Sudah Dibaca').length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  it('keeps notification unread when mark-as-read API fails and clears in-flight guard for retry', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: { id: 'usr-warga', name: 'Warga RT', email: 'warga@rt.local', systemRole: 'member', role: 'warga', jabatan: null, rt: null },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    vi.mocked(api.apiGetNotificationLogs).mockResolvedValue({
+      data: [
+        {
+          id: 'log-fail',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_bill_created',
+          dedup_key: 'dedup-fail',
+          title: 'Tagihan Gagal',
+          body: 'Body gagal',
+          status: 'sent',
+          is_read: false,
+          created_at: '2026-10-29T01:00:00Z',
+        },
+      ],
+      pagination: { page: 1, page_size: 15, total: 1, total_pages: 1 },
+    } as any)
+    vi.mocked(api.apiMarkNotificationAsRead)
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(undefined as any)
+
+    render(
+      <MemoryRouter>
+        <AuthModule.AuthProvider>
+          <NotificationScreen />
+        </AuthModule.AuthProvider>
+      </MemoryRouter>,
+    )
+
+    const detailButton = await screen.findByRole('button', { name: /Detail/i })
+    fireEvent.click(detailButton)
+    await waitFor(() => {
+      expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.getAllByText('Belum Dibaca').length).toBeGreaterThanOrEqual(1)
+
+    fireEvent.click(detailButton)
+    await waitFor(() => {
+      expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(2)
+    })
+    await waitFor(() => {
+      expect(screen.getAllByText('Sudah Dibaca').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('does not update state or throw after unmount while mark-as-read is in flight', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: { id: 'usr-warga', name: 'Warga RT', email: 'warga@rt.local', systemRole: 'member', role: 'warga', jabatan: null, rt: null },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    vi.mocked(api.apiGetNotificationLogs).mockResolvedValue({
+      data: [
+        {
+          id: 'log-unmount',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_bill_created',
+          dedup_key: 'dedup-unmount',
+          title: 'Tagihan Unmount',
+          body: 'Body unmount',
+          status: 'sent',
+          is_read: false,
+          created_at: '2026-10-29T01:00:00Z',
+        },
+      ],
+      pagination: { page: 1, page_size: 15, total: 1, total_pages: 1 },
+    } as any)
+
+    let resolveRead: (() => void) | undefined
+    vi.mocked(api.apiMarkNotificationAsRead).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRead = resolve
+        }),
+    )
+
+    const view = render(
+      <MemoryRouter>
+        <AuthModule.AuthProvider>
+          <NotificationScreen />
+        </AuthModule.AuthProvider>
+      </MemoryRouter>,
+    )
+
+    const detailButton = await screen.findByRole('button', { name: /Detail/i })
+    fireEvent.click(detailButton)
+    await waitFor(() => {
+      expect(vi.mocked(api.apiMarkNotificationAsRead)).toHaveBeenCalledTimes(1)
+      expect(resolveRead).toBeTruthy()
+    })
+
+    view.unmount()
+    resolveRead?.()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+
+  it('loads uploaded create-template image via authenticated blob loader and revokes on remove', async () => {
+    const uploadedUrl =
+      '/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/upload.png'
+    vi.mocked(api.apiUploadNotificationImage).mockResolvedValue({
+      status: 'uploaded',
+      image_url: uploadedUrl,
+      key: 'notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/upload.png',
+    })
+    const createUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:http://localhost/template-preview-1')
+    const revokeUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    try {
+      render(
+        <MemoryRouter>
+          <NotificationScreen />
+        </MemoryRouter>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Template Kustom/i }))
+      const createBtn = await screen.findByRole('button', { name: /Tambah Template/i })
+      fireEvent.click(createBtn)
+
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+      expect(fileInput).toBeTruthy()
+      const file = new File(['png'], 'banner.png', { type: 'image/png' })
+      fireEvent.change(fileInput, { target: { files: [file] } })
+
+      const previewImg = await screen.findByRole('img', { name: 'Preview Lampiran' })
+      expect(previewImg).toHaveAttribute('src', 'blob:http://localhost/template-preview-1')
+      expect(previewImg.getAttribute('src')).not.toBe(uploadedUrl)
+      expect(vi.mocked(api.apiGetNotificationImageBlob)).toHaveBeenCalledWith(
+        uploadedUrl,
+        expect.any(AbortSignal),
+      )
+
+      // Removing image immediately removes preview and revokes object URL
+      fireEvent.click(screen.getByTitle('Hapus gambar'))
+      await waitFor(() => {
+        expect(screen.queryByRole('img', { name: 'Preview Lampiran' })).not.toBeInTheDocument()
+      })
+      expect(revokeUrlSpy).toHaveBeenCalledWith('blob:http://localhost/template-preview-1')
+    } finally {
+      createUrlSpy.mockRestore()
+      revokeUrlSpy.mockRestore()
+    }
+  })
+
+  it('renders existing saved template image via authenticated loader in edit and preview modals', async () => {
+    const savedImageUrl =
+      '/api/v1/notifications/images/notifications/manual/43d1ed42-d982-4299-9b29-30080591fcf9/saved.png'
+    vi.mocked(api.apiGetNotificationTemplates).mockResolvedValue([
+      {
+        ...mockTemplates[0],
+        id: 'tmpl-img-1',
+        event_type: 'manual_push',
+        name: 'Pengumuman Kerja Bakti',
+        title: 'Kerja Bakti Minggu',
+        body: 'Mari ikut kerja bakti jam 07.00',
+        image_url: savedImageUrl,
+      },
+    ])
+    const createUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:http://localhost/saved-template-img')
+    const revokeUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    try {
+      render(
+        <MemoryRouter>
+          <NotificationScreen />
+        </MemoryRouter>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Template Kustom/i }))
+      await screen.findByText('Pengumuman Kerja Bakti')
+
+      // Open Preview modal
+      fireEvent.click(screen.getByTitle('Lihat Tampilan Banner'))
+      const bannerImg = await screen.findByRole('img', { name: 'Banner Notifikasi' })
+      expect(bannerImg).toHaveAttribute('src', 'blob:http://localhost/saved-template-img')
+      expect(bannerImg.getAttribute('src')).not.toBe(savedImageUrl)
+      expect(vi.mocked(api.apiGetNotificationImageBlob)).toHaveBeenCalledWith(
+        savedImageUrl,
+        expect.any(AbortSignal),
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /Tutup Preview/i }))
+      expect(revokeUrlSpy).toHaveBeenCalledWith('blob:http://localhost/saved-template-img')
+
+      // Open Edit modal without replacing image
+      fireEvent.click(screen.getByTitle('Edit template'))
+      const editImg = await screen.findByRole('img', { name: 'Preview Lampiran' })
+      expect(editImg).toHaveAttribute('src', 'blob:http://localhost/saved-template-img')
+      expect(editImg.getAttribute('src')).not.toBe(savedImageUrl)
+    } finally {
+      createUrlSpy.mockRestore()
+      revokeUrlSpy.mockRestore()
+    }
+  })
 })
+
 
 describe('notificationUrl helpers', () => {
   it('identifies manual notifications strictly from trusted event_type and dedup_key', () => {

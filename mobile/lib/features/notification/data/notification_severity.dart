@@ -58,7 +58,7 @@ Color getNotificationSeverityColor(String eventType) {
     case NotificationSeverity.normal:
       return AppColors.success;
     case NotificationSeverity.informational:
-      return AppColors.info;
+      return AppColors.infoBlue;
   }
 }
 
@@ -155,14 +155,14 @@ String getNotificationTriggerCategoryApiValue(
 }
 
 /// Badge colors consistent with the Web implementation:
-/// by_system -> blue (AppColors.info), terjadwal -> amber (AppColors.warning),
+/// by_system -> red (#FF3B30), terjadwal -> amber (AppColors.warning),
 /// manual_trigger -> violet (AppColors.accent).
 Color getNotificationTriggerCategoryColor(
   NotificationTriggerCategory category,
 ) {
   switch (category) {
     case NotificationTriggerCategory.bySystem:
-      return AppColors.info;
+      return const Color(0xFFFF3B30);
     case NotificationTriggerCategory.terjadwal:
       return AppColors.warning;
     case NotificationTriggerCategory.manualTrigger:

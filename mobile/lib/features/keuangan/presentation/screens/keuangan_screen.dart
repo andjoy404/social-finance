@@ -13,6 +13,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
@@ -840,7 +841,7 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                                     ),
                                   if (cashVal > 0)
                                     PieChartSectionData(
-                                      color: AppColors.info,
+                                      color: AppColors.infoBlue,
                                       value: cashVal,
                                       radius: 16,
                                       showTitle: false,
@@ -889,7 +890,7 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                               theme: theme,
                               isDark: isDark,
                               label: 'Tunai',
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               amount: breakdown.cashAmount,
                               percentage: breakdown.cashPercentage,
                               count: breakdown.cashCount,
@@ -1144,12 +1145,10 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),

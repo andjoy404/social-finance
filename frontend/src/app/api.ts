@@ -31,6 +31,7 @@ export interface ApiUser {
     rw_number?: number
     jabatan: string
     source?: string
+    permissions?: string[]
   }>
 }
 
@@ -280,10 +281,15 @@ export async function apiChangePassword(accessToken: string, body: ApiChangePass
   }
 }
 
-export async function apiLogout(accessToken: string): Promise<void> {
+export async function apiLogout(accessToken: string, refreshToken?: string): Promise<void> {
+  const hasRefresh = typeof refreshToken === 'string' && refreshToken.trim().length > 0
   const res = await fetch(BASE + '/auth/logout', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(hasRefresh ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(hasRefresh ? { body: JSON.stringify({ refresh_token: refreshToken!.trim() }) } : {}),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   if (!res.ok && res.status !== 204) {
@@ -383,9 +389,9 @@ export async function authenticatedApiRequest(
     const nested = body && typeof body === 'object' ? (body as { error?: { code?: string; message?: string } }).error : undefined
     const apiErr = nested ?? (body && typeof body === 'object' ? body as { code?: string; message?: string } : null)
     if (currentRes.status >= 400 && apiErr?.code) {
-      throw new ApiError(apiErr.code, apiErr.message ?? 'Unexpected response')
+      throw new ApiError(apiErr.code, apiErr.message ?? 'Unexpected response', undefined, currentRes.status)
     }
-    throw new ApiError('unexpected', 'Unexpected response')
+    throw new ApiError('unexpected', 'Unexpected response', undefined, currentRes.status)
   }
 
   return currentRes
@@ -651,12 +657,14 @@ export async function apiReactivateRT(token: string, id: string): Promise<ApiRT>
 export class ApiError extends Error {
   code: string
   details?: unknown
+  status?: number
 
-  constructor(code: string, message: string, details?: unknown) {
+  constructor(code: string, message: string, details?: unknown, status?: number) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.details = details
+    this.status = status
   }
 }
 
@@ -938,10 +946,14 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   return data
 }
 
-export async function getResident(token: string, id: string): Promise<ApiResident> {
-  const res = await authenticatedApiRequest(BASE + '/residents/' + id, {
+export async function getResident(token: string, id: string, rtId?: string): Promise<ApiResident> {
+  const q = rtId ? `?rt_id=${encodeURIComponent(rtId)}` : ''
+  const res = await authenticatedApiRequest(BASE + '/residents/' + id + q, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(rtId ? { 'X-RT-ID': rtId } : {}),
+    },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   const data = await json<ApiResident>(res)
@@ -1007,7 +1019,7 @@ export async function moveResident(token: string, id: string, body: ApiMoveResid
 
 export interface ApiSpecialResidentCreateBody {
   rt_id: string
-  jabatan: 'keamanan' | 'operasional' | 'kebersihan'
+  jabatan: 'keamanan' | 'operasional' | 'kebersihan' | 'anggota_rw'
   full_name: string
   nik: string
   phone: string
@@ -1021,7 +1033,7 @@ export interface ApiSpecialResidentUpdateBody {
   nik?: string
   phone?: string
   email?: string
-  jabatan?: 'keamanan' | 'operasional' | 'kebersihan'
+  jabatan?: 'keamanan' | 'operasional' | 'kebersihan' | 'anggota_rw'
   is_active?: boolean
   password?: string
 }
@@ -1032,7 +1044,11 @@ export async function createSpecialResident(
 ): Promise<ApiResident | void> {
   const res = await authenticatedApiRequest(BASE + '/residents/special', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(body.rt_id ? { 'X-RT-ID': body.rt_id } : {}),
+    },
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -1868,7 +1884,9 @@ export interface ApiUpdateNotificationTemplateInput {
 
 export interface ApiNotificationLog {
   id: string
-  rt_id: string
+  rt_id?: string
+  rw_id?: string | null
+  source?: 'rt' | 'rw'
   user_id?: string | null
   event_type: string
   dedup_key: string
@@ -2010,6 +2028,41 @@ export async function apiDeleteNotificationTemplate(token: string, id: string): 
   }
 }
 
+export async function apiResetNotificationTemplate(
+  token: string,
+  id: string,
+): Promise<{
+  id: string
+  name: string
+  title: string
+  body: string
+  allowed_variables: string[]
+  image_url: string | null
+  message: string
+}> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}/reset`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keep_name: true }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to reset template')
+  }
+  const body = await json<{ data: {
+    id: string
+    name: string
+    title: string
+    body: string
+    allowed_variables: string[]
+    image_url: string | null
+    message: string
+  } }>(res)
+  if (!body) throw new Error('Invalid API response')
+  return body.data
+}
+
 export async function apiGetNotificationLogs(
   token: string,
   page = 1,
@@ -2123,6 +2176,65 @@ export async function apiUploadNotificationImage(
     throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah gambar notifikasi')
   }
   return body
+}
+
+export function resolveNotificationImageUrl(imageUrl: string): string {
+  const trimmed = imageUrl.trim()
+  if (!trimmed) {
+    throw new ApiError('validation_error', 'URL gambar notifikasi tidak valid')
+  }
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) {
+    throw new ApiError('validation_error', 'Skema URL gambar notifikasi tidak didukung')
+  }
+  // Collapse accidental duplicate /api/v1/api/v1 prefixes (both relative and absolute).
+  const normalized = trimmed.replace(/(\/api\/v1)(?:\/api\/v1)+(?=\/|$)/g, '$1')
+  if (normalized.startsWith(`${BASE}/`) || normalized === BASE) {
+    return normalized
+  }
+  if (normalized.startsWith('/notifications/images/')) {
+    return `${BASE}${normalized}`
+  }
+  if (normalized.startsWith('notifications/')) {
+    return `${BASE}/notifications/images/${normalized}`
+  }
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return normalized
+  }
+  if (normalized.startsWith('/')) {
+    return normalized
+  }
+  return `${BASE}/notifications/images/${normalized}`
+}
+
+export async function apiGetNotificationImageBlob(
+  imageUrl: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const token = getSessionPair()?.accessToken
+  if (!token) throw new ApiError('auth_expired', 'Session expired', undefined, 401)
+  const resolvedUrl = resolveNotificationImageUrl(imageUrl)
+
+  let effectiveSignal: AbortSignal | undefined
+  if (typeof AbortSignal !== 'undefined') {
+    const hasTimeout = typeof AbortSignal.timeout === 'function'
+    const hasAny = typeof AbortSignal.any === 'function'
+    if (signal && hasTimeout && hasAny) {
+      effectiveSignal = AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS * 2)])
+    } else if (signal) {
+      effectiveSignal = signal
+    } else if (hasTimeout) {
+      effectiveSignal = AbortSignal.timeout(TIMEOUT_MS * 2)
+    }
+  } else {
+    effectiveSignal = signal
+  }
+
+  const res = await authenticatedApiRequest(resolvedUrl, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(effectiveSignal ? { signal: effectiveSignal } : {}),
+  })
+  return res.blob()
 }
 
 export async function apiUploadWasteTruckImage(
@@ -3374,6 +3486,7 @@ export interface CommunityActivity {
   status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
   publication_status: 'draft' | 'published'
   show_on_banner: boolean
+  archived_at?: string | null
   created_by?: string | null
   updated_by?: string | null
   created_at: string
@@ -3439,6 +3552,7 @@ export interface OrgMember {
   membership_id: string
   full_name: string
   jabatan: string
+  house_number?: string | null
   phone?: string | null
   avatar_url?: string | null
 }
@@ -3590,6 +3704,22 @@ export async function apiCancelActivity(token: string, id: string): Promise<void
 export async function apiDeleteActivity(token: string, id: string): Promise<void> {
   await authenticatedApiRequest(BASE + `/activities/${id}`, {
     method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiArchiveActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/archive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+}
+
+export async function apiUnarchiveActivity(token: string, id: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/activities/${id}/unarchive`, {
+    method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })

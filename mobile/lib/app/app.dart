@@ -61,6 +61,7 @@ import '../features/security/presentation/screens/pos_kiosk_screen.dart';
 import '../features/security/presentation/screens/security_absen_screen.dart';
 import '../features/security/presentation/screens/security_management_screen.dart';
 import '../features/security/presentation/screens/security_guest_book_screen.dart';
+import '../features/security/presentation/screens/paket_detail_screen.dart';
 
 /// Normalizes a notification deep link and/or FCM data payload into a valid
 /// internal GoRouter destination path.
@@ -121,6 +122,18 @@ String normalizeNotificationTarget(
 
   // 1. Check explicit /iuran/detail/:billId or /iuran/:billId patterns
   if (!isDetailNotificationType && path.isNotEmpty) {
+    final paketMatch = RegExp(
+      r'^/(?:home/)?(?:paket/detail|paket-detail)/([a-zA-Z0-9_-]+)$',
+    ).firstMatch(path);
+    if (paketMatch != null) {
+      final matchedReportId = paketMatch.group(1);
+      if (matchedReportId != null &&
+          matchedReportId.isNotEmpty &&
+          matchedReportId != 'detail') {
+        return '/home/paket/detail/$matchedReportId';
+      }
+    }
+
     final billMatch = RegExp(
       r'^/(?:home/)?iuran/(?:detail/)?([a-zA-Z0-9_-]+)$',
     ).firstMatch(path);
@@ -196,6 +209,75 @@ String normalizeNotificationTarget(
     return '$basePath$queryString';
   }
 
+  if (type == 'patrol_bundle_submitted' || title.contains('Laporan Patroli')) {
+    var bundleId = cleanString(payload?['bundle_id'] ?? existingQuery['bundle_id']);
+    if (bundleId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 && parts[0] == 'patrol') {
+        bundleId = parts[1];
+      }
+    }
+    final q = bundleId.isNotEmpty ? '&bundle_id=$bundleId' : '';
+    return '/home/security-management?tab=patrol&subtab=history$q';
+  }
+
+  // Correction submission notification — navigate to security corrections
+  if (type == 'correction_submitted' || title.contains('Pengajuan Koreksi Absensi')) {
+    var correctionId = cleanString(payload?['correction_id'] ?? existingQuery['correction_id']);
+    if (correctionId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 && parts[0] == 'correction') {
+        correctionId = parts[1];
+      }
+    }
+    final q = correctionId.isNotEmpty ? '&correction_id=$correctionId' : '';
+    return '/home/security-management?tab=corrections$q';
+  }
+
+  if (type == 'paket_received' ||
+      type == 'paket_picked_up' ||
+      title.contains('Laporan Paket') ||
+      title.contains('Paket Baru Dititipkan') ||
+      title.contains('Paket Telah Diambil') ||
+      title.contains('Paket Telah Diserahkan')) {
+    var reportId = cleanString(
+      payload?['report_id'] ??
+      payload?['paket_id'] ??
+      payload?['package_id'] ??
+      existingQuery['report_id'] ??
+      existingQuery['paket_id'] ??
+      existingQuery['package_id'],
+    );
+    if (reportId.isEmpty && payload?['dedup_key'] != null) {
+      final parts = cleanString(payload!['dedup_key']).split(':');
+      if (parts.length >= 2 &&
+          (parts[0] == 'paket_ketua' ||
+           parts[0] == 'paket_recv' ||
+           parts[0] == 'paket_pickup' ||
+           parts[0] == 'paket_diserahkan')) {
+        reportId = parts[1];
+      }
+    }
+    final dedupKey = payload?['dedup_key']?.toString() ?? '';
+    final isKetua = title.contains('Laporan Paket Masuk') ||
+        title.contains('Paket Telah Diserahkan') ||
+        dedupKey.startsWith('paket_ketua') ||
+        dedupKey.startsWith('paket_diserahkan');
+    final isWarga = title.contains('Paket Baru Dititipkan') ||
+        title.contains('Paket Telah Diambil') ||
+        dedupKey.startsWith('paket_recv') ||
+        dedupKey.startsWith('paket_pickup');
+
+    if (reportId.isNotEmpty && !isKetua) {
+      return '/home/paket/detail/$reportId';
+    }
+    if (isWarga) {
+      return '/home/notifikasi';
+    }
+    final q = reportId.isNotEmpty ? '&report_id=$reportId' : '';
+    return '/home/security-management?tab=paket&subtab=list$q';
+  }
+
   // 4. Explicit notification detail path or legacy /notifications path
   final notifDetailMatch = RegExp(
     r'^/(?:home/)?(?:notifikasi/detail|notifications/detail)(?:/([a-zA-Z0-9_-]+))?$',
@@ -247,6 +329,10 @@ String normalizeNotificationTarget(
       candidatePath == '/home/reports' ||
       candidatePath == '/home/profile' ||
       candidatePath == '/home/rw' ||
+      candidatePath == '/home/security-management' ||
+      candidatePath == '/home/patroli' ||
+      candidatePath == '/home/paket' ||
+      candidatePath.startsWith('/home/paket/') ||
       candidatePath == '/home/notifikasi' ||
       candidatePath.startsWith('/home/notifikasi/');
 
@@ -263,7 +349,7 @@ String? securityOfficerHomeRedirect(String? jabatan, String location) {
   final normalizedJabatan = (jabatan ?? '').trim().toLowerCase();
   if (normalizedJabatan == 'keamanan' &&
       (location == '/login' || location == '/home')) {
-    return '/home/warga';
+    return '/home/patroli';
   }
   return null;
 }
@@ -343,6 +429,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               profileStatus == 'permissions_unavailable')) {
         ref.read(authRepositoryProvider.notifier).reloadProfile();
       }
+      if (user != null) {
+        ref.read(authRepositoryProvider.notifier).ensureFreshSession();
+        ref.read(pushNotificationServiceProvider).ensureDeviceRegistered();
+      }
       if (isPlainWargaUser(user)) {
         ref
             .read(overdueWarningSummaryProvider.notifier)
@@ -359,9 +449,25 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     return canUserAccessNotificationMenu(user);
   }
 
+  String _getEffectiveRwIdFromUser(Map<String, dynamic>? user) {
+    if (user == null) return '';
+    final rawList = user['rw_memberships'];
+    if (rawList is List && rawList.isNotEmpty) {
+      final first = rawList.first;
+      if (first is Map && first['rw_id'] != null) {
+        return first['rw_id'].toString();
+      }
+    }
+    return (user['rw_id'] ?? '').toString().trim();
+  }
+
   String _resolveAuthorizedTarget(String target, Map<String, dynamic>? user) {
     final uri = Uri.tryParse(target);
     final loc = uri?.path ?? target;
+
+    if (loc.startsWith('/home/paket/detail/')) {
+      return target;
+    }
 
     if (loc == '/home/notifikasi' && !_canUserAccessNotificationMenu(user)) {
       return '/home';
@@ -376,17 +482,36 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       return '/home';
     }
 
+    final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jab == 'humas') {
+      if (loc == '/home/keuangan') {
+        final rwId = _getEffectiveRwIdFromUser(user);
+        return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
+      }
+      if (loc.startsWith('/home/kas')) {
+        final rwId = _getEffectiveRwIdFromUser(user);
+        return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=kas' : '/home';
+      }
+      if (loc.startsWith('/home/lokasi-dana')) {
+        return '/home';
+      }
+    }
+    if ((jab == 'operasional' || jab == 'sosial') &&
+        (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
+      return '/home';
+    }
+
     if (loc.startsWith('/home/lokasi-dana')) {
       final role = user?['role'] as AppRole?;
       final systemRole = user?['system_role'] as String?;
       final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+      if (jabatan == 'sekretaris') return '/home';
       final canAccess =
           systemRole == 'super_admin' ||
           role == AppRole.bendahara ||
           role == AppRole.pengurus ||
           jabatan == 'ketua' ||
           jabatan == 'wakil_ketua' ||
-          jabatan == 'sekretaris' ||
           jabatan == 'bendahara';
       if (!canAccess) {
         return '/home';
@@ -421,6 +546,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             ?.whereType<Map<String, dynamic>>()
             .toList() ??
         <Map<String, dynamic>>[];
+    // Include anggota and anggota_rt so Anggota RT can access RW Dashboard and RW Kas READ.
     final validMemberships = rawMemberships.where((m) {
       if (isSuperAdmin) return true;
       final jabatan = (m['jabatan'] ?? '').toString().toLowerCase();
@@ -429,8 +555,20 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         'wakil_ketua',
         'sekretaris',
         'bendahara',
+        'anggota',
+        'anggota_rt',
+        'anggota_rw',
       ].contains(jabatan);
     }).toList();
+
+    final userRwId = (user['rw_id'] ?? '').toString().trim();
+    if (validMemberships.isEmpty && userRwId.isNotEmpty) {
+      final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+      if (segments.length >= 2 && segments[0] == 'rw') {
+        return segments[1] == userRwId;
+      }
+      return true;
+    }
 
     if (validMemberships.isEmpty) return false;
     final segments = path.split('/').where((s) => s.isNotEmpty).toList();
@@ -524,6 +662,20 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       notifService.initialize().then((_) {
         if (_refreshNotifier._lastLoggedIn) {
           notifService.onUserLoggedIn();
+          final apiClient = ref.read(apiClientProvider);
+          final activeUser = ref.read(authRepositoryProvider)?.valueOrNull;
+          final activeRtId =
+              (activeUser?['rt_id'] ??
+                      (activeUser?['rt'] is Map
+                          ? activeUser!['rt']['id']
+                          : null))
+                  ?.toString()
+                  .trim();
+          notifService.syncNativeNotificationAuth(
+            accessToken: apiClient.token,
+            rtId: activeRtId,
+            baseUrl: apiClient.baseUrl,
+          );
         }
         notifService.getInitialMessage().then((message) {
           if (message != null) {
@@ -559,7 +711,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         _navigateToDeepLink(deepLink, payload: payload);
       });
 
-      _foregroundSub = notifService.onForegroundMessage.listen((message) {
+      _foregroundSub = notifService.onForegroundMessage.listen((message) async {
         final notification = message.notification;
         final title =
             notification?.title ?? message.data['title'] ?? 'Notifikasi Baru';
@@ -586,24 +738,47 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
 
         final isAndroid =
             !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+        bool nativeHeadsUpDisplayed = false;
         if (isAndroid) {
+          final apiClient = ref.read(apiClientProvider);
+          final activeUser = ref.read(authRepositoryProvider)?.valueOrNull;
+          final activeRtId =
+              (activeUser?['rt_id'] ??
+                      (activeUser?['rt'] is Map
+                          ? activeUser!['rt']['id']
+                          : null))
+                  ?.toString()
+                  .trim();
           // Display true native Android heads-up banner at top of screen with high priority & action button
-          notifService.showHeadsUpNotification(
+          final notifIdStr = message.data['notification_id'] as String?;
+          final dedupSeed = (notifIdStr != null && notifIdStr.trim().isNotEmpty)
+              ? 'nid:${notifIdStr.trim()}'
+              : (message.messageId != null &&
+                      message.messageId!.trim().isNotEmpty)
+                  ? 'mid:${message.messageId!.trim()}'
+                  : '$title:$body';
+          final deterministicId = dedupSeed.hashCode & 0x7FFFFFFF;
+          final displayResult = await notifService.showHeadsUpNotification(
             title: title,
             body: body,
             deepLink: normalizedTarget,
             imageUrl: imageUrl,
-            notificationId: message.data['notification_id'] as String?,
+            authToken: apiClient.token,
+            rtId: activeRtId,
+            baseUrl: activeBaseUrl,
+            notificationId: notifIdStr,
             type: message.data['type'] as String?,
             sentAt: message.data['sent_at'] as String?,
-            id:
-                (message.messageId ??
-                        '${message.data['notification_id'] ?? title}:$body')
-                    .hashCode,
+            id: deterministicId == 0 ? 1001 : deterministicId,
           );
-          // Avoid showing dual notifications for the same message on Android
-        } else {
-          // Fallback to floating SnackBar on web or unsupported platforms
+          nativeHeadsUpDisplayed =
+              displayResult['status'] == 'ANDROID_DISPLAY_REQUESTED';
+          // Avoid showing dual notifications for the same message on Android when native heads-up succeeded.
+        }
+
+        if (!nativeHeadsUpDisplayed && mounted) {
+          // Fallback to floating SnackBar on web, unsupported platforms, or when
+          // Android native notifications/channel/permission are blocked.
           _scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
           _scaffoldMessengerKey.currentState?.showSnackBar(
             SnackBar(
@@ -703,13 +878,36 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       _isExplicitLogout = true;
       _pendingDeepLink = null;
       _lastNotificationTarget = null;
-      await _ref.read(pushNotificationServiceProvider).onUserLoggedOut();
+      final notifSvc = _ref.read(pushNotificationServiceProvider);
+      await Future.wait([
+        notifSvc.clearNativeNotificationAuth(),
+        notifSvc.onUserLoggedOut(),
+      ]);
+    };
+    authNotifier.onClearNativeAuth = () async {
+      await _ref
+          .read(pushNotificationServiceProvider)
+          .clearNativeNotificationAuth();
     };
 
     _authSubscription = ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
       authRepositoryProvider,
       (previous, next) {
-        final isLoggedIn = next?.valueOrNull != null;
+        final activeUser = next?.valueOrNull;
+        final isLoggedIn = activeUser != null;
+        if (isLoggedIn) {
+          final apiClient = _ref.read(apiClientProvider);
+          final activeRtId =
+              (activeUser['rt_id'] ??
+                      (activeUser['rt'] is Map ? activeUser['rt']['id'] : null))
+                  ?.toString()
+                  .trim();
+          _ref.read(pushNotificationServiceProvider).syncNativeNotificationAuth(
+                accessToken: apiClient.token,
+                rtId: activeRtId,
+                baseUrl: apiClient.baseUrl,
+              );
+        }
         if (isLoggedIn != _refreshNotifier._lastLoggedIn) {
           if (!isLoggedIn) {
             if (!_isExplicitLogout &&
@@ -723,7 +921,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             _lastNotificationTarget = null;
             _isExplicitLogout = false;
             _ref.read(wargaSearchQueryProvider.notifier).state = '';
-            _ref.read(pushNotificationServiceProvider).onUserLoggedOut();
+            final notifSvc = _ref.read(pushNotificationServiceProvider);
+            notifSvc.clearNativeNotificationAuth();
+            notifSvc.onUserLoggedOut();
           } else {
             _isExplicitLogout = false;
             _ref.read(pushNotificationServiceProvider).onUserLoggedIn();
@@ -786,11 +986,25 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   .toSet() ??
               <String>{};
           if (loc == '/home/security-management' &&
+              (jabatan == 'sekretaris' || (
+              jabatan != 'keamanan' &&
               !perms.contains('security.schedule.read') &&
               !perms.contains('security.schedule.write') &&
               !perms.contains('security.device.manage') &&
               !perms.contains('security.correction') &&
-              !perms.contains('security.guest_book')) {
+              !perms.contains('security.guest_book') &&
+              !perms.contains('patrol.read') &&
+              !perms.contains('paket.read')))) {
+            final reportId = state.uri.queryParameters['report_id'];
+            if (reportId != null && reportId.isNotEmpty) {
+              return '/home/paket/detail/$reportId';
+            }
+            return '/home';
+          }
+          if (loc == '/home/paket' &&
+              jabatan != 'keamanan' &&
+              !perms.contains('paket.read') &&
+              !perms.contains('paket.create')) {
             return '/home';
           }
           if (loc == '/home/security-guestbook' &&
@@ -801,6 +1015,94 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (securityLanding != null) return securityLanding;
           final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
           if (cleaningLanding != null) return cleaningLanding;
+          // Anggota RW: redirect to RW Dashboard directly, never to RT Beranda or Warga.
+          final isAnggotaRW = jabatan == 'anggota_rw';
+          if (isAnggotaRW) {
+            final rwMemberships =
+                (user?['rw_memberships'] as List?)
+                    ?.whereType<Map<String, dynamic>>()
+                    .toList() ??
+                <Map<String, dynamic>>[];
+            String rwId = '';
+            if (rwMemberships.isNotEmpty) {
+              final firstRw = rwMemberships.first;
+              rwId = firstRw['rw_id'] as String? ?? '';
+            }
+            if (rwId.isEmpty) {
+              rwId = (user?['rw_id'] ?? '').toString().trim();
+            }
+            if (rwId.isNotEmpty) {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/rw/$rwId/keuangan?tab=beranda';
+              }
+              // Allow staying on rw paths, rw-data, notifikasi, and profile (NOT warga)
+              if (loc.startsWith('/rw/') ||
+                  loc == '/home/rw-data' ||
+                  loc.startsWith('/home/rw-data/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/rw/$rwId/keuangan?tab=beranda';
+            }
+          }
+
+          // Anggota RT: redirect to RW Dashboard, not Beranda.
+          final role = (user?['role'] ?? '').toString().split('.').last.trim().toLowerCase();
+          final isPengurus = user?['role'] == AppRole.pengurus || role == 'pengurus';
+          final isAnggotaRT =
+              jabatan == 'anggota_rt' || (jabatan == 'anggota' && isPengurus);
+          if (isAnggotaRT) {
+            final rwMemberships =
+                (user?['rw_memberships'] as List?)
+                    ?.whereType<Map<String, dynamic>>()
+                    .toList() ??
+                <Map<String, dynamic>>[];
+            String rwId = '';
+            if (rwMemberships.isNotEmpty) {
+              final firstRw = rwMemberships.first;
+              rwId = firstRw['rw_id'] as String? ?? '';
+            }
+            if (rwId.isEmpty) {
+              rwId = (user?['rw_id'] ?? '').toString().trim();
+            }
+            if (rwId.isNotEmpty) {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/rw/$rwId/keuangan?tab=beranda';
+              }
+              // Allow staying on rw paths, rw-data, warga, notifikasi, and profile
+              if (loc.startsWith('/rw/') ||
+                  loc == '/home/rw-data' ||
+                  loc.startsWith('/home/rw-data/') ||
+                  loc == '/home/warga' ||
+                  loc.startsWith('/home/warga/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/rw/$rwId/keuangan?tab=beranda';
+            } else {
+              if (loc == '/login' || loc == '/home' || loc == '/') {
+                return '/home/warga';
+              }
+              if (loc == '/home/warga' ||
+                  loc.startsWith('/home/warga/') ||
+                  loc == '/home/notifikasi' ||
+                  loc.startsWith('/home/notifikasi/') ||
+                  loc.startsWith('/home/paket/detail/') ||
+                  loc == '/home/profile' ||
+                  loc.startsWith('/home/profile/')) {
+                return null;
+              }
+              return '/home/warga';
+            }
+          }
           if (loc == '/login') return '/home';
           // A restored session or system Back can land on /home; route
           // security officers to their first authorized tab instead.
@@ -825,17 +1127,34 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
+          if (jabatan == 'humas') {
+            if (loc == '/home/keuangan') {
+              final rwId = _getEffectiveRwIdFromUser(user);
+              return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
+            }
+            if (loc.startsWith('/home/kas')) {
+              final rwId = _getEffectiveRwIdFromUser(user);
+              return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=kas' : '/home';
+            }
+            if (loc.startsWith('/home/lokasi-dana')) {
+              return '/home';
+            }
+          }
+          if ((jabatan == 'operasional' || jabatan == 'sosial') &&
+              (loc.startsWith('/home/kas') || loc.startsWith('/home/lokasi-dana'))) {
+            return '/home';
+          }
           if (loc.startsWith('/home/lokasi-dana')) {
             final role = user?['role'] as AppRole?;
             final systemRole = user?['system_role'] as String?;
             final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+            if (jabatan == 'sekretaris') return '/home';
             final canAccess =
                 systemRole == 'super_admin' ||
                 role == AppRole.bendahara ||
                 role == AppRole.pengurus ||
                 jabatan == 'ketua' ||
                 jabatan == 'wakil_ketua' ||
-                jabatan == 'sekretaris' ||
                 jabatan == 'bendahara';
             if (!canAccess) {
               return '/home';
@@ -1065,7 +1384,52 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/security-management',
               name: 'security_management',
-              builder: (context, state) => const SecurityManagementScreen(),
+              builder: (context, state) {
+                final tab = state.uri.queryParameters['tab'];
+                final subtab = state.uri.queryParameters['subtab'];
+                final bundleId = state.uri.queryParameters['bundle_id'];
+                final reportId = state.uri.queryParameters['report_id'];
+                final correctionId = state.uri.queryParameters['correction_id'];
+                int initialTop = 0;
+                if (tab == 'patrol') initialTop = 3;
+                if (tab == 'paket') initialTop = 4;
+                if (tab == 'absen' || tab == 'corrections') initialTop = 1;
+                return SecurityManagementScreen(
+                  initialTopTabIndex: initialTop,
+                  mode: SecurityManagementMode.full,
+                  initialSubTab: tab == 'corrections' ? 'corrections' : subtab,
+                  targetId: bundleId ?? reportId ?? correctionId,
+                );
+              },
+            ),
+            GoRoute(
+              path: '/home/patroli',
+              name: 'security_patroli',
+              builder: (context, state) => const SecurityManagementScreen(
+                mode: SecurityManagementMode.officerPatrol,
+              ),
+            ),
+            GoRoute(
+              path: '/home/paket',
+              name: 'security_paket',
+              builder: (context, state) => const SecurityManagementScreen(
+                mode: SecurityManagementMode.officerPaket,
+              ),
+              routes: [
+                GoRoute(
+                  path: 'detail/:id',
+                  name: 'paket_detail',
+                  builder: (context, state) {
+                    final reportId = state.pathParameters['id'] ?? '';
+                    final from =
+                        state.uri.queryParameters['from'] ?? 'notifikasi';
+                    return PaketDetailScreen(
+                      reportId: reportId,
+                      from: from,
+                    );
+                  },
+                ),
+              ],
             ),
             GoRoute(
               path: '/home/security-guestbook',

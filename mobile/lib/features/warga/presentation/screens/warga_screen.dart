@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -32,16 +33,16 @@ class WargaScreen extends ConsumerStatefulWidget {
 /// Jabatan yang hanya muncul dengan tombol edit petugas, bukan edit warga biasa.
 const Set<String> kPetugasKhususJabatan = {
   'keamanan',
-  'operasional',
   'kebersihan',
+  'anggota_rw',
 };
 
 /// Jabatan pengurus RT yang memiliki akses tulis warga (position_permissions).
 /// Must not include AppRole.petugas or kPetugasKhususJabatan entries.
+/// Sekretaris RT is strictly revoked from creating/modifying warga data.
 const Set<String> kWargaWriteJabatans = {
   'ketua',
   'wakil_ketua',
-  'sekretaris',
   'bendahara',
 };
 
@@ -547,7 +548,7 @@ class _ResidentCard extends ConsumerWidget {
         ? const Color(0xFFFBBF24)
         : const Color(0xFFD97706);
     final phoneIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
-    final emailIconColor = isDark ? AppColors.info : const Color(0xFF2563EB);
+    final emailIconColor = isDark ? AppColors.infoBlue : const Color(0xFF2563EB);
 
     // Warga can see phone only from residents whose jabatan is 'keamanan'.
     // Warga can NEVER see email — only pengurus/bendahara/super_admin.
@@ -566,21 +567,20 @@ class _ResidentCard extends ConsumerWidget {
         .toLowerCase();
     final systemRole = user?['system_role']?.toString();
     final isSuperAdmin = systemRole == 'super_admin';
-    final isPengurus =
-        userRole == AppRole.pengurus ||
-        userRole == AppRole.bendahara ||
-        kWargaWriteJabatans.contains(userJabatan);
+    final isKetua = userJabatan == 'ketua';
 
+    // Sensitive data privacy: phone and email are restricted strictly to Ketua RT (and Super Admin).
+    // Keamanan phone is publicly visible for emergency contact.
     final showPhone = (() {
       if (user == null) return false;
-      if (isSuperAdmin || isPengurus) return true;
+      if (isSuperAdmin || isKetua) return true;
       final jabatan = (resident.jabatan ?? '').trim().toLowerCase();
       return jabatan == 'keamanan';
     })();
-    // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+    // Warga, sekretaris, and other roles can NEVER see email — only Ketua RT and Super Admin.
     final showEmail = (() {
       if (user == null) return false;
-      if (isSuperAdmin || isPengurus) return true;
+      if (isSuperAdmin || isKetua) return true;
       return false;
     })();
 
@@ -588,7 +588,7 @@ class _ResidentCard extends ConsumerWidget {
     // OWNER ('Pemilik'): violet accent
     // TENANT ('Penyewa'): blue info
     final isOwner = resident.occupancyStatus == 'Pemilik';
-    final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
+    final occupancyColor = isOwner ? AppColors.accent : AppColors.infoBlue;
 
     // Determine if this resident qualifies as Petugas Khusus for edit routing.
     // Only 'keamanan', 'operasional', and 'kebersihan' get the edit-petugas button;
@@ -871,7 +871,12 @@ class _ResidentCard extends ConsumerWidget {
           'Buat 4 digit kode reset kata sandi untuk ${resident.name}?\n\nKode ini berlaku selama 24 jam.',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -939,9 +944,9 @@ class _ResidentCard extends ConsumerWidget {
             ],
           ),
           actions: [
-            TextButton(
+            AppButton.danger(
+              text: 'Tutup',
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Tutup'),
             ),
             FilledButton.icon(
               icon: const Icon(Icons.copy, size: 16),

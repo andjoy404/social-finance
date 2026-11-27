@@ -1,9 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
 import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +11,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
@@ -286,7 +284,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(msg),
-              backgroundColor: isPending ? AppColors.info : AppColors.success,
+              backgroundColor: isPending ? AppColors.infoBlue : AppColors.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.base),
@@ -560,34 +558,18 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.md;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBayarButton(
-                        currentBill,
-                        isMultiMonth,
-                        isRegularDues,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(child: _buildBatalButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: _buildBayarButton(
+                    currentBill,
+                    isMultiMonth,
+                    isRegularDues,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -683,12 +665,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       backgroundColor: currentBill.isMultiMonthDues
                           ? AppColors.accent.withValues(alpha: 0.15)
                           : (currentBill.isVoluntaryDues
-                                ? AppColors.info.withValues(alpha: 0.15)
+                                ? AppColors.infoBlue.withValues(alpha: 0.15)
                                 : AppColors.lightSuccessSoft),
                       textColor: currentBill.isMultiMonthDues
                           ? AppColors.accent
                           : (currentBill.isVoluntaryDues
-                                ? AppColors.info
+                                ? AppColors.infoBlue
                                 : AppColors.success),
                     ),
                   ],
@@ -763,7 +745,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                               label: const Text('Tunai'),
                               icon: const Icon(
                                 Icons.payments_outlined,
-                                color: AppColors.info,
+                                color: AppColors.infoBlue,
                               ),
                             ),
                             ButtonSegment(
@@ -798,6 +780,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
               // ── Nominal Pembayaran ──
               AppTextField(
+                key: const Key('payment-amount-field'),
                 controller: _nominalCtrl,
                 label: 'Nominal Pembayaran',
                 hintText: 'Masukkan nominal',
@@ -991,35 +974,24 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: AppButton.accentSoft(
+                        buttonKey: const Key('iuranPaymentProofGalleryBtn'),
+                        text: 'Galeri',
+                        icon: Icons.photo_library_outlined,
+                        size: AppButtonSize.medium,
+                        fullWidth: true,
                         onPressed: () => _pickImage(ImageSource.gallery),
-                        icon: const Icon(
-                          Icons.photo_library_outlined,
-                          size: 18,
-                        ),
-                        label: const Text('Galeri'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.md),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: OutlinedButton.icon(
+                      child: AppButton.accentSoft(
+                        buttonKey: const Key('iuranPaymentProofCameraBtn'),
+                        text: 'Kamera',
+                        icon: Icons.camera_alt_outlined,
+                        size: AppButtonSize.medium,
+                        fullWidth: true,
                         onPressed: () => _pickImage(ImageSource.camera),
-                        icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                        label: const Text('Kamera'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
                       ),
                     ),
                   ],
@@ -1187,7 +1159,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 bill.isVoluntaryDues ? 'Sukarela' : formatRupiah(totalAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: bill.isVoluntaryDues
-                      ? AppColors.info
+                      ? AppColors.infoBlue
                       : AppColors.accent,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1385,15 +1357,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
   Widget _buildBatalButton() => SizedBox(
     height: 48,
-    child: OutlinedButton(
+    child: ElevatedButton(
       key: const Key('btn_cancel'),
       onPressed: _saving
           ? null
           : () => KasFormNavigationGuard.requestFormCancel(context),
-      style: OutlinedButton.styleFrom(
+      style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.danger),
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),
@@ -1425,7 +1397,7 @@ class _RekeningBar extends ConsumerWidget {
         final bank = (first.bankName ?? '').trim();
         final number = (first.accountNumber ?? '').trim();
         final holder = (first.accountHolder ?? '').trim();
-        final name = bank.isNotEmpty ? bank : (first.name ?? 'Rekening RT');
+        final name = bank.isNotEmpty ? bank : (first.name.isNotEmpty ? first.name : 'Rekening RT');
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -1464,7 +1436,7 @@ class _RekeningBar extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -1504,7 +1476,7 @@ class _RekeningBar extends ConsumerWidget {
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 }

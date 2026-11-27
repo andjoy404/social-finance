@@ -13,10 +13,33 @@ import (
 
 // validRTJabatans defines RT jabatan values that may inherit ReadOnly RW access.
 var validRTJabatans = map[string]struct{}{
-	"ketua":        {},
-	"wakil_ketua":  {},
-	"sekretaris":   {},
-	"bendahara":    {},
+	"ketua":       {},
+	"wakil_ketua": {},
+	"sekretaris":  {},
+	"bendahara":   {},
+	"anggota":     {},
+	"anggota_rt":  {},
+	"anggota_rw":  {},
+	"operasional": {},
+	"humas":       {},
+	"sosial":      {},
+}
+
+// IsEligibleRTJabatan checks whether an RT membership qualifies for inferred RW access.
+// Eligible RT positions:
+//   - ketua, wakil_ketua, sekretaris, bendahara, anggota_rt, anggota_rw, operasional, humas, sosial (all RT committee roles)
+//   - anggota (eligible when role is 'pengurus'; ineligible when role is 'warga' / plain resident)
+func IsEligibleRTJabatan(role string, jabatan string) bool {
+	cleanJabatan := strings.ToLower(strings.TrimSpace(jabatan))
+	cleanRole := strings.ToLower(strings.TrimSpace(role))
+	switch cleanJabatan {
+	case "ketua", "wakil_ketua", "sekretaris", "bendahara", "anggota_rt", "anggota_rw", "operasional", "humas", "sosial":
+		return true
+	case "anggota":
+		return cleanRole == "pengurus"
+	default:
+		return false
+	}
 }
 
 // loadRWMemberships queries user_rw_memberships for explicit memberships and
@@ -87,7 +110,7 @@ func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMemb
 	//    would conflict with the pq driver's restriction on multiple open result
 	//    sets in a single transaction.
 	rtRows, err := tx.QueryContext(ctx, `
-		SELECT urm.jabatan, r.rw_id, w.rw_number, w.name, w.is_active
+		SELECT urm.role, urm.jabatan, r.rw_id, w.rw_number, w.name, w.is_active
 		FROM user_rt_memberships urm
 		JOIN rts r ON r.id = urm.rt_id
 		JOIN rws w ON w.id = r.rw_id
@@ -106,15 +129,15 @@ func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMemb
 	defer rtRows.Close()
 
 	for rtRows.Next() {
-		var rtJabatan, rtRWID string
+		var rtRole, rtJabatan, rtRWID string
 		var rwNumber int
 		var rwName string
 		var rwActive bool
-		if err := rtRows.Scan(&rtJabatan, &rtRWID, &rwNumber, &rwName, &rwActive); err != nil {
+		if err := rtRows.Scan(&rtRole, &rtJabatan, &rtRWID, &rwNumber, &rwName, &rwActive); err != nil {
 			continue
 		}
-		// Validate jabatan is one of the eligible RT positions.
-		if _, ok := validRTJabatans[rtJabatan]; !ok {
+		// Validate membership qualifies for inferred RW access.
+		if !IsEligibleRTJabatan(rtRole, rtJabatan) {
 			continue
 		}
 		// Skip if we already inferred this RW (handles user with multiple RTs in same RW).
@@ -148,7 +171,12 @@ func buildRWContextJSON(memberships []RWMembership) string {
 	if len(memberships) == 0 {
 		return ""
 	}
-	b, err := json.Marshal(memberships)
+	compact := make([]RWMembership, len(memberships))
+	for i, m := range memberships {
+		m.Permissions = nil
+		compact[i] = m
+	}
+	b, err := json.Marshal(compact)
 	if err != nil {
 		return ""
 	}
@@ -415,12 +443,15 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 // The old token is immediately invalid (rotation).
 func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID string) (*LoginResult, error) {
 	hash := rawToken // raw token is looked up by its stored hash (caller hashes before passing)
-	userID, membershipIDPtr, expiresAt, revoked, _, err := FindRefreshTokenByHash(ctx, tx, hash)
+	userID, membershipIDPtr, expiresAt, revoked, storedDeviceID, err := FindRefreshTokenByHash(ctx, tx, hash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrInvalidRefreshToken
 		}
 		return nil, fmt.Errorf("find refresh token: %w", err)
+	}
+	if strings.TrimSpace(deviceID) == "" && strings.TrimSpace(storedDeviceID) != "" {
+		deviceID = strings.TrimSpace(storedDeviceID)
 	}
 
 	// Must not be revoked or expired.
@@ -575,6 +606,24 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 			},
 		},
 	}, nil
+}
+
+// LogoutSession revokes refresh tokens for a single session/device when
+// refreshToken or deviceID is provided, preserving active sessions on other
+// devices for the same account (e.g. Web logout must not kill Android's
+// persistent session). When neither is supplied, falls back to revoking all
+// sessions for the membership or user.
+func (s *Service) LogoutSession(ctx context.Context, tx *sql.Tx, userID, membershipID, rawRefreshToken, deviceID string) error {
+	if tok := strings.TrimSpace(rawRefreshToken); tok != "" {
+		return RevokeRefreshTokenForUserByHash(ctx, tx, userID, tok)
+	}
+	if dev := strings.TrimSpace(deviceID); dev != "" {
+		return RevokeRefreshTokensByUserAndDevice(ctx, tx, userID, dev)
+	}
+	if membershipID != "" {
+		return s.Logout(ctx, tx, membershipID)
+	}
+	return s.SystemLogout(ctx, tx, userID)
 }
 
 // Logout revokes all refresh tokens for the given membership.

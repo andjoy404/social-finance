@@ -332,6 +332,40 @@ func TestSecurityAttendance_Migration077UpDownUp(t *testing.T) {
 	}
 }
 
+func TestSecurityAttendance_Migration088UpDownUp(t *testing.T) {
+	fresh := createFreshMigratedDB(t)
+	migDir := findMigrationsDir(t)
+	downSQL, err := os.ReadFile(filepath.Join(migDir, "088_date_independent_security_shifts.down.sql"))
+	if err != nil {
+		t.Fatalf("read 088 down sql: %v", err)
+	}
+	upSQL, err := os.ReadFile(filepath.Join(migDir, "088_date_independent_security_shifts.up.sql"))
+	if err != nil {
+		t.Fatalf("read 088 up sql: %v", err)
+	}
+
+	db, err := sql.Open("pgx", fresh.dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(string(downSQL)); err != nil {
+		t.Fatalf("migration 088 down failed: %v", err)
+	}
+	var hasCol bool
+	if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'security_schedules' AND column_name = 'is_active')`).Scan(&hasCol); err != nil || hasCol {
+		t.Fatalf("expected is_active column dropped after down, hasCol=%v err=%v", hasCol, err)
+	}
+
+	if _, err := db.Exec(string(upSQL)); err != nil {
+		t.Fatalf("migration 088 re-up failed: %v", err)
+	}
+	if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'security_schedules' AND column_name = 'is_active')`).Scan(&hasCol); err != nil || !hasCol {
+		t.Fatalf("expected is_active column restored after re-up, hasCol=%v err=%v", hasCol, err)
+	}
+}
+
 func TestSecuritySchedulePeriodCreateConflictAndEdit(t *testing.T) {
 	env := setupSecurityIntegrationEnv(t)
 	shiftRes := env.doJSON("POST", "/api/v1/security/shifts", env.ketuaToken, "", map[string]any{
@@ -1434,4 +1468,311 @@ func TestSecurityAttendance_DeviceSampahNoteWriteAndIsolation(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for missing device token, got %d", rec.Code)
 	}
+}
+
+// TestSecurityAttendance_OnDutyWithCorrections verifies that the on-duty officers
+// card correctly reflects attendance records created via both QR scan and
+// approved corrections. This covers all 6 scenarios required for the Beranda
+// "Petugas Keamanan Sedang Bertugas" card.
+func TestSecurityAttendance_OnDutyWithCorrections(t *testing.T) {
+	env := setupSecurityIntegrationEnv(t)
+	devID, devTok := provisionPosDevice(t, env)
+	ctx := context.Background()
+
+	// Fixed moment inside the shift window (08:05, shift 08:00-16:00).
+	shiftNow := time.Date(2026, 11, 12, 8, 5, 0, 0, security.JakartaLoc)
+	env.setNow(shiftNow)
+
+	// Create shift Pagi.
+	shiftRes := env.doJSON("POST", "/api/v1/security/shifts", env.ketuaToken, "", map[string]any{
+		"name":                         "Shift Pagi",
+		"start_time":                   "08:00",
+		"end_time":                     "16:00",
+		"lateness_tolerance_minutes":   15,
+		"check_in_window_before_minutes": 60,
+		"check_in_window_after_minutes":  120,
+		"absent_cutoff_minutes":        120,
+		"missing_checkout_cutoff_minutes": 180,
+	})
+	if shiftRes.Code != http.StatusCreated {
+		t.Fatalf("create shift = %d: %s", shiftRes.Code, shiftRes.Body.String())
+	}
+	var shift security.ShiftConfig
+	_ = json.Unmarshal(shiftRes.Body.Bytes(), &shift)
+
+	// Schedule officer A1 and A2 for today.
+	for _, tc := range []struct {
+		name string
+		user string
+	}{
+		{"officerA1", env.officerA1},
+		{"officerA2", env.officerA2},
+	} {
+		res := env.doJSON("POST", "/api/v1/security/schedules", env.ketuaToken, "", map[string]any{
+			"user_id":         tc.user,
+			"shift_config_id": shift.ID,
+			"start_date":      "2026-11-12",
+			"end_date":        "2026-11-12",
+		})
+		if res.Code != http.StatusCreated {
+			t.Fatalf("schedule %s = %d: %s", tc.name, res.Code, res.Body.String())
+		}
+	}
+
+	env.setNow(shiftNow)
+	onDuty := func() []security.OnDutyOfficerSummary {
+		t.Helper()
+		items, err := env.svc.GetOnDutyOfficers(ctx, env.rtA)
+		if err != nil {
+			t.Fatalf("GetOnDutyOfficers: %v", err)
+		}
+		return items
+	}
+
+	// ── Scenario 5: No active shift — no officers on duty ──
+	// Before any check-in, no one should appear.
+	if got := onDuty(); len(got) != 0 {
+		t.Fatalf("scenario 5: expected 0 on-duty before any check-in, got %d", len(got))
+	}
+
+	// ── Scenario 1: QR Check-in → Hadir → on duty ──
+	qrRes := env.doJSON("POST", "/api/v1/security-device/qr", "", devTok, nil)
+	if qrRes.Code != http.StatusCreated {
+		t.Fatalf("pos qr = %d: %s", qrRes.Code, qrRes.Body.String())
+	}
+	var qrPayload security.DynamicQRPayload
+	_ = json.Unmarshal(qrRes.Body.Bytes(), &qrPayload)
+
+	checkInRes := env.doJSON("POST", "/api/v1/security/attendance/scan", env.officer1Token, "", map[string]any{
+		"qr_token": qrPayload.QRToken,
+		"action":   "check_in",
+	})
+	if checkInRes.Code != http.StatusOK {
+		t.Fatalf("scenario 1: check-in = %d: %s", checkInRes.Code, checkInRes.Body.String())
+	}
+	got := onDuty()
+	if len(got) != 1 {
+		t.Fatalf("scenario 1: expected 1 on-duty after QR Hadir, got %d", len(got))
+	}
+	if got[0].Status != "hadir" {
+		t.Fatalf("scenario 1: expected status 'hadir', got %q", got[0].Status)
+	}
+
+	// ── Scenario 2: QR Check-in → Terlambat → on duty ──
+	// Set now to after lateness tolerance (08:20, tolerance 15 min).
+	lateNow := time.Date(2026, 11, 12, 8, 20, 0, 0, security.JakartaLoc)
+	env.setNow(lateNow)
+	qrRes2 := env.doJSON("POST", "/api/v1/security-device/qr", "", devTok, nil)
+	if qrRes2.Code != http.StatusCreated {
+		t.Fatalf("pos qr = %d: %s", qrRes2.Code, qrRes2.Body.String())
+	}
+	var qrPayload2 security.DynamicQRPayload
+	_ = json.Unmarshal(qrRes2.Body.Bytes(), &qrPayload2)
+
+	checkInLateRes := env.doJSON("POST", "/api/v1/security/attendance/scan", env.officer2Token, "", map[string]any{
+		"qr_token": qrPayload2.QRToken,
+		"action":   "check_in",
+	})
+	if checkInLateRes.Code != http.StatusOK {
+		t.Fatalf("scenario 2: late check-in = %d: %s", checkInLateRes.Code, checkInLateRes.Body.String())
+	}
+	env.setNow(shiftNow)
+	got = onDuty()
+	if len(got) != 2 {
+		t.Fatalf("scenario 2: expected 2 on-duty after QR Terlambat, got %d", len(got))
+	}
+	// Find A2's status
+	var a2Status string
+	for _, o := range got {
+		if o.UserID == env.officerA2 {
+			a2Status = o.Status
+			break
+		}
+	}
+	if a2Status != "terlambat" {
+		t.Fatalf("scenario 2: expected A2 status 'terlambat', got %q", a2Status)
+	}
+
+	// ── Scenario 6: Active shift but no qualifying attendance ──
+	// Create a third officer scheduled but with no attendance record.
+	officerA3 := createUserWithMembership(t, env.pool, ctx, "officer3@test.local", "Petugas 3 A", env.rtA, "warga", "keamanan")
+	_ = officerA3
+	// Schedule officer A3
+	schedA3Res := env.doJSON("POST", "/api/v1/security/schedules", env.ketuaToken, "", map[string]any{
+		"user_id":         officerA3,
+		"shift_config_id": shift.ID,
+		"start_date":      "2026-11-12",
+		"end_date":        "2026-11-12",
+	})
+	if schedA3Res.Code != http.StatusCreated {
+		t.Fatalf("schedule A3 = %d: %s", schedA3Res.Code, schedA3Res.Body.String())
+	}
+	// A3 has no attendance record, should NOT appear on duty.
+	got = onDuty()
+	if len(got) != 2 {
+		t.Fatalf("scenario 6: expected 2 on-duty (A3 has no attendance), got %d", len(got))
+	}
+
+	// ── Reset: check out both officers for correction scenarios ──
+	env.setNow(time.Date(2026, 11, 12, 9, 0, 0, 0, security.JakartaLoc))
+	for _, tok := range []string{env.officer1Token, env.officer2Token} {
+		qrR := env.doJSON("POST", "/api/v1/security-device/qr", "", devTok, nil)
+		if qrR.Code != http.StatusCreated {
+			t.Fatalf("pos qr = %d: %s", qrR.Code, qrR.Body.String())
+		}
+		var qrP security.DynamicQRPayload
+		_ = json.Unmarshal(qrR.Body.Bytes(), &qrP)
+		coutRes := env.doJSON("POST", "/api/v1/security/attendance/scan", tok, "", map[string]any{
+			"qr_token": qrP.QRToken,
+			"action":   "check_out",
+		})
+		if coutRes.Code != http.StatusOK {
+			t.Fatalf("check-out = %d: %s", coutRes.Code, coutRes.Body.String())
+		}
+	}
+	env.setNow(shiftNow)
+	if got := onDuty(); len(got) != 0 {
+		t.Fatalf("expected 0 on-duty after both checked out, got %d", len(got))
+	}
+
+	// ── Scenario 3: Correction approved → Hadir → on duty ──
+	// Create a correction request for officer A1 to set status to Hadir with check-in time.
+	corrReq := map[string]any{
+		"attendance_record_id": "",
+		"request_type":         security.CorrectionTypeStatusChange,
+		"requested_status":     "hadir",
+		"requested_checked_in_at": "2026-11-12T08:00:00+07:00",
+		"reason":               "Koreksi: petugas sudah hadir",
+	}
+	// Find A1's attendance record ID.
+	var attRecordID string
+	if err := env.pool.Raw().QueryRowContext(ctx, `
+		SELECT ar.id FROM security_attendance_records ar
+		JOIN security_schedules s ON s.id = ar.schedule_id
+		WHERE s.user_id = $1 AND s.rt_id = $2 AND s.shift_date = '2026-11-12'::date
+		LIMIT 1
+	`, env.officerA1, env.rtA).Scan(&attRecordID); err != nil {
+		t.Fatalf("find A1 attendance record: %v", err)
+	}
+	corrReq["attendance_record_id"] = attRecordID
+
+	corrCreateRes := env.doJSON("POST", "/api/v1/security/corrections", env.officer1Token, "", corrReq)
+	if corrCreateRes.Code != http.StatusCreated {
+		t.Fatalf("scenario 3: create correction = %d: %s", corrCreateRes.Code, corrCreateRes.Body.String())
+	}
+	var corrResp security.AttendanceCorrection
+	_ = json.Unmarshal(corrCreateRes.Body.Bytes(), &corrResp)
+
+	// Verification of pending correction rule: while correction is pending (belum disetujui),
+	// the officer MUST NOT be considered on-duty.
+	if pendingGot := onDuty(); len(pendingGot) != 0 {
+		t.Fatalf("scenario 3: expected 0 on-duty while correction is pending, got %d", len(pendingGot))
+	}
+
+	// Approve correction as Ketua RT.
+	approveRes := env.doJSON("POST", "/api/v1/security/corrections/"+corrResp.ID+"/decide", env.ketuaToken, "", map[string]any{
+		"approve": true,
+		"note":    "Disetujui",
+	})
+	if approveRes.Code != http.StatusOK {
+		t.Fatalf("scenario 3: approve correction = %d: %s", approveRes.Code, approveRes.Body.String())
+	}
+
+	got = onDuty()
+	if len(got) != 1 {
+		t.Fatalf("scenario 3: expected 1 on-duty after correction Hadir, got %d", len(got))
+	}
+	if got[0].UserID != env.officerA1 {
+		t.Fatalf("scenario 3: expected A1 on-duty after correction, got %s", got[0].FullName)
+	}
+	if got[0].Status != "hadir" {
+		t.Fatalf("scenario 3: expected status 'hadir' after correction, got %q", got[0].Status)
+	}
+
+	// ── Scenario 4: Correction approved → Terlambat → on duty ──
+	// Check out A1 first.
+	env.setNow(time.Date(2026, 11, 12, 9, 0, 0, 0, security.JakartaLoc))
+	qrR3 := env.doJSON("POST", "/api/v1/security-device/qr", "", devTok, nil)
+	if qrR3.Code != http.StatusCreated {
+		t.Fatalf("pos qr = %d: %s", qrR3.Code, qrR3.Body.String())
+	}
+	var qrP3 security.DynamicQRPayload
+	_ = json.Unmarshal(qrR3.Body.Bytes(), &qrP3)
+	coutRes := env.doJSON("POST", "/api/v1/security/attendance/scan", env.officer1Token, "", map[string]any{
+		"qr_token": qrP3.QRToken,
+		"action":   "check_out",
+	})
+	if coutRes.Code != http.StatusOK {
+		t.Fatalf("check-out A1 = %d: %s", coutRes.Code, coutRes.Body.String())
+	}
+	env.setNow(shiftNow)
+
+	// Create correction for A1 to set status to Terlambat with check-in time.
+	// Create correction for A1 to set status to Terlambat (without providing requested_checked_in_at to test auto-fallback).
+	corrReq2 := map[string]any{
+		"attendance_record_id": attRecordID,
+		"request_type":         security.CorrectionTypeStatusChange,
+		"requested_status":     "terlambat",
+		"reason":               "Koreksi: petugas terlambat",
+	}
+	corrCreateRes2 := env.doJSON("POST", "/api/v1/security/corrections", env.officer1Token, "", corrReq2)
+	if corrCreateRes2.Code != http.StatusCreated {
+		t.Fatalf("scenario 4: create correction = %d: %s", corrCreateRes2.Code, corrCreateRes2.Body.String())
+	}
+	var corrResp2 security.AttendanceCorrection
+	_ = json.Unmarshal(corrCreateRes2.Body.Bytes(), &corrResp2)
+
+	approveRes2 := env.doJSON("POST", "/api/v1/security/corrections/"+corrResp2.ID+"/decide", env.ketuaToken, "", map[string]any{
+		"approve": true,
+		"note":    "Disetujui",
+	})
+	if approveRes2.Code != http.StatusOK {
+		t.Fatalf("scenario 4: approve correction = %d: %s", approveRes2.Code, approveRes2.Body.String())
+	}
+
+	got = onDuty()
+	if len(got) != 1 {
+		t.Fatalf("scenario 4: expected 1 on-duty after correction Terlambat, got %d", len(got))
+	}
+	if got[0].Status != "terlambat" {
+		t.Fatalf("scenario 4: expected status 'terlambat' after correction, got %q", got[0].Status)
+	}
+
+	// ── Scenario 7: Out-of-hours / shift ended ──
+	env.setNow(time.Date(2026, 11, 12, 16, 30, 0, 0, security.JakartaLoc))
+	if got := onDuty(); len(got) != 0 {
+		t.Fatalf("scenario 7: expected 0 on-duty after shift end time (16:00), got %d", len(got))
+	}
+	env.setNow(shiftNow)
+
+	// ── Scenario 8: Cross-RT isolation ──
+	itemsB, errB := env.svc.GetOnDutyOfficers(ctx, env.rtB)
+	if errB != nil || len(itemsB) != 0 {
+		t.Fatalf("scenario 8: expected RT B to see 0 officers from RT A, got %d (err: %v)", len(itemsB), errB)
+	}
+
+	_ = devID // keep provisioned device reference
+}
+
+// createUserWithMembership is a helper for integration tests.
+func createUserWithMembership(t *testing.T, pool *database.Pool, ctx context.Context, email, name, rtID, role, jabatan string) string {
+	t.Helper()
+	var uid string
+	if err := pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO users (id, email, password_hash, full_name, is_active)
+		VALUES (gen_random_uuid(), $1, 'hash', $2, true) RETURNING id
+	`, email, name).Scan(&uid); err != nil {
+		t.Fatalf("insert user %s: %v", email, err)
+	}
+	var jab any
+	if jabatan != "" {
+		jab = jabatan
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, true) RETURNING id
+	`, uid, rtID, role, jab).Scan(new(string)); err != nil {
+		t.Fatalf("insert membership %s: %v", email, err)
+	}
+	return uid
 }

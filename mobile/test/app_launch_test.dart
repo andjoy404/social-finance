@@ -145,9 +145,9 @@ void main() {
     },
   );
 
-  test('security officer default home is the Warga tab only', () {
-    expect(securityOfficerHomeRedirect('keamanan', '/login'), '/home/warga');
-    expect(securityOfficerHomeRedirect('keamanan', '/home'), '/home/warga');
+  test('security officer default home is the Patroli tab', () {
+    expect(securityOfficerHomeRedirect('keamanan', '/login'), '/home/patroli');
+    expect(securityOfficerHomeRedirect('keamanan', '/home'), '/home/patroli');
     expect(
       cleaningOfficerHomeRedirect('kebersihan', '/login'),
       '/home/monitoring',
@@ -351,11 +351,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     // Auth is pre-set in _authWidget, so app starts at /home with bottom nav
     await tester.pump();
-    expect(find.text('Beranda'), findsOneWidget);
-    expect(find.text('Kas'), findsOneWidget);
-    expect(find.text('Iuran'), findsOneWidget);
-    expect(find.text('Warga'), findsOneWidget);
-    expect(find.text('Profil'), findsOneWidget);
+    final bottomNav = find.byType(BottomAppBar);
+    expect(find.descendant(of: bottomNav, matching: find.text('Beranda')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Kas')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Iuran')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Warga')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Profil')), findsOneWidget);
   });
 
   // ── Dashboard scrolling at narrow phone width ──

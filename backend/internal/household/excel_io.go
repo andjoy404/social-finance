@@ -537,12 +537,13 @@ func HandleWargaImportPreviewXLSX(pool *database.Pool) http.HandlerFunc {
 			validCount = 0
 		}
 
+		allowContact := canViewContactVerified(r.Context(), pool, ac, targetRT)
 		resp := ImportPreviewResponse{
 			TotalRows:   len(rows),
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rowsToPreview(rows),
+			PreviewData: rowsToPreview(rows, targetRT, ac, allowContact),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -713,7 +714,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string, ac
 		}
 		phoneVal := phone
 		emailVal := email
-		if !canViewContact(ac, rtID) {
+		if !canViewContactVerified(ctx, pool, ac, rtID) {
 			phoneVal = ""
 			emailVal = ""
 		} else if phoneVal != "" {
@@ -774,6 +775,7 @@ var jabatanDropdownOptions = []string{
 	"Operasional",
 	"Kebersihan",
 	"Anggota",
+	"Humas",
 }
 
 // addJabatanValidation adds an Excel data-validation dropdown to column J (jabatan)

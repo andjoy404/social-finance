@@ -224,18 +224,18 @@ func TestLoadRWMembershipsMultipleRTDifferentRWs(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestHasRWScopePermissionRTInferredReadonly(t *testing.T) {
-	for _, jabatan := range []string{"ketua", "wakil_ketua", "sekretaris", "bendahara"} {
-		// RT inferred users have ONLY Beranda RW read access (rw.dashboard.read)
+	for _, jabatan := range []string{"ketua", "wakil_ketua", "sekretaris", "bendahara", "anggota", "anggota_rt"} {
+		// RT inferred users have Beranda RW read access (rw.dashboard.read) and KAS RW read access (rw.kas.read / finance.read)
 		if !HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.dashboard.read") {
 			t.Errorf("expected %s (rt_inferred) to have rw.dashboard.read", jabatan)
 		}
-		// NO access to KAS RW, Lokasi Dana RW, or Notifikasi RW
-		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.read") {
-			t.Errorf("expected %s (rt_inferred) to NOT have finance.read", jabatan)
+		if !HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.kas.read") {
+			t.Errorf("expected %s (rt_inferred) to have rw.kas.read", jabatan)
 		}
-		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.kas.read") {
-			t.Errorf("expected %s (rt_inferred) to NOT have rw.kas.read", jabatan)
+		if !HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.read") {
+			t.Errorf("expected %s (rt_inferred) to have finance.read", jabatan)
 		}
+		// NO write/mutation access to KAS RW
 		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.create") {
 			t.Errorf("expected %s (rt_inferred) to NOT have finance.create", jabatan)
 		}
@@ -244,6 +244,10 @@ func TestHasRWScopePermissionRTInferredReadonly(t *testing.T) {
 		}
 		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.update") {
 			t.Errorf("expected %s (rt_inferred) to NOT have finance.update", jabatan)
+		}
+		// NO access to Lokasi Dana RW or Notifikasi RW
+		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.fund_location.read") {
+			t.Errorf("expected %s (rt_inferred) to NOT have rw.fund_location.read", jabatan)
 		}
 		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.notification.read") {
 			t.Errorf("expected %s (rt_inferred) to NOT have rw.notification.read", jabatan)
@@ -448,14 +452,12 @@ func TestCheckRWPermissionRejectsMutationForInferred(t *testing.T) {
 		},
 	}
 
-	// Final Matrix: inferred ketua has rw.dashboard.read ONLY; finance.read must be denied!
+	// Inferred ketua has rw.dashboard.read and finance.read (KAS READ); mutations must be denied!
 	if err := checkRWPermissionSimulated(acInferred, "rw-1", "rw.dashboard.read"); err != nil {
 		t.Errorf("inferred ketua should have rw.dashboard.read: %v", err)
 	}
-	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.read"); err == nil {
-		t.Error("inferred ketua should NOT have finance.read (KAS is NO)")
-	} else if !isPermissionDenied(err) {
-		t.Errorf("expected permission denied error, got: %v", err)
+	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.read"); err != nil {
+		t.Errorf("inferred ketua should have finance.read (KAS READ): %v", err)
 	}
 	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.create"); err == nil {
 		t.Error("inferred ketua should NOT have finance.create")
@@ -749,6 +751,75 @@ func TestLoadRWMembershipsInvalidRTJabatanNoInference(t *testing.T) {
 	}
 	if len(memberships) != 0 {
 		t.Errorf("expected 0 memberships for non-eligible jabatan, got %d: %+v", len(memberships), memberships)
+	}
+
+	tx.Rollback()
+}
+
+func TestLoadRWMembershipsAnggotaRTPengurusInference(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		role    string
+		jabatan string
+		wantRW  bool
+	}{
+		{name: "pengurus with jabatan anggota infers RW", role: "pengurus", jabatan: "anggota", wantRW: true},
+		{name: "pengurus with jabatan anggota_rt infers RW", role: "pengurus", jabatan: "anggota_rt", wantRW: true},
+		{name: "warga with jabatan anggota does not infer RW", role: "warga", jabatan: "anggota", wantRW: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			userID := uuid.New()
+			rtID := uuid.New()
+			rwID := uuid.New()
+			membershipID := uuid.New()
+			rtCode := uniqueRTCode(uuid.New())
+			rwNumber := uniqueRWNumber(uuid.New())
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO users (id, full_name, email, password_hash, is_active, system_role)
+				VALUES ($1, $2, $3, 'hash', true, NULL)
+			`, userID, tc.name, fmt.Sprintf("%s@test.com", userID))
+			if err != nil {
+				t.Fatalf("insert user: %v", err)
+			}
+
+			seedRWAndRT(t, ctx, tx, rwID, "RW Valid", rwNumber, rtID, "RT Valid", rtCode)
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+				VALUES ($1, $2, $3, $4, $5, true)
+			`, membershipID, userID, rtID, tc.role, tc.jabatan)
+			if err != nil {
+				t.Fatalf("insert rt membership: %v", err)
+			}
+
+			memberships, err := loadRWMemberships(ctx, tx, userID.String())
+			if err != nil {
+				t.Fatalf("loadRWMemberships error: %v", err)
+			}
+			if tc.wantRW {
+				if len(memberships) != 1 {
+					t.Fatalf("expected 1 membership, got %d: %+v", len(memberships), memberships)
+				}
+				if memberships[0].Source != RWMembershipSourceRTInferred {
+					t.Errorf("expected source %s, got %s", RWMembershipSourceRTInferred, memberships[0].Source)
+				}
+				if memberships[0].RWID != rwID.String() {
+					t.Errorf("expected rw_id %s, got %s", rwID, memberships[0].RWID)
+				}
+			} else {
+				if len(memberships) != 0 {
+					t.Fatalf("expected 0 memberships, got %d: %+v", len(memberships), memberships)
+				}
+			}
+		})
 	}
 
 	tx.Rollback()

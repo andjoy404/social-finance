@@ -37,6 +37,7 @@ type Service interface {
 	UpdateTemplate(ctx context.Context, rtID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
+	ResetTemplate(ctx context.Context, rtID, id string, in ResetTemplateInput) (*ResetTemplateResult, error)
 	ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, eventType, status string, page, pageSize int) ([]NotificationLogEntry, int, error)
 	ListManagementHistory(ctx context.Context, ac *auth.AuthContext, rtID, category string, page, pageSize int) ([]NotificationLogEntry, int, error)
 	GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string, canManage bool) (*NotificationLogEntry, error)
@@ -74,6 +75,8 @@ type Service interface {
 	NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string)
 	SendRWManualPush(ctx context.Context, rwID, senderUserID string, title, body string, target ...string) (int, error)
 	ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error)
 
 	// RW notification templates
 	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
@@ -290,6 +293,8 @@ func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, payme
 		payload := NotificationPayload{
 			Type:      EventPaymentVerified,
 			RTID:      rtID,
+			Title:     title,
+			Body:      body,
 			BillID:    billID,
 			PaymentID: paymentID,
 			Status:    status,
@@ -411,15 +416,18 @@ func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserI
 		}
 
 		recipientStatuses := make([]string, 0, len(recipients))
+		seenTokens := make(map[string]struct{})
 		for _, recipient := range recipients {
+			uniqueTokens := filterUnseenTokens(recipient.Tokens, seenTokens)
+			recipientPayload := clonePayloadMap(payloadMap)
 			recipientSent, recipientFailed := s.sendPushToTokens(
-				bgCtx, recipient.Tokens, title, body, payloadMap,
+				bgCtx, uniqueTokens, title, body, recipientPayload,
 			)
-			status := recipientDeliveryStatus(recipientSent, recipientFailed, len(recipient.Tokens))
+			status := recipientDeliveryStatus(recipientSent, recipientFailed, len(uniqueTokens))
 			recipientStatuses = append(recipientStatuses, status)
 			if err := s.repo.RecordBroadcastRecipientDelivery(
 				bgCtx, rtID, senderUserID, recipient.UserID, EventWasteTruckArrival, notifID,
-				title, body, payloadMap, status,
+				title, body, recipientPayload, status,
 			); err != nil {
 				slog.Warn("failed to record waste truck recipient history",
 					"rt_id", rtID, "error", err)
@@ -528,17 +536,80 @@ func (s *service) SendManualPush(ctx context.Context, rtID, senderUserID string,
 	}
 
 	broadcastID := payloadMap["notification_id"]
-	for _, recipient := range recipients {
-		sent, failed := s.sendPushToTokens(ctx, recipient.Tokens, title, body, payloadMap)
-		status := recipientDeliveryStatus(sent, failed, len(recipient.Tokens))
-		if err := s.repo.RecordBroadcastRecipientDelivery(
-			ctx, rtID, senderUserID, recipient.UserID, EventManualPush,
-			broadcastID, title, body, payloadMap, status,
-		); err != nil {
-			slog.Warn("failed to record manual push recipient history",
-				"rt_id", rtID, "error", err)
-		}
+	// Use a detached timeout context for fan-out so an HTTP client disconnect or
+	// short request timeout on Web never aborts push delivery halfway through the
+	// recipient list (which would drop later recipients including the sender's
+	// own Android device even after the broadcast log was persisted).
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer dispatchCancel()
+
+	// Deduplicate device tokens globally across the broadcast so one device
+	// never receives duplicate pushes, while preserving ALL active tokens of
+	// every legitimate recipient (including senderUserID when they belong to
+	// the target RT — never exclude by sender_user_id).
+	type preparedRecipient struct {
+		userID string
+		tokens []string
 	}
+	seenTokens := make(map[string]struct{})
+	prepared := make([]preparedRecipient, 0, len(recipients))
+	senderIncluded := false
+	senderTokenCount := 0
+	for _, recipient := range recipients {
+		uniqueTokens := filterUnseenTokens(recipient.Tokens, seenTokens)
+		if recipient.UserID == senderUserID {
+			senderIncluded = true
+			senderTokenCount = len(uniqueTokens)
+		}
+		prepared = append(prepared, preparedRecipient{
+			userID: recipient.UserID,
+			tokens: uniqueTokens,
+		})
+	}
+
+	const maxFanoutWorkers = 10
+	sem := make(chan struct{}, maxFanoutWorkers)
+	var fanoutWG sync.WaitGroup
+	var statsMu sync.Mutex
+	totalSent, totalFailed := 0, 0
+
+	for _, rec := range prepared {
+		rec := rec
+		fanoutWG.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer fanoutWG.Done()
+			defer func() { <-sem }()
+
+			recipientPayload := clonePayloadMap(payloadMap)
+			sent, failed := s.sendPushToTokens(dispatchCtx, rec.tokens, title, body, recipientPayload)
+			status := recipientDeliveryStatus(sent, failed, len(rec.tokens))
+
+			statsMu.Lock()
+			totalSent += sent
+			totalFailed += failed
+			statsMu.Unlock()
+
+			if err := s.repo.RecordBroadcastRecipientDelivery(
+				dispatchCtx, rtID, senderUserID, rec.userID, EventManualPush,
+				broadcastID, title, body, recipientPayload, status,
+			); err != nil {
+				slog.Warn("failed to record manual push recipient history",
+					"rt_id", rtID, "error", err)
+			}
+		}()
+	}
+	fanoutWG.Wait()
+
+	slog.Info("manual push broadcast dispatched",
+		"rt_id", rtID,
+		"sender_user_id", senderUserID,
+		"recipient_count", len(prepared),
+		"sender_included", senderIncluded,
+		"sender_token_count", senderTokenCount,
+		"total_sent", totalSent,
+		"total_failed", totalFailed,
+	)
 	return nil
 }
 
@@ -649,6 +720,30 @@ func dedupeUserIDs(ids []string) []string {
 		}
 		seen[id] = struct{}{}
 		out = append(out, id)
+	}
+	return out
+}
+
+func clonePayloadMap(src map[string]string) map[string]string {
+	cp := make(map[string]string, len(src))
+	for k, v := range src {
+		cp[k] = v
+	}
+	return cp
+}
+
+func filterUnseenTokens(tokens []string, seen map[string]struct{}) []string {
+	out := make([]string, 0, len(tokens))
+	for _, raw := range tokens {
+		tok := strings.TrimSpace(raw)
+		if tok == "" {
+			continue
+		}
+		if _, exists := seen[tok]; exists {
+			continue
+		}
+		seen[tok] = struct{}{}
+		out = append(out, tok)
 	}
 	return out
 }
@@ -944,6 +1039,58 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsImage:    false,
 		SupportsTest:     false,
 	},
+	{
+		EventType:        EventPaketReceived,
+		Name:             "Titipan Paket Masuk",
+		Trigger:          "Petugas keamanan mencatat paket titipan di POS keamanan",
+		Channel:          "push",
+		RecipientsRule:   "Warga pemilik paket (berdasarkan laporan petugas)",
+		DefaultTitle:     "Paket Baru Dititipkan",
+		DefaultBody:      "Ada paket baru yang dititipkan di pos keamanan untuk Anda.",
+		AllowedVariables: []string{"paket_id", "nama_pengirim", "waktu_penerimaan"},
+		IsConfigurable:   true,
+		SupportsImage:    true,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventPaketPickedUp,
+		Name:             "Paket Telah Diambil",
+		Trigger:          "Warga mengambil paket di pos keamanan dengan verifikasi",
+		Channel:          "push",
+		RecipientsRule:   "Petugas keamanan RT",
+		DefaultTitle:     "Paket Telah Diambil",
+		DefaultBody:      "Paket Anda di pos keamanan telah diambil dengan bukti penyerahan.",
+		AllowedVariables: []string{"paket_id", "nama_penerima", "waktu_pengambilan"},
+		IsConfigurable:   true,
+		SupportsImage:    true,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventPatrolBundleSent,
+		Name:             "Laporan Patroli Wilayah",
+		Trigger:          "Petugas patroli mengirimkan laporan patroli wilayah",
+		Channel:          "push",
+		RecipientsRule:   "Pengurus RT dan Pengurus keamanan",
+		DefaultTitle:     "Laporan Patroli Wilayah",
+		DefaultBody:      "Petugas telah menyelesaikan dan mengirim laporan patroli wilayah.",
+		AllowedVariables: []string{"patrol_bundle_id", "waktu_laporan", "lokasi"},
+		IsConfigurable:   true,
+		SupportsImage:    true,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventCorrectionSubmitted,
+		Name:             "Pengajuan Koreksi Absensi",
+		Trigger:          "Petugas keamanan mengajukan koreksi data absensi yang perlu persetujuan Ketua RT",
+		Channel:          "push",
+		RecipientsRule:   "Ketua RT yang menerima pengajuan koreksi",
+		DefaultTitle:     "Pengajuan Koreksi Absensi Baru",
+		DefaultBody:      "Petugas keamanan telah mengajukan pengajuan koreksi absensi. Silakan periksa dan berikan persetujuan.",
+		AllowedVariables: []string{"correction_id", "nama_petugas", "tanggal_koreksi", "status"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
 }
 
 // RWSystemNotificationTypes lists system notification types specific to RW level.
@@ -953,12 +1100,12 @@ var RWSystemNotificationTypes = []SystemNotificationType{
 		Name:             "Kas Masuk RW",
 		Trigger:          "Penerimaan dana kas masuk tingkat RW",
 		Channel:          "push",
-		RecipientsRule:   "Seluruh pengurus RW aktif",
+		RecipientsRule:   "Seluruh pengurus RW dan RT aktif (kecuali keamanan & kebersihan)",
 		DefaultTitle:     "Kas Masuk RW Diterima",
 		DefaultBody:      "Penerimaan kas masuk RW sebesar {{amount}} telah dicatat.",
 		AllowedVariables: []string{"amount", "description", "location"},
-		IsConfigurable:   false,
-		SupportsImage:    false,
+		IsConfigurable:   true,
+		SupportsImage:    true,
 		SupportsTest:     false,
 	},
 	{
@@ -966,12 +1113,12 @@ var RWSystemNotificationTypes = []SystemNotificationType{
 		Name:             "Kas Keluar RW",
 		Trigger:          "Pengeluaran dana kas keluar tingkat RW",
 		Channel:          "push",
-		RecipientsRule:   "Seluruh pengurus RW aktif",
+		RecipientsRule:   "Seluruh pengurus RW dan RT aktif (kecuali keamanan & kebersihan)",
 		DefaultTitle:     "Kas Keluar RW Dicatat",
 		DefaultBody:      "Pengeluaran kas RW sebesar {{amount}} untuk {{description}} telah dicatat.",
 		AllowedVariables: []string{"amount", "description", "category", "location"},
-		IsConfigurable:   false,
-		SupportsImage:    false,
+		IsConfigurable:   true,
+		SupportsImage:    true,
 		SupportsTest:     false,
 	},
 }
@@ -1014,11 +1161,22 @@ func orderedSystemTypes(types []SystemNotificationType) []SystemNotificationType
 }
 
 func (s *service) GetSystemTypes() []SystemNotificationType {
-	return orderedSystemTypes(SystemNotificationTypes)
+	allTypes := make([]SystemNotificationType, 0, len(SystemNotificationTypes)+len(RWSystemNotificationTypes))
+	allTypes = append(allTypes, SystemNotificationTypes...)
+	allTypes = append(allTypes, RWSystemNotificationTypes...)
+	for i := range allTypes {
+		allTypes[i].TriggerCategory = TriggerCategoryForEvent(allTypes[i].EventType)
+	}
+	return orderedSystemTypes(allTypes)
 }
 
 func findSystemType(eventType string) *SystemNotificationType {
 	for _, t := range SystemNotificationTypes {
+		if t.EventType == eventType {
+			return &t
+		}
+	}
+	for _, t := range RWSystemNotificationTypes {
 		if t.EventType == eventType {
 			return &t
 		}
@@ -1193,6 +1351,58 @@ func (s *service) DeleteTemplate(ctx context.Context, rtID, id string) error {
 		return errors.New("template notifikasi sistem tetap tidak dapat dihapus")
 	}
 	return s.repo.DeleteTemplate(ctx, rtID, id)
+}
+
+func (s *service) ResetTemplate(ctx context.Context, rtID, id string, in ResetTemplateInput) (*ResetTemplateResult, error) {
+	existing, err := s.repo.GetTemplateByID(ctx, rtID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("template tidak ditemukan")
+	}
+
+	// Only customizable templates can be reset
+	if IsFixedSystemEvent(existing.EventType) {
+		return nil, errors.New("template notifikasi sistem tetap tidak dapat direset")
+	}
+
+	sysType := findSystemType(existing.EventType)
+	if sysType == nil {
+		return nil, errors.New("jenis event tidak valid")
+	}
+
+	// Build new UpdateTemplateInput from system defaults
+	title := sysType.DefaultTitle
+	body := sysType.DefaultBody
+	var imageURL *string
+
+	// If the system type supports image, reset image_url to nil
+	if sysType.SupportsImage {
+		imageURL = nil
+	} else {
+		imageURL = nil // always reset image for non-image events too
+	}
+
+	_, err = s.repo.UpdateTemplate(ctx, rtID, id, UpdateTemplateInput{
+		Title:    title,
+		Body:     body,
+		ImageURL: imageURL,
+		Name:     existing.Name, // preserve user-assigned name
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ResetTemplateResult{
+		ID:               id,
+		Name:             existing.Name,
+		Title:            title,
+		Body:             body,
+		AllowedVariables: sysType.AllowedVariables,
+		ImageURL:         imageURL,
+		Message:          "Template berhasil direset ke pengaturan default",
+	}, nil
 }
 
 // ListRWTemplates lists notification templates scoped to an RW.
@@ -1411,7 +1621,7 @@ func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContex
 	if err != nil || entry == nil {
 		return entry, err
 	}
-	if entry.RTID != rtID {
+	if entry.RTID != "" && entry.RTID != rtID {
 		return nil, nil
 	}
 
@@ -2185,16 +2395,42 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		targets, err := s.repo.GetRWAndRTPengurusUserIDs(bgCtx, rwID)
 		if err != nil {
 			slog.Error("failed to find recipients for rw_cash_in", "rw_id", rwID, "error", err)
 			return
 		}
 
+		formattedAmount := finance.FormatRupiahFromString(amount)
+		if formattedAmount == "Rp 0" && strings.TrimSpace(amount) != "0" && strings.TrimSpace(amount) != "" {
+			formattedAmount = strings.TrimSpace(amount)
+		}
 		title := "Kas Masuk RW Diterima"
-		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s telah dicatat.", amount)
+		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar %s telah dicatat.", formattedAmount)
 		if strings.TrimSpace(description) != "" {
-			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s (%s) telah dicatat.", amount, description)
+			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar %s (%s) telah dicatat.", formattedAmount, description)
+		}
+		var imgURL *string
+
+		if tmpl, err := s.repo.GetActiveRWTemplateForEvent(bgCtx, rwID, EventRWCashIn); err == nil && tmpl != nil && tmpl.IsActive {
+			vars := map[string]string{
+				"amount":      formattedAmount,
+				"description": description,
+				"location":    locationName,
+			}
+			tTitle := tmpl.Title
+			tBody := tmpl.Body
+			for k, v := range vars {
+				tTitle = strings.ReplaceAll(tTitle, "{{"+k+"}}", v)
+				tBody = strings.ReplaceAll(tBody, "{{"+k+"}}", v)
+			}
+			if strings.TrimSpace(tTitle) != "" {
+				title = tTitle
+			}
+			if strings.TrimSpace(tBody) != "" {
+				body = tBody
+			}
+			imgURL = tmpl.ImageURL
 		}
 
 		payload := map[string]string{
@@ -2204,20 +2440,28 @@ func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, descri
 			"amount":      amount,
 			"description": description,
 			"location":    locationName,
+			"deep_link":   fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txID),
 			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if imgURL != nil && strings.TrimSpace(*imgURL) != "" {
+			payload["image_url"] = *imgURL
 		}
 
 		for _, uid := range targets {
 			dedupKey := fmt.Sprintf("rw_kas:%s:income:%s", txID, uid)
-			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashIn, dedupKey, title, body, payload, nil)
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			sentN, failedN := 0, 0
+			if len(tokens) > 0 {
+				sentN, failedN = s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+			}
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			ok, err := s.repo.RecordRWDedupWithStatus(bgCtx, rwID, uid, EventRWCashIn, dedupKey, title, body, status, payload, nil)
 			if err != nil {
 				slog.Warn("rw_cash_in dedup check failed", "user_id", uid, "error", err)
 			}
 			if !ok {
 				continue
 			}
-			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
-			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
 		}
 	}()
 }
@@ -2227,14 +2471,41 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		targets, err := s.repo.GetRWAndRTPengurusUserIDs(bgCtx, rwID)
 		if err != nil {
 			slog.Error("failed to find recipients for rw_cash_out", "rw_id", rwID, "error", err)
 			return
 		}
 
+		formattedAmount := finance.FormatRupiahFromString(amount)
+		if formattedAmount == "Rp 0" && strings.TrimSpace(amount) != "0" && strings.TrimSpace(amount) != "" {
+			formattedAmount = strings.TrimSpace(amount)
+		}
 		title := "Kas Keluar RW Dicatat"
-		body := fmt.Sprintf("Pengeluaran kas RW sebesar Rp %s untuk %s telah dicatat.", amount, description)
+		body := fmt.Sprintf("Pengeluaran kas RW sebesar %s untuk %s telah dicatat.", formattedAmount, description)
+		var imgURL *string
+
+		if tmpl, err := s.repo.GetActiveRWTemplateForEvent(bgCtx, rwID, EventRWCashOut); err == nil && tmpl != nil && tmpl.IsActive {
+			vars := map[string]string{
+				"amount":      formattedAmount,
+				"description": description,
+				"category":    category,
+				"location":    locationName,
+			}
+			tTitle := tmpl.Title
+			tBody := tmpl.Body
+			for k, v := range vars {
+				tTitle = strings.ReplaceAll(tTitle, "{{"+k+"}}", v)
+				tBody = strings.ReplaceAll(tBody, "{{"+k+"}}", v)
+			}
+			if strings.TrimSpace(tTitle) != "" {
+				title = tTitle
+			}
+			if strings.TrimSpace(tBody) != "" {
+				body = tBody
+			}
+			imgURL = tmpl.ImageURL
+		}
 
 		payload := map[string]string{
 			"type":        EventRWCashOut,
@@ -2244,28 +2515,45 @@ func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, descr
 			"description": description,
 			"category":    category,
 			"location":    locationName,
+			"deep_link":   fmt.Sprintf("/rw/%s/kas?tx_id=%s", rwID, txID),
 			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if imgURL != nil && strings.TrimSpace(*imgURL) != "" {
+			payload["image_url"] = *imgURL
 		}
 
 		for _, uid := range targets {
 			dedupKey := fmt.Sprintf("rw_kas:%s:expense:%s", txID, uid)
-			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashOut, dedupKey, title, body, payload, nil)
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			sentN, failedN := 0, 0
+			if len(tokens) > 0 {
+				sentN, failedN = s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+			}
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			ok, err := s.repo.RecordRWDedupWithStatus(bgCtx, rwID, uid, EventRWCashOut, dedupKey, title, body, status, payload, nil)
 			if err != nil {
 				slog.Warn("rw_cash_out dedup check failed", "user_id", uid, "error", err)
 			}
 			if !ok {
 				continue
 			}
-			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
-			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
 		}
 	}()
 }
 
-func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, target ...string) (int, error) {
+func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, opts ...string) (int, error) {
+	var target string
+	var imageURL string
+	if len(opts) > 0 {
+		target = opts[0]
+	}
+	if len(opts) > 1 {
+		imageURL = opts[1]
+	}
+
 	var targets []string
 	var err error
-	if len(target) > 0 && strings.TrimSpace(target[0]) == "rw_only" {
+	if strings.TrimSpace(target) == "rw_only" {
 		targets, err = s.repo.GetRWPengurusUserIDs(ctx, rwID)
 	} else {
 		targets, err = s.repo.GetRWAndRTPengurusUserIDs(ctx, rwID)
@@ -2273,6 +2561,7 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 	if err != nil {
 		return 0, fmt.Errorf("failed to get RW manual push recipients: %w", err)
 	}
+	targets = dedupeUserIDs(targets)
 	if len(targets) == 0 {
 		return 0, nil
 	}
@@ -2282,27 +2571,41 @@ func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, titl
 		"rw_id":          rwID,
 		"title":          title,
 		"body":           body,
+		"deep_link":      "/home/notifikasi/detail",
 		"sender_user_id": senderUserID,
 		"sent_at":        time.Now().UTC().Format(time.RFC3339Nano),
 	}
+	if strings.TrimSpace(imageURL) != "" {
+		payload["image_url"] = strings.TrimSpace(imageURL)
+	}
+
+	dispatchCtx, dispatchCancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
+	defer dispatchCancel()
 
 	batchID := fmt.Sprintf("rw_manual:%s:%d", rwID, time.Now().UnixNano())
 	sentCount := 0
 	senderPtr := &senderUserID
+	seenTokens := make(map[string]struct{})
 	for _, uid := range targets {
 		dedupKey := fmt.Sprintf("%s:%s", batchID, uid)
-		ok, err := s.repo.RecordRWDedup(ctx, rwID, uid, EventManualPush, dedupKey, title, body, payload, senderPtr)
+		tokens, err := s.repo.GetTokensForUser(dispatchCtx, uid)
+		uniqueTokens := filterUnseenTokens(tokens, seenTokens)
+		recipientPayload := clonePayloadMap(payload)
+		sentN, failedN := 0, 0
+		if err == nil && len(uniqueTokens) > 0 {
+			sentN, failedN = s.sendPushToTokens(dispatchCtx, uniqueTokens, title, body, recipientPayload)
+		}
+		status := recipientDeliveryStatus(sentN, failedN, len(uniqueTokens))
+		ok, err := s.repo.RecordRWDedupWithStatus(dispatchCtx, rwID, uid, EventManualPush, dedupKey, title, body, status, recipientPayload, senderPtr)
 		if err != nil {
 			slog.Warn("rw manual push dedup failed", "user_id", uid, "error", err)
 		}
 		if !ok {
 			continue
 		}
-		tokens, err := s.repo.GetTokensForUser(ctx, uid)
-		if err == nil && len(tokens) > 0 {
-			s.sendPushToTokens(ctx, tokens, title, body, payload)
+		if status == "SENT" || status == "PARTIAL" {
+			sentCount++
 		}
-		sentCount++
 	}
 	return sentCount, nil
 }
@@ -2316,4 +2619,19 @@ func (s *service) ListRWLogs(ctx context.Context, rwID, eventType string, page, 
 	}
 	offset := (page - 1) * pageSize
 	return s.repo.ListRWLogs(ctx, rwID, eventType, offset, pageSize)
+}
+
+func (s *service) ListRWMyLogs(ctx context.Context, rwID, senderUserID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+	return s.repo.ListRWMyLogs(ctx, rwID, senderUserID, eventType, offset, pageSize)
+}
+
+func (s *service) GetRWUnreadCount(ctx context.Context, rwID, userID string) (int, error) {
+	return s.repo.GetRWUnreadCount(ctx, rwID, userID)
 }

@@ -145,7 +145,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.edit_outlined).first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit Iuran'), findsOneWidget);
+    expect(find.text('Ubah Iuran'), findsOneWidget);
     expect(find.text('Nama Iuran'), findsOneWidget);
     // Pastikan baris switch "Iuran Sukarela" sudah tidak ada di popup Edit Iuran
     expect(find.text('Iuran Sukarela'), findsNothing);
@@ -227,7 +227,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.edit_outlined).first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit Iuran'), findsOneWidget);
+    expect(find.text('Ubah Iuran'), findsOneWidget);
     expect(find.text('Iuran Sukarela'), findsNothing);
     expect(find.byKey(const ValueKey('btn-sync-bills')), findsNothing);
   });
@@ -253,7 +253,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Both title and first input field are rendered without clipping or collision
-    expect(find.text('Edit Iuran'), findsOneWidget);
+    expect(find.text('Ubah Iuran'), findsOneWidget);
     expect(find.text('Nama Iuran'), findsOneWidget);
 
     // Save and Cancel buttons are accessible

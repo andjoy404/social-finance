@@ -98,7 +98,7 @@ String currentCalendarPeriod([DateTime? now]) {
   return '${months[dt.month - 1]} ${dt.year}';
 }
 
-/// Selected periode filter for Iuran Warga (default in IuranScreen: current month 'YYYY-MM').
+/// Selected periode filter for Iuran Warga (default in IuranScreen: current year 'YYYY', all months).
 final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 
 /// Selected periode filter for Iuran Saya (default in IuranScreen: current year 'YYYY').

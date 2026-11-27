@@ -447,7 +447,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                       icon: Icons.volunteer_activism_outlined,
                       label: 'Status',
                       value: 'Sukarela',
-                      valueColor: AppColors.info,
+                      valueColor: AppColors.infoBlue,
                     ),
                   ] else if (bill.isInArrears) ...[
                     _buildPaymentRow(
@@ -786,14 +786,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: method == PaymentMethod.transfer
-                            ? AppColors.info.withValues(alpha: 0.1)
+                            ? AppColors.infoBlue.withValues(alpha: 0.1)
                             : (method == PaymentMethod.cash
                                 ? AppColors.success.withValues(alpha: 0.1)
                                 : AppColors.danger.withValues(alpha: 0.1)),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
                           color: method == PaymentMethod.transfer
-                              ? AppColors.info.withValues(alpha: 0.3)
+                              ? AppColors.infoBlue.withValues(alpha: 0.3)
                               : (method == PaymentMethod.cash
                                   ? AppColors.success.withValues(alpha: 0.3)
                                   : AppColors.danger.withValues(alpha: 0.3)),
@@ -810,7 +810,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                                     : Icons.help_outline),
                             size: 16,
                             color: method == PaymentMethod.transfer
-                                ? AppColors.info
+                                ? AppColors.infoBlue
                                 : (method == PaymentMethod.cash
                                     ? AppColors.success
                                     : AppColors.danger),
@@ -826,7 +826,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: method == PaymentMethod.transfer
-                                  ? AppColors.info
+                                  ? AppColors.infoBlue
                                   : (method == PaymentMethod.cash
                                       ? AppColors.success
                                       : AppColors.danger),
@@ -1111,7 +1111,12 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             ),
           ),
           actions: [
-            TextButton(
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Batal'),
             ),
@@ -1172,7 +1177,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.warning,
+                backgroundColor: AppColors.danger,
                 foregroundColor: Colors.white,
               ),
               child: const Text('Tolak'),

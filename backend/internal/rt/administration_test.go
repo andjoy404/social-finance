@@ -45,6 +45,12 @@ func TestAdministrationJabatanLifecycleAndAudit(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		return rec
 	}
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"keamanan"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign keamanan should be rejected: got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"kebersihan"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign kebersihan should be rejected: got %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"anggota"}`); rec.Code != http.StatusOK {
 		t.Fatalf("assign anggota: got %d %s", rec.Code, rec.Body.String())
 	}
@@ -136,5 +142,76 @@ func TestAdministrationConcurrentKetuaAssignmentHasSingleWinner(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected one Ketua, got %d", count)
+	}
+}
+
+func TestAdministrationHumasAndOperasionalHouseholdRequirement(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	rtID := insertRT(t, pool, "Humas HH Req RT "+uuid.NewString()[:8], 88, "H"+uuid.NewString()[:3])
+	userID := uuid.NewString()
+	membershipID := uuid.NewString()
+	insertAdminRTMembership(t, rtID, userID, membershipID, string(auth.RoleWarga))
+	token := superAdminToken(t)
+
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Without household: humas and operasional assignments are rejected
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"humas"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign humas without household should be 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"operasional"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign operasional without household should be 400, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Setup household chain for userID
+	var hhID, phID, occID, resID string
+	ctx := context.Background()
+	if err := pool.Raw().QueryRowContext(ctx, `INSERT INTO households (rt_id, head_name, is_active) VALUES ($1, 'Humas Head', true) RETURNING id`, rtID).Scan(&hhID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `INSERT INTO physical_houses (rt_id, house_number, is_active) VALUES ($1, 'HH-01', true) RETURNING id`, rtID).Scan(&phID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `INSERT INTO household_occupancies (household_id, physical_house_id, occupancy_status) VALUES ($1, $2, 'OWNER') RETURNING id`, hhID, phID).Scan(&occID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `INSERT INTO residents (rt_id, user_id, full_name, is_active) VALUES ($1, $2, 'Warga Humas', true) RETURNING id`, rtID, userID).Scan(&resID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Raw().ExecContext(ctx, `INSERT INTO residency_periods (resident_id, household_occupancy_id) VALUES ($1, $2)`, resID, occID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. With household: assign humas succeeds
+	if rec := request(http.MethodPut, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", `{"jabatan":"humas"}`); rec.Code != http.StatusOK {
+		t.Fatalf("assign humas with household should be 200, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify jabatan is saved
+	var assignedJab string
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT jabatan FROM user_rt_memberships WHERE id = $1`, membershipID).Scan(&assignedJab); err != nil || assignedJab != "humas" {
+		t.Fatalf("expected jabatan 'humas', got %q, err: %v", assignedJab, err)
+	}
+
+	// 4. Revoke humas succeeds and preserves user, resident, and household
+	if rec := request(http.MethodDelete, "/api/v1/rts/"+rtID+"/memberships/"+userID+"/jabatan", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("revoke humas should be 204, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	var postRevokeJab *string
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT jabatan FROM user_rt_memberships WHERE id = $1`, membershipID).Scan(&postRevokeJab); err != nil || postRevokeJab != nil {
+		t.Fatalf("expected nil jabatan after revoke, got %v, err: %v", postRevokeJab, err)
+	}
+	var resCount int
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT count(*) FROM residents WHERE id = $1 AND is_active = true`, resID).Scan(&resCount); err != nil || resCount != 1 {
+		t.Fatalf("resident must remain intact, got count: %d", resCount)
 	}
 }

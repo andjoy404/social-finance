@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BellOutlined,
   PlusOutlined,
@@ -16,7 +17,7 @@ import {
   EyeOutlined,
   ScheduleOutlined,
 } from '@ant-design/icons'
-import { useAuth, isSuperAdminUser, canAccessNotificationAdmin } from '@/app/AuthContext'
+import { useAuth, isSuperAdminUser, isKetuaRTUser, canAccessNotificationAdmin } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
@@ -49,12 +50,18 @@ import {
   apiListActivities,
 } from '@/app/api'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { PaketDetailModal } from '@/features/keamanan/PaketDetailModal'
+import { CorrectionDetailModal } from '@/features/keamanan/CorrectionDetailModal'
+import { NotificationImage } from './NotificationImage'
+import { apiGetSecurityCorrectionById } from '@/features/keamanan/securityApi'
+import type { AttendanceCorrection } from '@/features/keamanan/securityApi'
 import { renderNotificationBody } from './notificationUrl'
 import {
   isBySystemTriggerEvent,
   getNotificationBadgeVariant,
   sortSystemTypesLast,
 } from './notificationSeverity'
+import { apiResetNotificationTemplate } from '@/app/api'
 import { SystemEventSelect } from './SystemEventSelect'
 import { TriggerCategoryBadge } from './TriggerCategoryBadge'
 
@@ -90,8 +97,25 @@ function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = f
 
 export function NotificationScreen() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
+
+  // Deep link support: ?openPaket={reportId} opens PaketDetailModal automatically
+  useEffect(() => {
+    const openPaket = searchParams.get('openPaket')
+    if (openPaket) {
+      setPaketDetailReportId(openPaket)
+      setShowPaketDetailModal(true)
+      // Clear the URL param so closing the modal doesn't reopen it
+      searchParams.delete('openPaket')
+      const newUrl = searchParams.toString()
+        ? `${window.location.pathname}?${searchParams.toString()}`
+        : window.location.pathname
+      navigate(newUrl, { replace: true })
+    }
+  }, [searchParams, navigate])
 
   const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'mine' | 'schedules'>(isAdmin ? 'system' : 'logs')
 
@@ -159,13 +183,16 @@ export function NotificationScreen() {
     is_active: true,
   })
   const [deletingTemplate, setDeletingTemplate] = useState<ApiNotificationTemplate | null>(null)
+  const [resettingTemplate, setResettingTemplate] = useState<ApiNotificationTemplate | null>(null)
   const [previewItem, setPreviewItem] = useState<{
+    id?: string
     title: string
     body: string
     eventName: string
     eventType?: string | null
     dedupKey?: string | null
     imageUrl?: string | null
+    payload?: any
   } | null>(null)
 
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -182,6 +209,36 @@ export function NotificationScreen() {
 
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [fullImagePreviewSrc, setFullImagePreviewSrc] = useState<string | null>(null)
+
+  // Paket detail modal state
+  const [paketDetailReportId, setPaketDetailReportId] = useState<string | null>(null)
+  const [showPaketDetailModal, setShowPaketDetailModal] = useState(false)
+
+  // Correction detail modal state
+  const [correctionDetailId, setCorrectionDetailId] = useState<string | null>(null)
+  const [showCorrectionDetailModal, setShowCorrectionDetailModal] = useState(false)
+  const [correctionDetailData, setCorrectionDetailData] = useState<AttendanceCorrection | null>(null)
+  const [, setCorrectionDetailLoading] = useState(false)
+
+  // Load correction detail when modal opens
+  useEffect(() => {
+    if (showCorrectionDetailModal && correctionDetailId && !correctionDetailData) {
+      setCorrectionDetailLoading(true)
+      apiGetSecurityCorrectionById(correctionDetailId)
+        .then(setCorrectionDetailData)
+        .catch(() => setCorrectionDetailData(null))
+        .finally(() => setCorrectionDetailLoading(false))
+    }
+  }, [showCorrectionDetailModal, correctionDetailId, correctionDetailData])
+
+  const openFullImagePreview = (imageUrl: string) => {
+    setFullImagePreviewSrc(imageUrl)
+  }
+
+  const closeFullImagePreview = () => {
+    setFullImagePreviewSrc(null)
+  }
 
   // Convert ISO 8601 datetime to a local "YYYY-MM-DDTHH:mm" string usable by <input type="datetime-local" />.
 function toLocalDateTimeInput(d?: string | null): string {
@@ -200,7 +257,13 @@ const knownEventNames: Record<string, string> = {
     payment_verified: 'Pembayaran Diverifikasi',
     payment_rejected: 'Pembayaran Ditolak',
     manual_push: 'Pengumuman Pengurus',
+    rw_cash_in: 'Kas Masuk RW',
+    rw_cash_out: 'Kas Keluar RW',
     waste_truck_arrival: 'Truk Sampah Tiba',
+    patrol_bundle_submitted: 'Laporan Patroli Wilayah',
+    paket_received: 'Titipan Paket Masuk',
+    paket_picked_up: 'Paket Telah Diambil',
+    correction_submitted: 'Pengajuan Koreksi Absensi',
   }
 
   const customizableSystemTypes = useMemo(
@@ -418,10 +481,14 @@ const knownEventNames: Record<string, string> = {
     }
   }
 
+  const markingReadIdsRef = useRef<Set<string>>(new Set())
+
   const handleMarkAsRead = async (log: ApiNotificationLog) => {
     if (log.is_read) return
+    if (markingReadIdsRef.current.has(log.id)) return
     const token = getSessionPair()?.accessToken
     if (!token) return
+    markingReadIdsRef.current.add(log.id)
     try {
       await apiMarkNotificationAsRead(token, log.id)
       setLogs((prev) =>
@@ -430,6 +497,8 @@ const knownEventNames: Record<string, string> = {
       setUnreadCount((c) => Math.max(0, c - 1))
     } catch {
       // ignore
+    } finally {
+      markingReadIdsRef.current.delete(log.id)
     }
   }
 
@@ -454,14 +523,16 @@ const knownEventNames: Record<string, string> = {
       knownEventNames[log.event_type] ||
       log.event_type
     setPreviewItem({
+      id: log.id,
       title: log.title,
       body: log.body,
       eventName,
       eventType: log.event_type,
       dedupKey: log.dedup_key,
-      imageUrl: log.image_url,
+      imageUrl: log.image_url || (log as any).payload?.image_url || (log as any).payload?.image,
+      payload: (log as any).payload,
     })
-    if (!isAdmin) handleMarkAsRead(log)
+    if (!isAdmin || activeTab === 'mine') handleMarkAsRead(log)
   }
 
   useEffect(() => {
@@ -736,6 +807,41 @@ const knownEventNames: Record<string, string> = {
     }
   }
 
+  const handleResetSubmit = async () => {
+    if (!resettingTemplate) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    setFormSubmitting(true)
+    try {
+      const result = await apiResetNotificationTemplate(token, resettingTemplate.id)
+      setSuccessMsg(result.message || 'Template berhasil direset ke pengaturan default')
+      setResettingTemplate(null)
+      // Update templates list with new defaults
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === resettingTemplate.id
+            ? { ...t, title: result.title, body: result.body, image_url: result.image_url, variables: result.allowed_variables }
+            : t
+        )
+      )
+      // Also update editing form if editing this template
+      if (editingTemplate?.id === resettingTemplate.id) {
+        setEditForm((prev) => ({
+          ...prev,
+          title: result.title,
+          body: result.body,
+          image_url: result.image_url || '',
+        }))
+      }
+      await loadData()
+    } catch (err: any) {
+      setError(err?.message || 'Gagal mereset template')
+    } finally {
+      setFormSubmitting(false)
+    }
+  }
+
   // Active variables for create form
   const createAllowedVars = useMemo(() => {
     const found = systemTypes.find((t) => t.event_type === createForm.event_type)
@@ -792,12 +898,19 @@ const knownEventNames: Record<string, string> = {
 
       {/* Tabs (Rendered for Admins only) */}
       {isAdmin ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)' }}>
+        <div style={{ marginTop: 4, marginBottom: 16 }}>
+          {/* Top-level tabs: TEMPLATES / RIWAYAT SISTEM / RIWAYAT SAYA */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              borderBottom: '1px solid var(--sf-border)',
+            }}
+          >
             {[
-              { key: 'templates', label: 'Template', icon: <BellOutlined /> },
-              { key: 'logs', label: 'Riwayat Sistem', icon: <HistoryOutlined /> },
-              { key: 'mine', label: 'Riwayat Saya', icon: <HistoryOutlined /> },
+              { key: 'templates', label: 'TEMPLATE', icon: <BellOutlined /> },
+              { key: 'logs', label: 'RIWAYAT SISTEM', icon: <HistoryOutlined /> },
+              { key: 'mine', label: 'RIWAYAT SAYA', icon: <HistoryOutlined /> },
             ].map((tab) => {
               const selected = tab.key === 'templates'
                 ? activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules'
@@ -811,62 +924,79 @@ const knownEventNames: Record<string, string> = {
                     setActiveTab(tab.key as typeof activeTab)
                   }}
                   style={{
-                    padding: '10px 16px',
-                    border: 'none',
-                    background: 'none',
-                    fontWeight: selected ? 600 : 400,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
                     display: 'flex',
-                    alignItems: 'center',
                     gap: 6,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: selected ? 600 : 400,
+                    fontStyle: 'normal',
+                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    border: 'none',
+                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                    background: selected ? 'var(--sf-surface-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  {tab.icon} {tab.label}
+                  {tab.icon}
+                  {tab.label}
                 </button>
               )
             })}
           </div>
+          {/* Sub-tabs: NOTIFIKASI SISTEM / TEMPLATE KUSTOM / PENJADWALAN */}
           {(activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules') && (
-            <div style={{ display: 'flex', gap: 16, padding: '8px 12px', borderBottom: '1px solid var(--sf-border)' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                margin: '12px 0 0 0',
+              }}
+            >
               {[
-                { key: 'system', label: `Notifikasi Sistem (${systemTypes.length})`, icon: <AppstoreOutlined /> },
-                { key: 'templates', label: `Template Kustom (${customTemplates.length})`, icon: <BellOutlined /> },
-                { key: 'schedules', label: `Penjadwalan (${schedules.length})`, icon: <ScheduleOutlined /> },
+                { key: 'system', label: `NOTIFIKASI SISTEM (${systemTypes.length})`, icon: <AppstoreOutlined /> },
+                { key: 'templates', label: `TEMPLATE KUSTOM (${customTemplates.length})`, icon: <BellOutlined /> },
+                { key: 'schedules', label: `PENJADWALAN (${schedules.length})`, icon: <ScheduleOutlined /> },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key as typeof activeTab)}
                   style={{
-                    padding: '6px 4px',
-                    border: 'none',
-                    background: 'none',
-                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                    fontWeight: activeTab === tab.key ? 600 : 400,
-                    cursor: 'pointer',
                     display: 'flex',
-                    alignItems: 'center',
                     gap: 6,
+                    padding: '10px 16px',
+                    fontSize: 13,
+                    fontWeight: activeTab === tab.key ? 600 : 400,
+                    fontStyle: 'normal',
+                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    border: 'none',
+                    borderBottom: activeTab === tab.key ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    borderRadius: 'var(--sf-radius-sm) var(--sf-radius-sm) 0 0',
+                    background: activeTab === tab.key ? 'var(--sf-surface-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  {tab.icon} {tab.label}
+                  {tab.icon}
+                  {tab.label}
                 </button>
               ))}
             </div>
           )}
         </div>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)' }}>
-              Riwayat Notifikasi
-            </span>
-            {unreadCount > 0 && (
-              <Badge variant="blue">{unreadCount} belum dibaca</Badge>
-            )}
+        <div className="sf-content-surface" style={{ padding: '0 20px', marginBottom: 16 }}>
+          <div className="sf-list-toolbar">
+            <div className="sf-list-toolbar-left">
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--sf-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                RIWAYAT NOTIFIKASI
+                {unreadCount > 0 && (
+                  <Badge variant="blue">{unreadCount} belum dibaca</Badge>
+                )}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -900,7 +1030,6 @@ const knownEventNames: Record<string, string> = {
                           {st.name}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                          <Badge variant="blue">FCM PUSH</Badge>
                           <TriggerCategoryBadge eventType={st.event_type} />
                         </div>
                       </div>
@@ -963,33 +1092,18 @@ const knownEventNames: Record<string, string> = {
                             Kustomisasi
                           </button>
                         )}
-                      </div>
-                      {(st.event_type === 'waste_truck_arrival' || st.event_type === 'manual_push') && (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                          {isSuperAdmin && (
-                            <button
-                              type="button"
-                              className="sf-btn-outline"
-                              style={{ flex: 1, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                              onClick={() => handleTestPush(st.event_type, st.default_title, st.default_body)}
-                              disabled={testPushSubmitting}
-                              title="Uji kirim hanya ke perangkat Super Admin"
-                            >
-                              <ExperimentOutlined /> {testPushSubmitting ? 'Menguji...' : 'Test Notifikasi'}
-                            </button>
-                          )}
+                        {isBySystemTriggerEvent(st.event_type) && isAdmin && (
                           <button
                             type="button"
                             className="sf-btn-primary"
-                            style={{ flex: 1, fontSize: 12, background: 'var(--sf-success)', borderColor: 'var(--sf-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                            onClick={() => setConfirmBroadcastItem({ event_type: st.event_type, title: st.default_title, body: st.default_body })}
-                            disabled={broadcastSubmitting}
-                            title="Kirim notifikasi siaran ke seluruh warga RT"
+                            style={{ flex: 1 }}
+                            onClick={() => handleOpenCreate(st.event_type)}
                           >
-                            <SendOutlined /> Kirim Notifikasi
+                            Kustomisasi
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
+
                     </div>
                   </div>
                 ))}
@@ -1535,7 +1649,7 @@ const knownEventNames: Record<string, string> = {
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul & Pesan</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Kirim</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>
-                          {isAdmin ? 'Hasil Pengiriman' : 'Status Baca'}
+                          {isAdmin && activeTab !== 'mine' ? 'Hasil Pengiriman' : 'Status Baca'}
                         </th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Aksi</th>
                       </tr>
@@ -1543,6 +1657,7 @@ const knownEventNames: Record<string, string> = {
                     <tbody>
                       {logs.map((l) => {
                         const statusDisplay = getDeliveryStatusDisplay(l.status, isAdmin)
+                        const isPersonalUnread = (!isAdmin || activeTab === 'mine') && !l.is_read
                         return (
                           <tr
                             key={l.id}
@@ -1550,20 +1665,27 @@ const knownEventNames: Record<string, string> = {
                             style={{
                               borderBottom: '1px solid var(--sf-border)',
                               cursor: 'pointer',
-                              background: !isAdmin && !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
+                              background: isPersonalUnread ? 'rgba(56, 132, 255, 0.04)' : undefined,
                             }}
                           >
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--sf-text-muted)', fontSize: 12 }}>
                             {formatJakartaDateTime(l.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant={getNotificationBadgeVariant(l.event_type)}>
-                              {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
-                            </Badge>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {l.source === 'rw' || !!l.rw_id ? (
+                                <Badge variant="violet">RW</Badge>
+                              ) : (
+                                <Badge variant="blue">RT</Badge>
+                              )}
+                              <Badge variant={getNotificationBadgeVariant(l.event_type)}>
+                                {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
+                              </Badge>
+                            </div>
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                              {!isAdmin && !l.is_read && (
+                              {isPersonalUnread && (
                                 <span
                                   style={{
                                     width: 8,
@@ -1576,9 +1698,15 @@ const knownEventNames: Record<string, string> = {
                                   title="Belum dibaca"
                                 />
                               )}
-                              <span style={{ fontWeight: !isAdmin && !l.is_read ? 700 : 500, color: 'var(--sf-text)' }}>
+                              <span style={{ fontWeight: isPersonalUnread ? 700 : 500, color: 'var(--sf-text)' }}>
                                 {l.title}
                               </span>
+                              {(l.image_url || (l as any).payload?.image_url) && (
+                                <PictureOutlined
+                                  style={{ color: 'var(--sf-accent)', fontSize: 13 }}
+                                  title="Memiliki lampiran gambar"
+                                />
+                              )}
                               {l.activity_relation === 'sent_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Dikirim oleh Saya</span>}
                               {l.activity_relation === 'received_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Diterima oleh Saya</span>}
                               {l.activity_relation === 'performed_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Tindakan Saya</span>}
@@ -1591,7 +1719,7 @@ const knownEventNames: Record<string, string> = {
                             <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            {isAdmin ? (
+                            {isAdmin && activeTab !== 'mine' ? (
                               l.delivery_counts_available
                                 ? `${l.sent_count ?? 0} / ${l.recipients_count ?? 0}`
                                 : 'Tidak dicatat'
@@ -1749,7 +1877,7 @@ const knownEventNames: Record<string, string> = {
                   {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {createForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
-                      <img
+                      <NotificationImage
                         src={createForm.image_url}
                         alt="Preview Lampiran"
                         style={{ maxHeight: 90, borderRadius: 6, border: '1px solid var(--sf-border)' }}
@@ -1804,6 +1932,32 @@ const knownEventNames: Record<string, string> = {
                   </div>
                 </div>
               )}
+              {/* Reset button in Create Modal */}
+              {createForm.event_type && (
+                <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    style={{ background: '#f59e0b', borderColor: '#f59e0b', fontSize: 12 }}
+                    onClick={() => {
+                      const found = systemTypes.find((t) => t.event_type === createForm.event_type)
+                      if (found) {
+                        setCreateForm({
+                          event_type: createForm.event_type,
+                          name: '',
+                          title: found.default_title,
+                          body: found.default_body,
+                          image_url: '',
+                        })
+                      }
+                    }}
+                    disabled={formSubmitting}
+                    title="Kembalikan template ke pengaturan default sistem"
+                  >
+                    <ReloadOutlined style={{ marginRight: 4 }} /> Atur Ulang
+                  </button>
+                </div>
+              )}
             </ModalBody>
             <ModalFooter>
               <button
@@ -1820,7 +1974,7 @@ const knownEventNames: Record<string, string> = {
                 className="sf-btn-primary"
                 disabled={formSubmitting}
               >
-                {formSubmitting ? 'Menyimpan...' : 'Simpan Template'}
+                {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
             </ModalFooter>
           </form>
@@ -1900,7 +2054,7 @@ const knownEventNames: Record<string, string> = {
                   {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {editForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
-                      <img
+                      <NotificationImage
                         src={editForm.image_url}
                         alt="Preview Lampiran"
                         style={{ maxHeight: 90, borderRadius: 6, border: '1px solid var(--sf-border)' }}
@@ -1989,30 +2143,13 @@ const knownEventNames: Record<string, string> = {
                   <ExperimentOutlined /> {testPushSubmitting ? 'Menguji...' : 'Test Notifikasi'}
                 </button>
               )}
-              {(editingTemplate.event_type === 'waste_truck_arrival' || editingTemplate.event_type === 'manual_push') && (
-                <button
-                  type="button"
-                  className="sf-btn-primary"
-                  style={{ background: 'var(--sf-success)', borderColor: 'var(--sf-success)' }}
-                  onClick={() => {
-                    setConfirmBroadcastItem({
-                      event_type: editingTemplate.event_type,
-                      title: editForm.title,
-                      body: editForm.body,
-                      image_url: editForm.image_url || undefined,
-                    })
-                  }}
-                  disabled={formSubmitting}
-                >
-                  <SendOutlined /> Kirim Notifikasi
-                </button>
-              )}
+
               <button
                 type="submit"
                 className="sf-btn-primary"
                 disabled={formSubmitting}
               >
-                {formSubmitting ? 'Menyimpan...' : 'Simpan Template'}
+                {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
             </ModalFooter>
           </form>
@@ -2053,6 +2190,48 @@ const knownEventNames: Record<string, string> = {
         </Modal>
       )}
 
+      {/* MODAL: Reset Template */}
+      {resettingTemplate && (
+        <Modal open={!!resettingTemplate} onClose={() => setResettingTemplate(null)}>
+          <ModalHeader title="Reset Template" onClose={() => setResettingTemplate(null)} />
+          <ModalBody>
+            <div style={{ fontSize: 14, color: 'var(--sf-text)', marginBottom: 12 }}>
+              Apakah Anda yakin ingin mereset template <strong>"{resettingTemplate.name}"</strong>?
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--sf-text)', marginBottom: 10 }}>
+              Template ini akan dikembalikan ke pengaturan default sistem:
+            </div>
+            <ul style={{ fontSize: 13, color: 'var(--sf-text-muted)', paddingLeft: 20, marginBottom: 12, lineHeight: 1.6 }}>
+              <li>Judul dan isi pesan akan dikembalikan ke default</li>
+              <li>Gambar notifikasi akan dihapus</li>
+              <li>Variabel kustom akan dihapus</li>
+            </ul>
+            <div style={{ fontSize: 12, color: 'var(--sf-warning)', fontStyle: 'italic' }}>
+              Nama template tetap dipertahankan. Perubahan ini tidak dapat dibatalkan.
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <button
+              type="button"
+              className="sf-btn-outline"
+              onClick={() => setResettingTemplate(null)}
+              disabled={formSubmitting}
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              className="sf-btn-primary"
+              style={{ background: 'var(--sf-warning)', borderColor: 'var(--sf-warning)', color: '#000' }}
+              onClick={handleResetSubmit}
+              disabled={formSubmitting}
+            >
+              {formSubmitting ? 'Merestor...' : 'Ya, Reset'}
+            </button>
+          </ModalFooter>
+        </Modal>
+      )}
+
       {/* MODAL: Konfirmasi Kirim Notifikasi Siaran */}
       {confirmBroadcastItem && (
         <Modal open={!!confirmBroadcastItem} onClose={() => setConfirmBroadcastItem(null)}>
@@ -2068,7 +2247,11 @@ const knownEventNames: Record<string, string> = {
               </div>
               {confirmBroadcastItem.image_url && (
                 <div style={{ marginTop: 8 }}>
-                  <img src={confirmBroadcastItem.image_url} alt="Lampiran" style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }} />
+                  <NotificationImage
+                    src={confirmBroadcastItem.image_url}
+                    alt="Lampiran"
+                    style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }}
+                  />
                 </div>
               )}
             </div>
@@ -2142,10 +2325,21 @@ const knownEventNames: Record<string, string> = {
                 </div>
                 {previewItem.imageUrl && (
                   <div style={{ marginTop: 10 }}>
-                    <img
+                    <NotificationImage
                       src={previewItem.imageUrl}
                       alt="Banner Notifikasi"
-                      style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8 }}
+                      style={{
+                        width: '100%',
+                        maxHeight: 180,
+                        objectFit: 'cover',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        if (previewItem.imageUrl) {
+                          openFullImagePreview(previewItem.imageUrl)
+                        }
+                      }}
                     />
                   </div>
                 )}
@@ -2153,6 +2347,144 @@ const knownEventNames: Record<string, string> = {
             </div>
           </ModalBody>
           <ModalFooter>
+            {previewItem.eventType === 'patrol_bundle_submitted' && (() => {
+              const bundleId =
+                previewItem.payload?.bundle_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.startsWith('patrol:')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    const targetUrl = bundleId ? `/patroli?bundleId=${bundleId}` : '/patroli'
+                    try {
+                      navigate(targetUrl)
+                      if (previewItem.id) {
+                        await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                      }
+                    } finally {
+                      setPreviewItem(null)
+                    }
+                  }}
+                >
+                  Buka Detail Patroli
+                </button>
+              )
+            })()}
+
+            {(previewItem.eventType === 'paket_received' ||
+              previewItem.eventType === 'paket_picked_up' ||
+              (previewItem.title && previewItem.title.includes('Paket'))) && (() => {
+              const reportId =
+                previewItem.payload?.report_id ||
+                previewItem.payload?.paket_id ||
+                previewItem.payload?.package_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.includes(':')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={() => {
+                    // Open paket detail in modal instead of navigating to separate page
+                    if (reportId) {
+                      setPaketDetailReportId(reportId)
+                      setShowPaketDetailModal(true)
+                    }
+                    setPreviewItem(null)
+                  }}
+                >
+                  Buka Detail Paket
+                </button>
+              )
+            })()}
+
+            {/* Iuran notifications — deep link to bills/iuran */}
+            {(previewItem.eventType === 'iuran_bill_created' ||
+              previewItem.eventType === 'iuran_payment_submitted' ||
+              previewItem.eventType === 'iuran_payment_reminder' ||
+              previewItem.eventType === 'iuran_upcoming_due_3_months' ||
+              previewItem.eventType === 'iuran_overdue_3_months' ||
+              previewItem.eventType === 'payment_verified' ||
+              previewItem.eventType === 'payment_rejected') && (() => {
+              const billId =
+                previewItem.payload?.bill_id ||
+                previewItem.payload?.dues_bill_id ||
+                (previewItem.dedupKey && previewItem.dedupKey.includes(':')
+                  ? previewItem.dedupKey.split(':')[1]
+                  : null)
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    const targetUrl = billId ? `/iuran?billId=${billId}` : '/iuran'
+                    try {
+                      navigate(targetUrl)
+                      if (previewItem.id) {
+                        await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                      }
+                    } finally {
+                      setPreviewItem(null)
+                    }
+                  }}
+                >
+                  Buka Detail Tagihan
+                </button>
+              )
+            })()}
+
+            {/* Correction submission — navigate to security corrections with detail modal */}
+            {previewItem.eventType === 'correction_submitted' && (() => {
+              const correctionId = previewItem.payload?.correction_id
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    if (previewItem.id) {
+                      await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    }
+                    if (correctionId) {
+                      setCorrectionDetailId(correctionId)
+                      setShowCorrectionDetailModal(true)
+                    }
+                    setPreviewItem(null)
+                  }}
+                >
+                  Buka Detail Koreksi
+                </button>
+              )
+            })()}
+
+            {/* Waste truck arrival — no separate detail page; show full preview with image */}
+            {previewItem.eventType === 'waste_truck_arrival' && (() => {
+              return (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  style={{ marginRight: 'auto' }}
+                  onClick={async () => {
+                    // No separate detail page — keep preview open for full image viewer
+                    if (previewItem.id) {
+                      await handleMarkAsRead({ id: previewItem.id, is_read: false } as any)
+                    }
+                    setPreviewItem(null)
+                    navigate('/home/notifikasi')
+                  }}
+                >
+                  Kembali ke Notifikasi
+                </button>
+              )
+            })()}
+
             <button
               type="button"
               className="sf-btn-primary"
@@ -2161,6 +2493,22 @@ const knownEventNames: Record<string, string> = {
               Tutup Preview
             </button>
           </ModalFooter>
+        </Modal>
+      )}
+
+      {/* MODAL: Full Image Preview (for waste_truck_arrival and other notifications with images) */}
+      {fullImagePreviewSrc && (
+        <Modal open={!!fullImagePreviewSrc} onClose={closeFullImagePreview}>
+          <ModalHeader title="Foto Notifikasi" onClose={closeFullImagePreview} />
+          <ModalBody>
+            <div style={{ textAlign: 'center' }}>
+              <NotificationImage
+                src={fullImagePreviewSrc}
+                alt="Foto Notifikasi"
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+              />
+            </div>
+          </ModalBody>
         </Modal>
       )}
 
@@ -2403,6 +2751,30 @@ const knownEventNames: Record<string, string> = {
           </form>
         </Modal>
       )}
+
+      {/* MODAL: Paket Detail — opens from notification, shows full report */}
+      <PaketDetailModal
+        reportId={paketDetailReportId}
+        open={showPaketDetailModal}
+        onClose={() => {
+          setShowPaketDetailModal(false)
+          setPaketDetailReportId(null)
+        }}
+      />
+
+      {/* MODAL: Correction Detail — opens from correction_submitted notification */}
+      <CorrectionDetailModal
+        open={showCorrectionDetailModal}
+        correction={correctionDetailData}
+        onClose={() => {
+          setShowCorrectionDetailModal(false)
+          setCorrectionDetailId(null)
+          setCorrectionDetailData(null)
+        }}
+        onRefresh={() => {}}
+        canDecide={canAccessNotificationAdmin(user) || isKetuaRTUser(user)}
+        currentUserId={user?.id}
+      />
     </div>
   )
 }

@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -26,10 +27,10 @@ bool _hasKasWriteAccess(WidgetRef ref) {
   if (systemRole == 'super_admin') return true;
 
   final jabatan = authState?.valueOrNull?['jabatan'] as String?;
+  // Sekretaris RT tidak memiliki WRITE Kas — hanya READ.
   if (jabatan != null &&
       (jabatan == 'ketua' ||
           jabatan == 'bendahara' ||
-          jabatan == 'sekretaris' ||
           jabatan == 'wakil_ketua')) {
     return true;
   }
@@ -642,12 +643,10 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -682,17 +681,17 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     Container(
                       padding: const EdgeInsets.all(AppSpacing.sm),
                       decoration: BoxDecoration(
-                        color: AppColors.info.withValues(alpha: 0.12),
+                        color: AppColors.infoBlue.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
-                          color: AppColors.info.withValues(alpha: 0.3),
+                          color: AppColors.infoBlue.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Text(
                         'Mengubah saldo awal memengaruhi saldo akhir dan riwayat neraca periode ini.',
                         style: Theme.of(
                           context,
-                        ).textTheme.bodySmall?.copyWith(color: AppColors.info),
+                        ).textTheme.bodySmall?.copyWith(color: AppColors.infoBlue),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -721,11 +720,20 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: saving ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: saving
                       ? null
                       : () async {
@@ -1446,7 +1454,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                           child: SummaryChip(
                             label: 'Saldo Awal',
                             value: RupiahFormatter.format(openingBalance),
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                             icon: Icons.flag_outlined,
                             isEditable: canWrite,
                             onEdit: () =>
@@ -1455,7 +1463,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                               context: context,
                               label: 'Saldo Awal',
                               value: RupiahFormatter.format(openingBalance),
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               icon: Icons.flag_outlined,
                               subtitle: 'Saldo awal pada periode aktif.',
                             ),
@@ -1522,7 +1530,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             label: 'Mutasi Bersih',
                             value:
                                 '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                            color: AppColors.info,
+                            color: AppColors.infoBlue,
                             icon: netMovement >= 0
                                 ? Icons.arrow_downward
                                 : Icons.arrow_upward,
@@ -1530,7 +1538,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                               context: context,
                               label: 'Mutasi Bersih',
                               value: '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                              color: AppColors.info,
+                              color: AppColors.infoBlue,
                               icon: netMovement >= 0 ? Icons.arrow_downward : Icons.arrow_upward,
                               subtitle: 'Selisih total penerimaan dikurangi total pengeluaran.',
                             ),
@@ -1821,7 +1829,7 @@ class KasTransactionCard extends StatelessWidget {
       'CASH' || 'TUNAI' => (
         label: 'Tunai',
         icon: Icons.payments_outlined,
-        color: AppColors.info,
+        color: AppColors.infoBlue,
       ),
       'TRANSFER' || 'BANK' || 'BANK_TRANSFER' || 'QRIS' => (
         label: 'Transfer',
@@ -2029,7 +2037,7 @@ class KasTransactionCard extends StatelessWidget {
                       if (showIplBadge) ...[
                         _SmallBadge(
                           label: 'IPL',
-                          color: AppColors.info,
+                          color: AppColors.infoBlue,
                           isDark: isDark,
                         ),
                         const SizedBox(width: 4),
@@ -2038,7 +2046,7 @@ class KasTransactionCard extends StatelessWidget {
                       if (isSukarela && sukarelaName.isNotEmpty) ...[
                         _SmallBadge(
                           label: sukarelaName,
-                          color: AppColors.info,
+                          color: AppColors.infoBlue,
                           isDark: isDark,
                         ),
                         const SizedBox(width: 4),

@@ -23,10 +23,11 @@ import (
 
 // Handler handles HTTP requests for notifications and device token management.
 type Handler struct {
-	svc     Service
-	pool    *database.Pool
-	storage storage.Service
-	appEnv  string
+	svc        Service
+	pool       *database.Pool
+	storage    storage.Service
+	appEnv     string
+	scopingCfg *auth.ScopingConfig
 }
 
 // NewHandler creates a new Handler instance.
@@ -39,6 +40,12 @@ func NewHandler(svc Service, pool *database.Pool, store storage.Service, appEnv 
 		store = storage.NewMockStorage()
 	}
 	return &Handler{svc: svc, pool: pool, storage: store, appEnv: env}
+}
+
+// SetScopingConfig attaches the platform scoping configuration so SuperAdmin
+// RT image access is validated against administrative scope.
+func (h *Handler) SetScopingConfig(cfg auth.ScopingConfig) {
+	h.scopingCfg = &cfg
 }
 
 // isSecurityOfficer reports whether the authenticated principal holds the
@@ -330,10 +337,15 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5MB max upload
+	// 5MB max upload limit — standard per-file limit for all photo uploads.
 	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		httpx.WriteValidationError(w, "file too large or invalid multipart form", nil)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httpx.WriteValidationError(w, "file too large (max 5 MB)", nil)
+			return
+		}
+		httpx.WriteValidationError(w, "invalid multipart form or file exceeds 5 MB limit", nil)
 		return
 	}
 
@@ -383,6 +395,8 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetImage streams a notification image from RustFS.
+// Requires authentication and validates that the caller's RT scope matches
+// the RT embedded in the image key (notifications/{category}/{rtID}/...).
 func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 	rawKey := chi.URLParam(r, "*")
 	if rawKey == "" {
@@ -397,17 +411,129 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		key = "notifications/" + key
 	}
 
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	// Extract Category and Scope ID (RT or RW ID) from the image key: notifications/{category}/{scopeID}/...
+	category, scopeID := extractCategoryAndScopeIDFromImageKey(key)
+	if scopeID == "" {
+		httpx.WriteValidationError(w, "invalid image key", nil)
+		return
+	}
+
+	authorized := false
+	if category == "rw-kas" || category == "rw-manual" {
+		if ac.SystemRole == auth.SystemRoleSuperAdmin {
+			if h.scopingCfg != nil {
+				authorized = h.scopingCfg.HasRW(scopeID)
+			} else {
+				authorized = true
+			}
+		} else {
+			// RW scope check: user is an RW member with this RW ID, or user's RT belongs to this RW
+			for _, rm := range ac.RWMemberships {
+				if rm.RWID == scopeID {
+					authorized = true
+					break
+				}
+			}
+			if !authorized && ac.RTID != "" && h.pool != nil {
+				var exists bool
+				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2 AND is_active = true)", ac.RTID, scopeID).Scan(&exists)
+				if err == nil && exists {
+					authorized = true
+				}
+			}
+		}
+	} else {
+		// RT scope check: validate that the image's RT matches the authenticated user's RT scope.
+		// Never trust client-supplied X-RT-ID for non-SuperAdmin users.
+		userRTID := ac.RTID
+		if ac.SystemRole == auth.SystemRoleSuperAdmin {
+			if h.scopingCfg != nil && h.pool != nil {
+				if inScope, err := h.scopingCfg.IsRTInAdminScope(r.Context(), h.pool, scopeID); err == nil && inScope {
+					authorized = true
+				}
+			} else {
+				headerRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
+				if headerRT != "" {
+					userRTID = headerRT
+				}
+				if userRTID != "" && userRTID == scopeID {
+					authorized = true
+				}
+			}
+		} else if userRTID != "" && userRTID == scopeID {
+			if h.pool != nil {
+				var rtActive bool
+				err := h.pool.Raw().QueryRowContext(r.Context(), "SELECT is_active FROM rts WHERE id = $1 LIMIT 1", scopeID).Scan(&rtActive)
+				if err == nil && rtActive {
+					authorized = true
+				}
+			} else {
+				authorized = true
+			}
+		}
+	}
+
+	if !authorized {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "not authorized to access this image")
+		return
+	}
+
 	reader, err := h.storage.GetNotificationImage(r.Context(), key)
 	if err != nil {
-		httpx.WriteNotFound(w, "image not found")
+		if errors.Is(err, storage.ErrNotFound) {
+			httpx.WriteNotFound(w, "image not found")
+			return
+		}
+		httpx.WriteError(w, http.StatusBadGateway, "storage_unavailable", "failed to load notification image")
 		return
 	}
 	defer reader.Body.Close()
 
-	w.Header().Set("Content-Type", reader.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	contentType := strings.TrimSpace(reader.ContentType)
+	if contentType == "" || contentType == "application/octet-stream" {
+		lowerKey := strings.ToLower(key)
+		switch {
+		case strings.HasSuffix(lowerKey, ".png"):
+			contentType = "image/png"
+		case strings.HasSuffix(lowerKey, ".webp"):
+			contentType = "image/webp"
+		case strings.HasSuffix(lowerKey, ".jpg"), strings.HasSuffix(lowerKey, ".jpeg"):
+			contentType = "image/jpeg"
+		default:
+			contentType = "image/jpeg"
+		}
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	if reader.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	_, _ = io.Copy(w, reader.Body)
+}
+
+// extractCategoryAndScopeIDFromImageKey extracts category and scope ID (RT or RW) from an image key.
+// Expected format: notifications/{category}/{scopeID}/...
+func extractCategoryAndScopeIDFromImageKey(key string) (string, string) {
+	trimmed := strings.TrimPrefix(key, "notifications/")
+	parts := strings.SplitN(trimmed, "/", 3) // [category, scopeID, rest...]
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+}
+
+// extractRTIDFromImageKey extracts the RT ID from a notification image key.
+// Expected format: notifications/{category}/{rtID}/...
+func extractRTIDFromImageKey(key string) string {
+	_, scopeID := extractCategoryAndScopeIDFromImageKey(key)
+	return scopeID
 }
 
 // TestSelf sends an isolated test push notification exclusively to the authenticated user's registered devices.
@@ -709,6 +835,48 @@ func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResetTemplate resets a notification template to its system defaults.
+func (h *Handler) ResetTemplate(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if strings.TrimSpace(id) == "" {
+		httpx.WriteValidationError(w, "template id is required", nil)
+		return
+	}
+
+	var in ResetTemplateInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	result, err := h.svc.ResetTemplate(r.Context(), rtID, id, in)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			httpx.WriteNotFound(w, err.Error())
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": result,
+	})
 }
 
 // ListLogs returns paginated delivery logs from notification_logs.

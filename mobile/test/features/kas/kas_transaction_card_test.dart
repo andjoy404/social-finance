@@ -51,13 +51,13 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(tester.widget<Icon>(iconFinder).color, AppColors.info);
+      expect(tester.widget<Icon>(iconFinder).color, AppColors.infoBlue);
       final badge = tester.widget<Container>(
         find.ancestor(of: iconFinder, matching: find.byType(Container)).first,
       );
       expect(
         (badge.decoration! as BoxDecoration).color,
-        AppColors.info.withValues(alpha: 0.12),
+        AppColors.infoBlue.withValues(alpha: 0.12),
       );
       expect(find.text('Tunai'), findsNothing);
       expect(find.byIcon(Icons.arrow_upward), findsOneWidget);

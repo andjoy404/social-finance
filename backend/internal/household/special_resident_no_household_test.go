@@ -32,7 +32,7 @@ func TestSpecialResidentCreationWithoutHousehold(t *testing.T) {
 	pengurusToken := makeTenantToken(t, "test-pengurus-special-nh", "test-pengurus-mem-special-nh", rtID, auth.RolePengurus)
 	runID := time.Now().UnixNano()
 
-	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
+	for idx, jab := range []string{"keamanan", "kebersihan", "anggota_rw"} {
 		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"31730000000000%02d","phone":"0812%04d%02d","email":"petugas.%s.%d.nh@test.com","jabatan":"%s"}`, jab, idx, runID%10000, idx, jab, runID, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -121,7 +121,7 @@ func TestCreateSpecialResidentRejectsExistingAccountFromAnotherRT(t *testing.T) 
 	r.Use(auth.RequireAuth)
 	r.Post("/api/v1/residents/special", h.CreateSpecialResident)
 	token := makeTenantToken(t, "test-special-existing-target", "test-special-existing-target-mem", rtB, auth.RolePengurus)
-	body := fmt.Sprintf(`{"rt_id":%q,"jabatan":"operasional","full_name":"Attempted RT B Petugas","nik":"3173000000000992","phone":"081299990099","email":%q}`, rtB, email)
+	body := fmt.Sprintf(`{"rt_id":%q,"jabatan":"keamanan","full_name":"Attempted RT B Petugas","nik":"3173000000000992","phone":"081299990099","email":%q}`, rtB, email)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -183,7 +183,7 @@ func TestCreateSpecialResidentRollsBackOnResidentConflict(t *testing.T) {
 	r.Use(auth.RequireAuth)
 	r.Post("/api/v1/residents/special", h.CreateSpecialResident)
 	token := makeTenantToken(t, "special-rollback-pengurus", "special-rollback-membership", rtID, auth.RolePengurus)
-	body := fmt.Sprintf(`{"jabatan":"operasional","full_name":"Rollback Petugas","nik":%q,"phone":"081299990094","email":%q}`, duplicateNik, email)
+	body := fmt.Sprintf(`{"jabatan":"kebersihan","full_name":"Rollback Petugas","nik":%q,"phone":"081299990094","email":%q}`, duplicateNik, email)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -400,7 +400,7 @@ func TestSpecialResident_PasswordProvidedAndOmitted(t *testing.T) {
 			"nik": "%s",
 			"phone": "%s",
 			"email": "%s",
-			"jabatan": "operasional"
+			"jabatan": "kebersihan"
 		}`, nik, phone, email)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
@@ -456,6 +456,32 @@ func TestSpecialResident_PasswordProvidedAndOmitted(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 Bad Request for short password, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// 4. Operasional and Humas rejected as special resident (must be household-based)
+	t.Run("operasional and humas rejected as special resident", func(t *testing.T) {
+		for _, j := range []string{"operasional", "humas"} {
+			email := fmt.Sprintf("petugas.%s.%d@test.com", j, time.Now().UnixNano())
+			phone := fmt.Sprintf("0815%08d", time.Now().UnixNano()%100000000)
+			nik := fmt.Sprintf("317303%010d", time.Now().UnixNano()%10000000000)
+
+			body := fmt.Sprintf(`{
+				"full_name": "Petugas %s",
+				"nik": "%s",
+				"phone": "%s",
+				"email": "%s",
+				"jabatan": "%s"
+			}`, j, nik, phone, email, j)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+pengurusToken)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 Bad Request for special resident with %s, got %d: %s", j, rec.Code, rec.Body.String())
+			}
 		}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
@@ -1545,6 +1547,42 @@ func TestManualPush_WasteTruck_WargaCannotSend(t *testing.T) {
 	}
 }
 
+// minimal valid 1x1 PNG bytes for image upload tests
+var validTestPNG = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+	0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+	0x42, 0x60, 0x82,
+}
+
+func makeMultipartImageReq(t *testing.T, url, eventType, filename string, content []byte, ac *auth.AuthContext) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if eventType != "" {
+		require.NoError(t, mw.WriteField("event_type", eventType))
+	}
+	if filename != "" {
+		part, err := mw.CreateFormFile("file", filename)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+	}
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequest(http.MethodPost, url, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if ac != nil {
+		req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	}
+	return req
+}
+
 // toUUID creates a deterministic UUID from a string label for test fixtures.
 // toUUID creates a deterministic UUID v4-like string from a string label for test fixtures.
 func toUUID(s string) string {
@@ -1560,3 +1598,48 @@ func toUUID(s string) string {
 // ensure test util references are used
 var _ = sql.ErrNoRows
 var _ = database.Pool{}
+
+// TestNotificationImageUploadSizeLimit verifies that the notification
+// UploadImage endpoint enforces the standard 5 MiB limit consistently.
+func TestNotificationImageUploadSizeLimit(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	repo := newMockManagementRepo()
+	svc := notification.NewService(repo, nil)
+	router := setupManagementRouter(repo, svc, pool)
+
+	caller := &auth.AuthContext{
+		SystemRole: auth.SystemRoleSuperAdmin,
+		RTID:       "00000000-0000-0000-0000-000000000002",
+	}
+
+	// 1. File under 5 MiB -> must succeed (201 Created)
+	t.Run("upload under 5 MiB succeeds", func(t *testing.T) {
+		size := 3 * 1024 * 1024
+		data := bytes.Repeat(validTestPNG, size/len(validTestPNG)+1)[:size]
+		req := makeMultipartImageReq(t, "/api/v1/notifications/upload-image", "manual_push", "under-5mib.png", data, caller)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusCreated, rec.Code, "under 5 MiB should return 201: %s", rec.Body.String())
+	})
+
+	// 2. File exactly 5 MiB -> must succeed (201 Created)
+	t.Run("upload exact 5 MiB succeeds", func(t *testing.T) {
+		size := 5 * 1024 * 1024
+		data := bytes.Repeat(validTestPNG, size/len(validTestPNG)+1)[:size]
+		req := makeMultipartImageReq(t, "/api/v1/notifications/upload-image", "manual_push", "exact-5mib.png", data, caller)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusCreated, rec.Code, "exact 5 MiB should return 201: %s", rec.Body.String())
+	})
+
+	// 3. File over 5 MiB -> must be rejected (400 Bad Request)
+	t.Run("upload over 5 MiB rejected", func(t *testing.T) {
+		size := 5*1024*1024 + 1024
+		data := bytes.Repeat(validTestPNG, size/len(validTestPNG)+1)[:size]
+		req := makeMultipartImageReq(t, "/api/v1/notifications/upload-image", "manual_push", "over-5mib.png", data, caller)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.True(t, rec.Code == http.StatusBadRequest || rec.Code == http.StatusRequestEntityTooLarge,
+			"over 5 MiB should return 400 or 413, got %d: %s", rec.Code, rec.Body.String())
+	})
+}

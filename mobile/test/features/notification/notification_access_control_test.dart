@@ -190,7 +190,7 @@ void main() {
 
   group('Notification Menu Navigation & Visibility (Widget)', () {
     testWidgets(
-      'Superadmin sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen',
+      'Superadmin opens NotificationManagementScreen from the Menu grid',
       (tester) async {
         final superAdminUser = {
           'id': 'b69669cb-7145-4991-8192-8b017b12f79e',
@@ -206,19 +206,21 @@ void main() {
         await tester.pumpWidget(_createApp(user: superAdminUser));
         await tester.pumpAndSettle();
 
-        final bottomNav = find.byType(BottomAppBar);
-        final notifTab = find.descendant(
-          of: bottomNav,
-          matching: find.text('Notifikasi'),
-        );
-        expect(notifTab, findsOneWidget);
-        // The bottom nav scrolls horizontally when it has more than four
-        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
-        // Make sure the target tab is scrolled into view before tapping it.
-        await tester.ensureVisible(notifTab);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
         await tester.pumpAndSettle();
-
-        await tester.tap(notifTab);
+        final notifEntry = find.byKey(const Key('grid-item-notifikasi'));
+        final menuGridScrollable = find.descendant(
+          of: find.byType(GridView),
+          matching: find.byType(Scrollable),
+        ).first;
+        await tester.scrollUntilVisible(
+          notifEntry,
+          160,
+          scrollable: menuGridScrollable,
+        );
+        expect(notifEntry, findsOneWidget);
+        await tester.tap(notifEntry);
         await tester.pumpAndSettle();
 
         expect(find.byType(NotificationManagementScreen), findsOneWidget);
@@ -231,7 +233,7 @@ void main() {
     );
 
     testWidgets(
-      'Ketua RT sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen (with Test Notifikasi hidden)',
+      'Ketua RT opens NotificationManagementScreen from the Menu grid (with Test Notifikasi hidden)',
       (tester) async {
         final ketuaUser = {
           'id': '0fa41f40-0000-4000-8000-000000000001',
@@ -253,19 +255,12 @@ void main() {
         await tester.pumpWidget(_createApp(user: ketuaUser));
         await tester.pumpAndSettle();
 
-        final bottomNav = find.byType(BottomAppBar);
-        final notifTab = find.descendant(
-          of: bottomNav,
-          matching: find.text('Notifikasi'),
-        );
-        expect(notifTab, findsOneWidget);
-        // The bottom nav scrolls horizontally when it has more than four
-        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
-        // Make sure the target tab is scrolled into view before tapping it.
-        await tester.ensureVisible(notifTab);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
         await tester.pumpAndSettle();
-
-        await tester.tap(notifTab);
+        final notifEntry = find.byKey(const Key('grid-item-notifikasi'));
+        expect(notifEntry, findsOneWidget);
+        await tester.tap(notifEntry);
         await tester.pumpAndSettle();
 
         expect(find.byType(NotificationManagementScreen), findsOneWidget);
@@ -281,7 +276,7 @@ void main() {
     );
 
     testWidgets(
-      'Warga sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen (Riwayat only)',
+      'Warga opens notification history from the Menu grid (Riwayat only)',
       (tester) async {
         final wargaUser = {
           'id': 'u-warga',
@@ -297,19 +292,12 @@ void main() {
         await tester.pumpWidget(_createApp(user: wargaUser));
         await tester.pumpAndSettle();
 
-        final bottomNav = find.byType(BottomAppBar);
-        final notifTab = find.descendant(
-          of: bottomNav,
-          matching: find.text('Notifikasi'),
-        );
-        expect(notifTab, findsOneWidget);
-        // The bottom nav scrolls horizontally when it has more than four
-        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
-        // Make sure the target tab is scrolled into view before tapping it.
-        await tester.ensureVisible(notifTab);
+        expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('nav-item-menu')));
         await tester.pumpAndSettle();
-
-        await tester.tap(notifTab);
+        final notifEntry = find.byKey(const Key('grid-item-notifikasi'));
+        expect(notifEntry, findsOneWidget);
+        await tester.tap(notifEntry);
         await tester.pumpAndSettle();
 
         expect(find.byType(NotificationManagementScreen), findsOneWidget);

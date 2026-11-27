@@ -27,7 +27,7 @@ func (r *Repository) DB() *sql.DB {
 // Dashboard & KAS Reports
 // =========================================================================
 
-func (r *Repository) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rwID string) (*DashboardSummary, error) {
+func (r *Repository) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rwID string, period ...string) (*DashboardSummary, error) {
 	var summary DashboardSummary
 
 	// 1. Count active RTs
@@ -56,33 +56,62 @@ func (r *Repository) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rwID s
 		return nil, fmt.Errorf("opening balance: %w", err)
 	}
 
-	// 4. Total income from RW's independent ledger
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
-		 FROM rw_transactions
-		 WHERE rw_id = $1 AND status = 'posted'`, rwID,
-	).Scan(&summary.TotalIncome)
-	if err != nil {
-		return nil, fmt.Errorf("income aggregate: %w", err)
+	p := ""
+	if len(period) > 0 {
+		p = strings.TrimSpace(period[0])
 	}
 
-	// 5. Total expense from RW's independent ledger
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
-		 FROM rw_transactions
-		 WHERE rw_id = $1 AND status = 'posted'`, rwID,
-	).Scan(&summary.TotalExpense)
-	if err != nil {
-		return nil, fmt.Errorf("expense aggregate: %w", err)
-	}
+	if p != "" {
+		startTime := p + "-01T00:00:00+07:00"
+		year := p[:4]
+		month := p[5:7]
+		endTime := nextMonth(startTime, year, month)
 
-	// 6. Transaction count from RW's independent ledger
-	err = tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rw_transactions
-		 WHERE rw_id = $1 AND status = 'posted'`, rwID,
-	).Scan(&summary.TransactionCount)
-	if err != nil {
-		return nil, fmt.Errorf("transaction count: %w", err)
+		var txCount int
+		err = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COUNT(CASE WHEN status = 'posted' THEN 1 END)
+			FROM rw_transactions
+			WHERE rw_id = $1
+			  AND status = 'posted'
+			  AND occurred_at >= $2 AND occurred_at < $3`,
+			rwID, startTime, endTime,
+		).Scan(&summary.TotalIncome, &summary.TotalExpense, &txCount)
+		if err != nil {
+			return nil, fmt.Errorf("period dashboard aggregate: %w", err)
+		}
+		summary.TransactionCount = int64(txCount)
+	} else {
+		// 4. Total income from RW's independent ledger
+		err = tx.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
+			 FROM rw_transactions
+			 WHERE rw_id = $1 AND status = 'posted'`, rwID,
+		).Scan(&summary.TotalIncome)
+		if err != nil {
+			return nil, fmt.Errorf("income aggregate: %w", err)
+		}
+
+		// 5. Total expense from RW's independent ledger
+		err = tx.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
+			 FROM rw_transactions
+			 WHERE rw_id = $1 AND status = 'posted'`, rwID,
+		).Scan(&summary.TotalExpense)
+		if err != nil {
+			return nil, fmt.Errorf("expense aggregate: %w", err)
+		}
+
+		// 6. Transaction count from RW's independent ledger
+		err = tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM rw_transactions
+			 WHERE rw_id = $1 AND status = 'posted'`, rwID,
+		).Scan(&summary.TransactionCount)
+		if err != nil {
+			return nil, fmt.Errorf("transaction count: %w", err)
+		}
 	}
 
 	// 7. Calculate net balance: TotalIncome - TotalExpense (Saldo Bersih)
@@ -1098,6 +1127,22 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 		}
 	}
 
+	// 4b. Resolve category name if expense_category is UUID or category_id provided
+	if in.ExpenseCategory != nil && *in.ExpenseCategory != "" {
+		var catName string
+		errCat := tx.QueryRowContext(ctx, `SELECT name FROM financial_categories WHERE id::text = $1`, *in.ExpenseCategory).Scan(&catName)
+		if errCat == nil && catName != "" {
+			in.CategoryID = in.ExpenseCategory
+			in.ExpenseCategory = &catName
+		}
+	} else if in.CategoryID != nil && *in.CategoryID != "" {
+		var catName string
+		errCat := tx.QueryRowContext(ctx, `SELECT name FROM financial_categories WHERE id::text = $1`, *in.CategoryID).Scan(&catName)
+		if errCat == nil && catName != "" {
+			in.ExpenseCategory = &catName
+		}
+	}
+
 	var occDate time.Time
 	if in.OccurredAt != nil && *in.OccurredAt != "" {
 		parsed, err := time.Parse(time.RFC3339, *in.OccurredAt)
@@ -1196,13 +1241,13 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
-		       t.category_id, c.name as category_name, t.status,
+		       t.category_id, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
+		       t.proof_path, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
-		LEFT JOIN financial_categories c ON t.category_id = c.id
+		LEFT JOIN financial_categories c ON (t.category_id = c.id OR c.id::text = t.expense_category OR c.name = t.expense_category)
 		WHERE t.status = 'posted' AND t.rw_id = $1`
 	args := []interface{}{rwID}
 	pos := 2
@@ -1390,13 +1435,13 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
-		       t.category_id, c.name as category_name, t.status,
+		       t.category_id, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
+		       t.proof_path, COALESCE(c.name, CASE WHEN t.expense_category ~ '^[0-9a-fA-F-]{36}$' THEN NULL ELSE t.expense_category END) as expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
-		LEFT JOIN financial_categories c ON t.category_id = c.id
+		LEFT JOIN financial_categories c ON (t.category_id = c.id OR c.id::text = t.expense_category OR c.name = t.expense_category)
 		WHERE t.rw_id = $1 AND t.id = $2`
 
 	var entry TransactionEntry

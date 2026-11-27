@@ -741,7 +741,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			"activities.read", "announcements.read", "banner_templates.read", "organization.read",
 		},
 		"sekretaris": {
-			"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "notification.read", "reports.read", "rt.settings.read",
+			"warga.read", "finance.read", "notification.read", "reports.read", "rt.settings.read",
 			"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
 			"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 			"banner_templates.read", "organization.read", "organization.contact.read",

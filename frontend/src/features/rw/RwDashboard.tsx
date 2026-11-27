@@ -127,6 +127,9 @@ export function RwDashboard({
   const [locations, setLocations] = useState<ApiRWLocation[]>([])
   const [loading, setLoading] = useState(true)
 
+  const isSuperAdmin = user?.role === 'super_admin' || (user as any)?.systemRole === 'super_admin' || (user as any)?.system_role === 'super_admin'
+  const hasLocationAccess = isSuperAdmin || (user?.rwMemberships ?? []).some((m) => m.rw_id === rwId && m.source === 'explicit')
+
   const activePeriodStr = isAllPeriods
     ? undefined
     : `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
@@ -178,10 +181,12 @@ export function RwDashboard({
           console.error('Failed to load RW transactions:', err)
           return { data: [], pagination: { page: 1, per_page: 1000, total: 0, total_pages: 0 } }
         }),
-        apiListRWLocations(accessToken, rwId, { is_active: true }).catch((err) => {
-          console.error('Failed to load RW locations:', err)
-          return []
-        }),
+        hasLocationAccess
+          ? apiListRWLocations(accessToken, rwId, { is_active: true }).catch((err) => {
+              console.error('Failed to load RW locations:', err)
+              return []
+            })
+          : Promise.resolve([]),
       ])
 
       if (dashRes) setDashboardData(dashRes)
@@ -191,7 +196,7 @@ export function RwDashboard({
     } finally {
       setLoading(false)
     }
-  }, [rwId, activePeriodStr, selectedYear])
+  }, [rwId, activePeriodStr, selectedYear, hasLocationAccess])
 
   useEffect(() => {
     loadData()

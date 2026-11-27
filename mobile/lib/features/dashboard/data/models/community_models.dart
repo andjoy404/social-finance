@@ -81,6 +81,7 @@ class CommunityActivity {
   final String? posterUrl;
   final String status; // upcoming, ongoing, completed, cancelled
   final String publicationStatus; // draft, published
+  final DateTime? archivedAt;
   final DateTime startDate;
   final DateTime? endDate;
   final String? budgetPlanned;
@@ -103,6 +104,7 @@ class CommunityActivity {
     this.posterUrl,
     required this.status,
     required this.publicationStatus,
+    this.archivedAt,
     required this.startDate,
     this.endDate,
     this.budgetPlanned,
@@ -129,6 +131,9 @@ class CommunityActivity {
       posterUrl: json['poster_url'] as String?,
       status: json['status']?.toString() ?? 'upcoming',
       publicationStatus: json['publication_status']?.toString() ?? 'draft',
+      archivedAt: json['archived_at'] != null
+          ? DateTime.tryParse(json['archived_at'].toString())
+          : null,
       startDate: startsAt != null
           ? DateTime.tryParse(startsAt.toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -263,12 +268,12 @@ class BannerTemplate {
 /// Canonical tier structure for Struktur Organisasi RT diagram (top-to-bottom):
 /// Tier 1: Ketua
 /// Tier 2: Wakil Ketua
-/// Tier 3: Bendahara = Sekretaris (horizontal)
+/// Tier 3: Bendahara = Sekretaris = Humas (horizontal)
 /// Tier 4: Keamanan = Kebersihan = Sosial = Operasional (horizontal)
 const List<List<String>> kCanonicalOrgChartTiers = [
   ['ketua'],
   ['wakil_ketua'],
-  ['bendahara', 'sekretaris'],
+  ['bendahara', 'sekretaris', 'humas'],
   ['keamanan', 'kebersihan', 'sosial', 'operasional'],
 ];
 
@@ -290,6 +295,11 @@ String normalizeOrgPosition(String position, [String label = '']) {
       case 'bendahara':
       case 'bendahara_rt':
         return 'bendahara';
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
+        return 'humas';
       case 'sekretaris':
       case 'sekretaris_rt':
         return 'sekretaris';

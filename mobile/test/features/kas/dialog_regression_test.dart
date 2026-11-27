@@ -185,11 +185,11 @@ class _FakeKasApiClient implements KasApiClient {
 
 class _FakeFundLocationRepository extends FundLocationRepository {
   _FakeFundLocationRepository()
-      : super(
-          apiClient: FundLocationApiClient(
-            dio: Dio(BaseOptions(baseUrl: 'http://test.local')),
-          ),
-        );
+    : super(
+        apiClient: FundLocationApiClient(
+          dio: Dio(BaseOptions(baseUrl: 'http://test.local')),
+        ),
+      );
 
   @override
   Future<List<FundLocation>> fetchLocations({
@@ -258,8 +258,16 @@ Future<Finder> _batalBtn(WidgetTester tester) async {
 
 Future<void> _openKasTab(WidgetTester tester) async {
   final kasTab = find.byKey(const Key('nav-item-kas'));
-  await tester.ensureVisible(kasTab);
-  await tester.tap(kasTab);
+  if (kasTab.evaluate().isEmpty) {
+    final menuTab = find.byKey(const Key('nav-item-menu'));
+    if (menuTab.evaluate().isNotEmpty) {
+      await tester.tap(menuTab);
+      await tester.pumpAndSettle();
+    }
+  }
+  final foundKasTab = find.byKey(const Key('nav-item-kas'));
+  await tester.ensureVisible(foundKasTab);
+  await tester.tap(foundKasTab);
   await tester.pumpAndSettle();
   expect(find.byType(KasScreen), findsOneWidget);
 }
@@ -292,35 +300,31 @@ void main() {
   group('Dialog Regression Tests', () {
     // ─── Kas Masuk variants ─────────────────────────────────────────────
 
-    testWidgets(
-      '7. Batal button shows dialog with both options',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('7. Batal button shows dialog with both options', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Fill input (so we can verify it's preserved later)
-        await tester.enterText(_nominalField(), '50000');
-        await tester.enterText(_keteranganField(), 'Data preserved test');
-        await tester.pump();
+      // Fill input (so we can verify it's preserved later)
+      await tester.enterText(_nominalField(), '50000');
+      await tester.enterText(_keteranganField(), 'Data preserved test');
+      await tester.pump();
 
-        // Tap Batal
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
+      // Tap Batal
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
 
-        // Verify: dialog with both buttons
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(
-          find.text('Apakah Anda yakin ingin membatalkan?'),
-          findsOneWidget,
-        );
-        expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
-        expect(find.text('Ya, Batalkan'), findsOneWidget);
-      },
-    );
+      // Verify: dialog with both buttons
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
+      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Ya, Batalkan'), findsOneWidget);
+    });
 
     testWidgets(
       '8. Batal → Tidak, Tetap di Halaman → form stays with input preserved',
@@ -353,351 +357,320 @@ void main() {
       },
     );
 
-    testWidgets(
-      '9. Batal → Ya, Batalkan → navigates to list',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('9. Batal → Ya, Batalkan → navigates to list', (tester) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Fill input (should be discarded on "Ya")
-        await tester.enterText(_nominalField(), '50000');
-        await tester.enterText(_keteranganField(), 'Should be discarded');
-        await tester.pump();
+      // Fill input (should be discarded on "Ya")
+      await tester.enterText(_nominalField(), '50000');
+      await tester.enterText(_keteranganField(), 'Should be discarded');
+      await tester.pump();
 
-        // Tap Batal
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Tap Batal
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // Tap "Ya, Batalkan" (key: kas-cancel-confirm)
-        await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
-        await tester.pumpAndSettle();
+      // Tap "Ya, Batalkan" (key: kas-cancel-confirm)
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
+      await tester.pumpAndSettle();
 
-        // Verify: navigated away
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsNothing);
-        expect(find.byType(KasScreen), findsOneWidget);
-      },
-    );
+      // Verify: navigated away
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsNothing);
+      expect(find.byType(KasScreen), findsOneWidget);
+    });
 
-    testWidgets(
-      '10. AppBar back button shows dialog',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('10. AppBar back button shows dialog', (tester) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Tap AppBar back
-        await tester.tap(find.byIcon(Icons.arrow_back));
-        await tester.pumpAndSettle();
+      // Tap AppBar back
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
 
-        // Verify: dialog shown
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(
-          find.text('Apakah Anda yakin ingin membatalkan?'),
-          findsOneWidget,
-        );
-      },
-    );
+      // Verify: dialog shown
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
+    });
 
-    testWidgets(
-      '11. AppBar back → Tidak → stays on form',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('11. AppBar back → Tidak → stays on form', (tester) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Fill input
-        await tester.enterText(_nominalField(), '30000');
-        await tester.enterText(_keteranganField(), 'AppBar back test');
-        await tester.pump();
+      // Fill input
+      await tester.enterText(_nominalField(), '30000');
+      await tester.enterText(_keteranganField(), 'AppBar back test');
+      await tester.pump();
 
-        // AppBar back
-        await tester.tap(find.byIcon(Icons.arrow_back));
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // AppBar back
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // "Tidak"
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
+      // "Tidak"
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsOneWidget);
-        expect(find.text('AppBar back test'), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsOneWidget);
+      expect(find.text('AppBar back test'), findsOneWidget);
+    });
 
-    testWidgets(
-      '12. Hardware back shows dialog and "Tidak" keeps form',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('12. Hardware back shows dialog and "Tidak" keeps form', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Fill input
-        await tester.enterText(_nominalField(), '20000');
-        await tester.enterText(_keteranganField(), 'Hardware back test');
-        await tester.pump();
+      // Fill input
+      await tester.enterText(_nominalField(), '20000');
+      await tester.enterText(_keteranganField(), 'Hardware back test');
+      await tester.pump();
 
-        // Hardware back
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
+      // Hardware back
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
 
-        // Verify: dialog shown
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(
-          find.text('Apakah Anda yakin ingin membatalkan?'),
-          findsOneWidget,
-        );
+      // Verify: dialog shown
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
-        // "Tidak"
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
+      // "Tidak"
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsOneWidget);
-        expect(find.text('Hardware back test'), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsOneWidget);
+      expect(find.text('Hardware back test'), findsOneWidget);
+    });
 
-    testWidgets(
-      '13. Hardware back → Ya → navigates to list',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('13. Hardware back → Ya → navigates to list', (tester) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Hardware back
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Hardware back
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // "Ya"
-        await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
-        await tester.pumpAndSettle();
+      // "Ya"
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
+      await tester.pumpAndSettle();
 
-        // Verify: navigated to list
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsNothing);
-        expect(find.byType(KasScreen), findsOneWidget);
-      },
-    );
+      // Verify: navigated to list
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsNothing);
+      expect(find.byType(KasScreen), findsOneWidget);
+    });
 
-    testWidgets(
-      '14. Dialog can be reused (Not stuck after first dismiss)',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('14. Dialog can be reused (Not stuck after first dismiss)', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // First: open dialog and dismiss with "Tidak"
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // First: open dialog and dismiss with "Tidak"
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(KasMasukScreen), findsOneWidget);
-        expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
 
-        // Second: open dialog again and dismiss with "Ya"
-        final batalBtn2 = await _batalBtn(tester);
-        await tester.tap(batalBtn2);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Second: open dialog again and dismiss with "Ya"
+      final batalBtn2 = await _batalBtn(tester);
+      await tester.tap(batalBtn2);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
+      await tester.pumpAndSettle();
 
-        // Verify: navigated to list
-        expect(find.byType(KasScreen), findsOneWidget);
-        expect(find.byType(KasMasukScreen), findsNothing);
-      },
-    );
+      // Verify: navigated to list
+      expect(find.byType(KasScreen), findsOneWidget);
+      expect(find.byType(KasMasukScreen), findsNothing);
+    });
 
-    testWidgets(
-      '15. Save success bypass → navigation without dialog',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('15. Save success bypass → navigation without dialog', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Fill input
-        await tester.enterText(_nominalField(), '100000');
-        await tester.enterText(_keteranganField(), 'Should be saved');
-        await tester.pump();
+      // Fill input
+      await tester.enterText(_nominalField(), '100000');
+      await tester.enterText(_keteranganField(), 'Should be saved');
+      await tester.pump();
 
-        // Simulate allowExitFor called after successful save
-        KasFormNavigationGuard.allowExitFor('/home/kas/masuk');
+      // Simulate allowExitFor called after successful save
+      KasFormNavigationGuard.allowExitFor('/home/kas/masuk');
 
-        // Tap Batal
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
+      // Tap Batal
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
 
-        // Verify: navigated without dialog (allowExitFor consumed by onRouteExit)
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasScreen), findsOneWidget);
-      },
-    );
+      // Verify: navigated without dialog (allowExitFor consumed by onRouteExit)
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasScreen), findsOneWidget);
+    });
 
-    testWidgets(
-      '16. Double tap back → single dialog (no stacking)',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('16. Double tap back → single dialog (no stacking)', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasMasukForm(tester);
+      await _openKasMasukForm(tester);
 
-        // Double back: first triggers dialog
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Double back: first triggers dialog
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // Second back while dialog still open
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
+      // Second back while dialog still open
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
 
-        // Should still be exactly one dialog (not two)
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Should still be exactly one dialog (not two)
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // Dismiss
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
+      // Dismiss
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
 
-        // No stacked dialog
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasMasukScreen), findsOneWidget);
-      },
-    );
+      // No stacked dialog
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasMasukScreen), findsOneWidget);
+    });
 
     // ─── Kas Keluar variants ──────────────────────────────────────────────
 
-    testWidgets(
-      '17. Kas Keluar: Batal → Tidak → form preserved',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('17. Kas Keluar: Batal → Tidak → form preserved', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasKeluarForm(tester);
+      await _openKasKeluarForm(tester);
 
-        // Fill input
-        await tester.enterText(_nominalField(), '75000');
-        await tester.enterText(_keteranganField(), 'Keluar test');
-        await tester.pump();
+      // Fill input
+      await tester.enterText(_nominalField(), '75000');
+      await tester.enterText(_keteranganField(), 'Keluar test');
+      await tester.pump();
 
-        // Tap Batal
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Tap Batal
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // "Tidak"
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
+      // "Tidak"
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasKeluarScreen), findsOneWidget);
-        expect(find.text('Keluar test'), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasKeluarScreen), findsOneWidget);
+      expect(find.text('Keluar test'), findsOneWidget);
+    });
 
-    testWidgets(
-      '18. Kas Keluar: AppBar back → dialog',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('18. Kas Keluar: AppBar back → dialog', (tester) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasKeluarForm(tester);
+      await _openKasKeluarForm(tester);
 
-        // AppBar back
-        await tester.tap(find.byIcon(Icons.arrow_back));
-        await tester.pumpAndSettle();
+      // AppBar back
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(
-          find.text('Apakah Anda yakin ingin membatalkan?'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
+    });
 
-    testWidgets(
-      '19. Kas Keluar: Hardware back → dialog → Ya → navigates',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('19. Kas Keluar: Hardware back → dialog → Ya → navigates', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasKeluarForm(tester);
+      await _openKasKeluarForm(tester);
 
-        // Hardware back
-        await tester.binding.handlePopRoute();
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
+      // Hardware back
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
 
-        // "Ya"
-        await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
-        await tester.pumpAndSettle();
+      // "Ya"
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasKeluarScreen), findsNothing);
-        expect(find.byType(KasScreen), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasKeluarScreen), findsNothing);
+      expect(find.byType(KasScreen), findsOneWidget);
+    });
 
-    testWidgets(
-      '20. Kas Keluar: Dialog reusable after "Tidak"',
-      (tester) async {
-        final api = _FakeKasApiClient();
-        await tester.pumpWidget(_buildTestApp(api));
-        await tester.pumpAndSettle();
+    testWidgets('20. Kas Keluar: Dialog reusable after "Tidak"', (
+      tester,
+    ) async {
+      final api = _FakeKasApiClient();
+      await tester.pumpWidget(_buildTestApp(api));
+      await tester.pumpAndSettle();
 
-        await _openKasKeluarForm(tester);
+      await _openKasKeluarForm(tester);
 
-        // First: Batal → Tidak
-        final batalBtn = await _batalBtn(tester);
-        await tester.tap(batalBtn);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
-        await tester.tap(find.byKey(const Key('kas-cancel-stay')));
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasKeluarScreen), findsOneWidget);
+      // First: Batal → Tidak
+      final batalBtn = await _batalBtn(tester);
+      await tester.tap(batalBtn);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasKeluarScreen), findsOneWidget);
 
-        // Second: Batal → Ya
-        final batalBtn2 = await _batalBtn(tester);
-        await tester.tap(batalBtn2);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
-        await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
-        await tester.pumpAndSettle();
+      // Second: Batal → Ya
+      final batalBtn2 = await _batalBtn(tester);
+      await tester.tap(batalBtn2);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.byType(KasKeluarScreen), findsNothing);
-        expect(find.byType(KasScreen), findsOneWidget);
-      },
-    );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(KasKeluarScreen), findsNothing);
+      expect(find.byType(KasScreen), findsOneWidget);
+    });
   });
 }

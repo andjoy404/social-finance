@@ -8,8 +8,9 @@ import 'package:social_finance/features/warga/presentation/screens/warga_screen.
 
 void main() {
   group('Special Resident Positions (Keamanan, Operasional, Kebersihan)', () {
-    test('kPetugasKhususJabatan contains keamanan, operasional, kebersihan and excludes kebersihan_pembangunan', () {
-      expect(kPetugasKhususJabatan, equals({'keamanan', 'operasional', 'kebersihan'}));
+    test('kPetugasKhususJabatan contains keamanan, kebersihan, anggota_rw and excludes operasional and kebersihan_pembangunan', () {
+      expect(kPetugasKhususJabatan, equals({'keamanan', 'kebersihan', 'anggota_rw'}));
+      expect(kPetugasKhususJabatan.contains('operasional'), isFalse);
       expect(kPetugasKhususJabatan.contains('kebersihan_pembangunan'), isFalse);
     });
 
@@ -33,6 +34,11 @@ void main() {
         name: 'Petugas Kebersihan',
         jabatan: 'kebersihan',
       );
+      const anggotaRW = MappedResident(
+        id: 'rw1',
+        name: 'Petugas Anggota RW',
+        jabatan: 'anggota_rw',
+      );
       const sosial = MappedResident(id: '4', name: 'Seksi Sosial', jabatan: 'sosial');
 
       // Ketua RT retains 'Ketua RT'; other RT positions have 'RT' stripped
@@ -43,14 +49,16 @@ void main() {
       expect(keamanan.displayJabatan, equals('Keamanan'));
       expect(operasional.displayJabatan, equals('Operasional'));
       expect(kebersihan.displayJabatan, equals('Kebersihan'));
+      expect(anggotaRW.displayJabatan, equals('Anggota RW'));
       expect(sosial.displayJabatan, equals('Seksi Sosial'));
 
       expect(keamanan.jabatanColor, equals(AppColors.danger));
-      expect(operasional.jabatanColor, equals(AppColors.info));
-      expect(kebersihan.jabatanColor, equals(AppColors.success));
+      expect(operasional.jabatanColor, equals(AppColors.teal));
+      expect(kebersihan.jabatanColor, equals(AppColors.chartreuse));
+      expect(anggotaRW.jabatanColor, equals(AppColors.infoBlue));
     });
 
-    testWidgets('SpecialResidentCreateScreen dropdown displays Keamanan, Operasional, and Kebersihan', (tester) async {
+    testWidgets('SpecialResidentCreateScreen dropdown displays Keamanan, Kebersihan, and Anggota RW', (tester) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
@@ -68,8 +76,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Keamanan'), findsWidgets);
-      expect(find.text('Operasional'), findsWidgets);
       expect(find.text('Kebersihan'), findsWidgets);
+      expect(find.text('Anggota RW'), findsWidgets);
+      expect(find.text('Operasional'), findsNothing);
       expect(find.text('kebersihan_pembangunan'), findsNothing);
 
       // Select Kebersihan

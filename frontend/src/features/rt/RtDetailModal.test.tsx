@@ -164,10 +164,9 @@ describe('RtDetailModal', () => {
       'wakil_ketua',
       'sekretaris',
       'bendahara',
-      'keamanan',
+      'humas',
       'sosial',
       'operasional',
-      'kebersihan',
     ])
   })
 

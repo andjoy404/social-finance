@@ -64,7 +64,7 @@ void main() {
       expect(getNotificationSeverityColor('payment_rejected'), equals(AppColors.danger));
       expect(getNotificationSeverityColor('iuran_payment_reminder'), equals(AppColors.warning));
       expect(getNotificationSeverityColor('payment_verified'), equals(AppColors.success));
-      expect(getNotificationSeverityColor('manual_push'), equals(AppColors.info));
+      expect(getNotificationSeverityColor('manual_push'), equals(AppColors.infoBlue));
     });
   });
 
@@ -178,7 +178,7 @@ void main() {
     });
 
     test('colors map to blue/amber/violet consistent with the Web variants', () {
-      expect(getNotificationTriggerCategoryColor(NotificationTriggerCategory.bySystem), AppColors.info);
+      expect(getNotificationTriggerCategoryColor(NotificationTriggerCategory.bySystem), AppColors.infoBlue);
       expect(getNotificationTriggerCategoryColor(NotificationTriggerCategory.terjadwal), AppColors.warning);
       expect(getNotificationTriggerCategoryColor(NotificationTriggerCategory.manualTrigger), AppColors.accent);
     });

@@ -606,8 +606,8 @@ func (s *S3Storage) DeleteCommunityImage(ctx context.Context, key string) error 
 }
 
 func (s *S3Storage) UploadNotificationImage(ctx context.Context, rtID, eventType, filename string, r io.Reader, size int64) (*ObjectMetadata, error) {
-	if eventType != "waste_truck_arrival" && eventType != "manual_push" {
-		return nil, errors.New("storage: images only allowed for waste_truck_arrival or manual_push")
+	if eventType != "waste_truck_arrival" && eventType != "manual_push" && eventType != "rw_cash_in" && eventType != "rw_cash_out" && eventType != "rw_manual" {
+		return nil, errors.New("storage: images only allowed for waste_truck_arrival, manual_push, rw_cash_in, rw_cash_out, or rw_manual")
 	}
 	if size <= 0 {
 		return nil, ErrEmptyFile
@@ -654,6 +654,10 @@ func (s *S3Storage) UploadNotificationImage(ctx context.Context, rtID, eventType
 	var category string
 	if eventType == "waste_truck_arrival" {
 		category = "waste-truck"
+	} else if eventType == "rw_cash_in" || eventType == "rw_cash_out" {
+		category = "rw-kas"
+	} else if eventType == "rw_manual" {
+		category = "rw-manual"
 	} else {
 		category = "manual"
 	}

@@ -56,7 +56,15 @@ func (h *Handler) GetDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := h.svc.GetDashboard(r.Context(), ac, rwID)
+	period := r.URL.Query().Get("period")
+	if period != "" {
+		if _, err := ValidatePeriod(period); err != nil {
+			httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+	}
+
+	summary, err := h.svc.GetDashboard(r.Context(), ac, rwID, period)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -832,6 +840,32 @@ type RWManualPushRequest struct {
 	TemplateID string            `json:"template_id,omitempty"`
 	Target     string            `json:"target,omitempty"`
 	Variables  map[string]string `json:"variables,omitempty"`
+	ImageURL   string            `json:"image_url,omitempty"`
+}
+
+// validateRWImageURLForScope ensures an image URL referenced by an RW push or
+// template send belongs to the target RW's own image namespace (preventing
+// cross-RW image reference injection or path traversal).
+func validateRWImageURLForScope(rwID, rawURL string) error {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.Contains(trimmed, "..") || strings.Contains(trimmed, "\\") {
+		return fmt.Errorf("invalid image_url path")
+	}
+	allowedPrefixes := []string{
+		"/api/v1/notifications/images/notifications/rw-manual/" + rwID + "/",
+		"/api/v1/notifications/images/notifications/rw-kas/" + rwID + "/",
+		"/api/v1/notifications/images/rw-manual/" + rwID + "/",
+		"/api/v1/notifications/images/rw-kas/" + rwID + "/",
+	}
+	for _, p := range allowedPrefixes {
+		if strings.HasPrefix(trimmed, p) && len(trimmed) > len(p) {
+			return nil
+		}
+	}
+	return fmt.Errorf("image_url does not belong to target RW scope")
 }
 
 // SendManualPush handles POST /api/v1/rw/{rwId}/notifications/manual
@@ -850,8 +884,12 @@ func (h *Handler) SendManualPush(w http.ResponseWriter, r *http.Request) {
 
 	title := strings.TrimSpace(req.Title)
 	body := strings.TrimSpace(req.Body)
+	var imgURL string
+	if strings.TrimSpace(req.ImageURL) != "" {
+		imgURL = strings.TrimSpace(req.ImageURL)
+	}
 
-	if req.TemplateID != "" && (title == "" || body == "") {
+	if req.TemplateID != "" && (title == "" || body == "" || imgURL == "") {
 		tmpl, err := h.nsvc.GetRWTemplateByID(r.Context(), rwID, req.TemplateID)
 		if err != nil {
 			h.handleError(w, err)
@@ -872,9 +910,17 @@ func (h *Handler) SendManualPush(w http.ResponseWriter, r *http.Request) {
 		if body == "" {
 			body = rBody
 		}
+		if imgURL == "" && tmpl.ImageURL != nil && strings.TrimSpace(*tmpl.ImageURL) != "" {
+			imgURL = strings.TrimSpace(*tmpl.ImageURL)
+		}
 	}
 
-	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, title, body, req.Target)
+	if err := validateRWImageURLForScope(rwID, imgURL); err != nil {
+		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", err.Error())
+		return
+	}
+
+	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, title, body, req.Target, imgURL)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -1012,6 +1058,7 @@ func (h *Handler) SendRWTemplateNotification(w http.ResponseWriter, r *http.Requ
 		Variables map[string]string `json:"variables"`
 		Title     string            `json:"title"`
 		Body      string            `json:"body"`
+		ImageURL  string            `json:"image_url"`
 	}
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
@@ -1025,8 +1072,20 @@ func (h *Handler) SendRWTemplateNotification(w http.ResponseWriter, r *http.Requ
 		renderedBody = strings.TrimSpace(req.Body)
 	}
 
+	var imgURL string
+	if strings.TrimSpace(req.ImageURL) != "" {
+		imgURL = strings.TrimSpace(req.ImageURL)
+	} else if tmpl.ImageURL != nil && strings.TrimSpace(*tmpl.ImageURL) != "" {
+		imgURL = strings.TrimSpace(*tmpl.ImageURL)
+	}
+
+	if err := validateRWImageURLForScope(rwID, imgURL); err != nil {
+		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", err.Error())
+		return
+	}
+
 	target := strings.TrimSpace(req.Target)
-	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, renderedTitle, renderedBody, target)
+	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, renderedTitle, renderedBody, target, imgURL)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -1040,6 +1099,7 @@ func (h *Handler) SendRWTemplateNotification(w http.ResponseWriter, r *http.Requ
 			"title":         renderedTitle,
 			"body":          renderedBody,
 			"target":        target,
+			"image_url":     imgURL,
 		},
 	})
 }
@@ -1208,8 +1268,89 @@ func (h *Handler) DeleteRWTemplate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UploadNotificationImage handles POST /api/v1/rw/{rwId}/notifications/upload-image
+func (h *Handler) UploadNotificationImage(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if h.storage == nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "storage service unavailable")
+		return
+	}
+
+	// 5MB max upload limit — standard per-file limit for all photo uploads.
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httpx.ErrorJSON(w, http.StatusRequestEntityTooLarge, "payload_too_large", "file too large (max 5 MB)")
+			return
+		}
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "file too large or invalid multipart form")
+		return
+	}
+
+	eventType := strings.TrimSpace(r.FormValue("event_type"))
+	if eventType == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "event_type is required")
+		return
+	}
+	var storageEventType string
+	switch eventType {
+	case "rw_cash_in", "rw_cash_out":
+		storageEventType = eventType
+	case "manual_push":
+		// Store RW manual template images under dedicated rw-manual/{rwID}/ namespace
+		// so GetImage enforces strict RW scope without sharing the RT manual/{rtID}/ namespace.
+		storageEventType = "rw_manual"
+	default:
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("upload gambar tidak diizinkan untuk event '%s'", eventType))
+		return
+	}
+
+	file, fileHeader, err := r.FormFile("file")
+	if err != nil {
+		file, fileHeader, err = r.FormFile("image")
+	}
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "file field is required")
+		return
+	}
+	defer file.Close()
+
+	meta, err := h.storage.UploadNotificationImage(r.Context(), rwID, storageEventType, fileHeader.Filename, file, fileHeader.Size)
+	if err != nil {
+		if errors.Is(err, storage.ErrFileTooLarge) {
+			httpx.ErrorJSON(w, http.StatusRequestEntityTooLarge, "payload_too_large", "file size exceeds 5 MB limit")
+			return
+		}
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	imageURL := "/api/v1/notifications/images/" + meta.Key
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":    "uploaded",
+		"image_url": imageURL,
+		"key":       meta.Key,
+	})
+}
+
 // ListNotifications handles GET /api/v1/rw/{rwId}/notifications
 func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
+	if strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope"))) == "mine" {
+		h.ListMyNotifications(w, r)
+		return
+	}
 	rwID := chi.URLParam(r, "rwId")
 	ac := auth.GetAuthContext(r)
 	if ac == nil {
@@ -1240,6 +1381,56 @@ func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
 			"total_pages": totalPages,
 		},
 	})
+}
+
+// ListMyNotifications handles GET /api/v1/rw/{rwId}/notifications/mine
+func (h *Handler) ListMyNotifications(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	page, pageSize := parsePagination(r)
+	eventType := r.URL.Query().Get("event_type")
+
+	logs, total, err := h.svc.ListMyNotifications(r.Context(), ac, rwID, eventType, page, pageSize)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if logs == nil {
+		logs = []notification.NotificationLogEntry{}
+	}
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": logs,
+		"pagination": map[string]any{
+			"page":        page,
+			"per_page":    pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+// GetUnreadCount handles GET /api/v1/rw/{rwId}/notifications/unread-count
+func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	count, err := h.svc.GetUnreadCount(r.Context(), ac, rwID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]int{"unread_count": count}})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

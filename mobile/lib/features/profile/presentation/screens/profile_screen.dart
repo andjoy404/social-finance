@@ -84,7 +84,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return DoubleBackExitScope(
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: false,
+          automaticallyImplyLeading: Navigator.of(context).canPop(),
+          leading: (user?['jabatan'] == 'anggota_rw' && !Navigator.of(context).canPop())
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    final memberships = (user?['rw_memberships'] as List?)?.whereType<Map<String, dynamic>>().toList();
+                    final rwId = (memberships != null && memberships.isNotEmpty)
+                        ? (memberships.first['rw_id'] as String? ?? (user?['rw_id'] ?? '').toString())
+                        : (user?['rw_id'] ?? '').toString();
+                    context.go('/rw/$rwId/keuangan?tab=beranda');
+                  },
+                )
+              : null,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Profil'),
         ),
@@ -372,12 +384,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         title: const Text('Konfirmasi Keluar'),
         content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
         actions: [
-          TextButton(
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Batal'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.expense),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.expense,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               await authRepo.logout();
@@ -637,11 +656,20 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(
@@ -781,11 +809,20 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(
@@ -927,11 +964,20 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.danger,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Batal'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _loading ? null : _handleSubmit,
           child: _loading
               ? const SizedBox(

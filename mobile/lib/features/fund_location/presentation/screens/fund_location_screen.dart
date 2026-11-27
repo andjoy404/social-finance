@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -76,6 +77,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     if (systemRole == 'super_admin') return true;
     final role = user?['role'] as AppRole?;
     final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+    // Sekretaris RT tidak memiliki WRITE Lokasi Dana — hanya READ.
+    if (jabatan == 'sekretaris') return false;
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
         jabatan == 'ketua' ||
@@ -493,12 +496,10 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   ),
                 ],
                 const SizedBox(height: AppSpacing.base),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
+                AppButton.danger(
+                  text: 'Tutup',
+                  fullWidth: true,
+                  onPressed: () => Navigator.pop(ctx),
                 ),
               ],
             ),
@@ -674,24 +675,31 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
           children: [
             if (loc.category == FundLocationCategory.rekening &&
                 loc.bankName != null) ...[
-              Row(
-                children: [
-                  Text(
-                    '${loc.bankName}  •  ',
-                    style: const TextStyle(fontSize: 12, color: AppColors.info),
-                  ),
-                  Text(
-                    loc.accountNumber ?? "-",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.accent,
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '${loc.bankName}  •  ',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.infoBlue,
+                      ),
                     ),
-                  ),
-                  Text(
-                    '  (${loc.accountHolder ?? "-"})',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
+                    TextSpan(
+                      text: loc.accountNumber ?? "-",
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    TextSpan(
+                      text: '  (${loc.accountHolder ?? "-"})',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ] else ...[
               Text(loc.category.label, style: const TextStyle(fontSize: 12)),
@@ -819,39 +827,77 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                item.fromLocationName ?? 'Asal',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                      if (Theme.of(context).platform == TargetPlatform.iOS)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 6,
+                                runSpacing: 2,
+                                children: [
+                                  Text(
+                                    item.fromLocationName ?? 'Asal',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward, size: 14),
+                                  Text(
+                                    item.toLocationName ?? 'Tujuan',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 6),
-                                child: Icon(Icons.arrow_forward, size: 14),
-                              ),
-                              Text(
-                                item.toLocationName ?? 'Tujuan',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            formatRupiah(item.amountRupiah),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: AppColors.accent,
                             ),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(width: 8),
+                            Text(
+                              formatRupiah(item.amountRupiah),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  item.fromLocationName ?? 'Asal',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 6),
+                                  child: Icon(Icons.arrow_forward, size: 14),
+                                ),
+                                Text(
+                                  item.toLocationName ?? 'Tujuan',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              formatRupiah(item.amountRupiah),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1118,6 +1164,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1324,8 +1371,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
-                                // side removed for solid style
-                                // foregroundColor: AppColors.danger removed
+                                elevation: 0,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1364,7 +1410,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
           'Apakah Anda yakin ingin menonaktifkan lokasi "${loc.name}"?',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Batal'),
           ),
@@ -1433,7 +1484,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (statefulCtx, setDialogState) {
             final fromLoc = activeLocs.firstWhere(
               (l) => l.id == fromId,
               orElse: () => activeLocs.first,
@@ -1455,23 +1506,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     ],
                     DropdownButtonFormField<String>(
                       value: fromId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Dari Lokasi',
                       ),
                       items: activeLocs.map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${l.name} (${formatRupiah(l.balanceRupiah)})',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }).toList(),
@@ -1491,13 +1536,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: toId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Ke Lokasi Tujuan',
                       ),
                       items: activeLocs.where((l) => l.id != fromId).map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Text(l.name),
+                          child: Text(
+                            l.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -1591,15 +1641,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                           idempotencyKey: _generateUuid(),
                                         );
 
-                                        if (context.mounted) {
+                                        if (dialogCtx.mounted) {
                                           Navigator.pop(dialogCtx);
+                                        }
+                                        if (mounted) {
                                           ref.invalidate(fundLocationsProvider);
                                           ref.invalidate(fundTransfersProvider);
                                           ref.invalidate(
                                             fundReconciliationProvider,
                                           );
                                           ScaffoldMessenger.of(
-                                            context,
+                                            this.context,
                                           ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
@@ -1623,6 +1675,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.accent,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1671,6 +1728,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1678,11 +1741,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                 ),
                               ),
                               child: const Row(
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.close, size: 18),
                                   SizedBox(width: 6),
-                                  Text('Batal'),
+                                  Flexible(
+                                    child: Text(
+                                      'Batal',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -1770,7 +1839,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -1882,7 +1956,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
                   onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
@@ -2167,14 +2246,15 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
     }
     if (widget.report.status == 'MATCH_WITH_NOTES' ||
         widget.report.status == 'Cocok dengan catatan') {
-      return AppColors.info;
+      return AppColors.infoBlue;
     }
     return AppColors.danger;
   }
 
   bool get _isMatched => widget.report.isBalanced;
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2192,62 +2272,118 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
               width: 1.5,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    _isMatched
-                        ? Icons.check_circle_outline
-                        : Icons.error_outline,
-                    color: _statusColor,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'Status Rekonsiliasi Kas',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                ],
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
+          child: isIOS
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isMatched
+                          ? Icons.check_circle_outline
+                          : Icons.error_outline,
+                      color: _statusColor,
+                      size: 20,
                     ),
-                    decoration: BoxDecoration(
-                      color: _statusColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      widget.report.statusLabel,
-                      style: TextStyle(
-                        color: _statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Status Rekonsiliasi Kas',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: _statusColor,
-                    size: 20,
-                  ),
-                ],
-              ),
-            ],
-          ),
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 155),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _statusColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          widget.report.statusLabel,
+                          style: TextStyle(
+                            color: _statusColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      _expanded ? Icons.expand_less : Icons.expand_more,
+                      color: _statusColor,
+                      size: 20,
+                    ),
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          _isMatched
+                              ? Icons.check_circle_outline
+                              : Icons.error_outline,
+                          color: _statusColor,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Status Rekonsiliasi Kas',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            widget.report.statusLabel,
+                            style: TextStyle(
+                              color: _statusColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          _expanded ? Icons.expand_less : Icons.expand_more,
+                          color: _statusColor,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
         ),
       ),
     );
   }
 
-  Widget _buildExpandedContent() {
+  Widget _buildExpandedContent(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -2289,28 +2425,53 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const Divider(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildMetric(
-                'Total Kas (K)',
-                formatRupiah(widget.report.kasBalanceRupiah),
-              ),
-              _buildMetric(
-                'Terlokasi (L)',
-                formatRupiah(widget.report.allocatedBalanceRupiah),
-              ),
-              _buildMetric(
-                'Sisa (U)',
-                formatRupiah(widget.report.unallocatedBalanceRupiah),
-              ),
-              _buildMetric(
-                'Selisih (D)',
-                formatRupiah(widget.report.discrepancyRupiah),
-                color: _statusColor,
-              ),
-            ],
-          ),
+          if (isIOS)
+            Wrap(
+              spacing: 16,
+              runSpacing: 10,
+              children: [
+                _buildMetric(
+                  'Total Kas (K)',
+                  formatRupiah(widget.report.kasBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Terlokasi (L)',
+                  formatRupiah(widget.report.allocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Sisa (U)',
+                  formatRupiah(widget.report.unallocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Selisih (D)',
+                  formatRupiah(widget.report.discrepancyRupiah),
+                  color: _statusColor,
+                ),
+              ],
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildMetric(
+                  'Total Kas (K)',
+                  formatRupiah(widget.report.kasBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Terlokasi (L)',
+                  formatRupiah(widget.report.allocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Sisa (U)',
+                  formatRupiah(widget.report.unallocatedBalanceRupiah),
+                ),
+                _buildMetric(
+                  'Selisih (D)',
+                  formatRupiah(widget.report.discrepancyRupiah),
+                  color: _statusColor,
+                ),
+              ],
+            ),
           if (widget.report.anomaliesDetected) ...[
             const SizedBox(height: 8),
             Container(
@@ -2369,13 +2530,16 @@ class _ReconciliationCardState extends State<_ReconciliationCard>
 
   @override
   Widget build(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildHeader(),
+        _buildHeader(context),
         AnimatedCrossFade(
-          firstChild: const SizedBox.shrink(),
-          secondChild: _buildExpandedContent(),
+          firstChild: isIOS
+              ? const SizedBox(width: double.infinity, height: 0)
+              : const SizedBox.shrink(),
+          secondChild: _buildExpandedContent(context),
           firstCurve: const Interval(0.0, 1.0, curve: Curves.fastOutSlowIn),
           secondCurve: const Interval(0.0, 1.0, curve: Curves.fastOutSlowIn),
           sizeCurve: Curves.easeInOut,

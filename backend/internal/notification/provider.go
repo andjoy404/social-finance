@@ -19,6 +19,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	// AndroidNotificationChannelID is the versioned high-importance Android
+	// notification channel ID used consistently across backend FCM payloads,
+	// AndroidManifest.xml, SocialFinanceApplication.kt, and MainActivity.kt.
+	// Using a fresh v2 channel ID guarantees IMPORTANCE_HIGH heads-up delivery
+	// even on devices where the legacy channel was previously auto-created at
+	// IMPORTANCE_DEFAULT.
+	AndroidNotificationChannelID = "social_finance_notifications_v2"
+)
+
 var (
 	// ErrTokenInvalid indicates the device token has invalid formatting or is expired.
 	ErrTokenInvalid = errors.New("fcm: invalid device token")
@@ -341,6 +351,115 @@ func (f *FCMProvider) getAccessToken(ctx context.Context) (string, error) {
 	return f.accessToken, nil
 }
 
+// BuildFCMMessagePayload constructs the FCM HTTP v1 request payload with
+// Android high-priority heads-up channel configuration, guaranteed data title/body
+// fallback for background/terminated tap handling, and APNs alert configuration.
+//
+// Private authenticated image endpoints (/api/v1/notifications/images/...) are kept
+// in `data["image_url"]` and are NEVER passed to FCM's unauthenticated
+// `notification.image` fetcher (which cannot attach Authorization headers and would
+// fail with 401). For notifications carrying a private image attachment, Android
+// receives a high-priority data-only FCM message (`android.priority = "HIGH"`,
+// omitting top-level `notification` and `android.notification`) so the native
+// Android `SocialFinanceMessagingService` can authenticate, download the private
+// image with Bearer + X-RT-ID headers, and render `NotificationCompat.BigPictureStyle`
+// in both foreground and background without duplicate notifications. iOS still
+// receives a native APNs alert via the `apns.payload.aps.alert` block.
+func BuildFCMMessagePayload(token, title, body string, data map[string]string) map[string]any {
+	dataCopy := make(map[string]string, len(data)+3)
+	for k, v := range data {
+		dataCopy[k] = v
+	}
+	if strings.TrimSpace(dataCopy["title"]) == "" && strings.TrimSpace(title) != "" {
+		dataCopy["title"] = title
+	}
+	if strings.TrimSpace(dataCopy["body"]) == "" && strings.TrimSpace(body) != "" {
+		dataCopy["body"] = body
+	}
+	if strings.TrimSpace(dataCopy["channel_id"]) == "" {
+		dataCopy["channel_id"] = AndroidNotificationChannelID
+	}
+
+	rawImg := strings.TrimSpace(dataCopy["image_url"])
+	isPrivateAuthImage := rawImg != "" && (strings.Contains(rawImg, "/api/v1/notifications/images/") ||
+		strings.HasPrefix(rawImg, "notifications/"))
+
+	apnsBlock := map[string]any{
+		"headers": map[string]string{
+			"apns-priority":  "10",
+			"apns-push-type": "alert",
+		},
+		"payload": map[string]any{
+			"aps": map[string]any{
+				"alert": map[string]string{
+					"title": title,
+					"body":  body,
+				},
+				"sound":           "default",
+				"mutable-content": 1,
+			},
+		},
+	}
+
+	if isPrivateAuthImage {
+		// Data-only high-priority delivery on Android so SocialFinanceMessagingService
+		// handles background authenticated image download + BigPictureStyle cleanly,
+		// while APNs alert preserves native iOS notification display.
+		return map[string]any{
+			"message": map[string]any{
+				"token": token,
+				"data":  dataCopy,
+				"android": map[string]any{
+					"priority": "HIGH",
+				},
+				"apns": apnsBlock,
+			},
+		}
+	}
+
+	notifBlock := map[string]string{
+		"title": title,
+		"body":  body,
+	}
+	androidNotifBlock := map[string]any{
+		"channel_id":              AndroidNotificationChannelID,
+		"sound":                   "default",
+		"default_sound":           true,
+		"default_vibrate_timings": true,
+		"notification_priority":   "PRIORITY_MAX",
+		"visibility":              "PUBLIC",
+	}
+	if rawImg != "" {
+		resolvedImg := rawImg
+		if strings.HasPrefix(resolvedImg, "/") {
+			pubBase := strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL"))
+			if pubBase == "" {
+				pubBase = strings.TrimSpace(os.Getenv("API_PUBLIC_URL"))
+			}
+			if pubBase != "" {
+				resolvedImg = strings.TrimRight(pubBase, "/") + resolvedImg
+			}
+		}
+		if (strings.HasPrefix(resolvedImg, "http://") || strings.HasPrefix(resolvedImg, "https://")) && !strings.Contains(resolvedImg, "..") {
+			notifBlock["image"] = resolvedImg
+			androidNotifBlock["image"] = resolvedImg
+		}
+	}
+
+	return map[string]any{
+		"message": map[string]any{
+			"token":        token,
+			"notification": notifBlock,
+			"data":         dataCopy,
+			"android": map[string]any{
+				"priority":     "HIGH",
+				"notification": androidNotifBlock,
+			},
+			"apns": apnsBlock,
+		},
+	}
+}
+
 // Send dispatches to FCM HTTP v1 or fallback mock if allowed.
 // In production, fallback to mock is rejected to guarantee notifications are not falsely reported as delivered.
 func (f *FCMProvider) Send(ctx context.Context, token string, title, body string, data map[string]string) error {
@@ -380,43 +499,7 @@ func (f *FCMProvider) Send(ctx context.Context, token string, title, body string
 	}
 	destURL := fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
 
-	notifBlock := map[string]string{
-		"title": title,
-		"body":  body,
-	}
-	androidNotifBlock := map[string]any{
-		"channel_id":            "social_finance_notifications",
-		"sound":                 "default",
-		"notification_priority": "PRIORITY_MAX",
-	}
-	if rawImg := strings.TrimSpace(data["image_url"]); rawImg != "" {
-		resolvedImg := rawImg
-		if strings.HasPrefix(resolvedImg, "/") {
-			pubBase := strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL"))
-			if pubBase == "" {
-				pubBase = strings.TrimSpace(os.Getenv("API_PUBLIC_URL"))
-			}
-			if pubBase != "" {
-				resolvedImg = strings.TrimRight(pubBase, "/") + resolvedImg
-			}
-		}
-		if (strings.HasPrefix(resolvedImg, "http://") || strings.HasPrefix(resolvedImg, "https://")) && !strings.Contains(resolvedImg, "..") {
-			notifBlock["image"] = resolvedImg
-			androidNotifBlock["image"] = resolvedImg
-		}
-	}
-
-	messagePayload := map[string]any{
-		"message": map[string]any{
-			"token":        token,
-			"notification": notifBlock,
-			"data":         data,
-			"android": map[string]any{
-				"priority":     "HIGH",
-				"notification": androidNotifBlock,
-			},
-		},
-	}
+	messagePayload := BuildFCMMessagePayload(token, title, body, data)
 
 	payloadBytes, err := json.Marshal(messagePayload)
 	if err != nil {

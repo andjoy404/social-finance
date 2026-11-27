@@ -78,6 +78,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  bool _isKetuaRT(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final sysRole = (user['system_role'] ?? '').toString().trim().toLowerCase();
+    if (sysRole == 'super_admin' || user['role'] == AppRole.superAdmin) {
+      return false;
+    }
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    return jabatan == 'ketua';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -185,6 +195,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   data.organization,
                   theme,
                   isDark,
+                  rawJabatan,
                 ),
                 loading: () =>
                     const Center(child: CircularProgressIndicator.adaptive()),
@@ -566,7 +577,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final resident = wargaMap[o.id];
       final avatarPath = o.avatarPath ?? resident?.avatarPath;
       final avatarThumbPath = o.avatarThumbPath ?? resident?.avatarThumbPath;
-      final phone = o.phone ?? resident?.phoneNumber ?? '';
+                      final canViewContact = _isKetuaRT(ref.read(authRepositoryProvider)?.asData?.value);
+      final phone = canViewContact ? (o.phone ?? '') : '';
       final name = o.name;
       return {
         'avatarPath': avatarPath ?? '',
@@ -735,6 +747,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     OrganizationStructure organization,
     ThemeData theme,
     bool isDark,
+    String callerJabatan,
   ) {
     final wargaAsync = ref.watch(wargaListProvider);
     final wargaResidents = switch (wargaAsync) {
@@ -871,6 +884,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           theme: theme,
                           isDark: isDark,
                           wargaResidents: wargaResidents,
+                          callerJabatan: callerJabatan,
                         ),
                       ),
                     );
@@ -895,12 +909,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return AppColors.accent;
       case 'wakil_ketua':
       case 'wakil_ketua_rt':
-        return AppColors.info;
+        return AppColors.infoBlue;
       case 'sekretaris':
       case 'sekretaris_rt':
         return AppColors.success;
       case 'bendahara':
       case 'bendahara_rt':
+        return AppColors.warning;
+      case 'humas':
+      case 'humas_rt':
+      case 'seksi_humas':
+      case 'seksi_humas_rt':
         return AppColors.warning;
       case 'keamanan':
       case 'keamanan_rt':
@@ -930,14 +949,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required Color color,
     required bool isDark,
     required List<MappedResident> wargaResidents,
+    required String callerJabatan,
   }) {
     final activeMembers = members.where((m) => m.isActiveMember).toList();
     if (activeMembers.isEmpty) return;
 
-    final jNorm = jabatan.trim().toLowerCase();
-    final isKetua =
-        jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
-    final isSecurity = jNorm == 'keamanan' || jNorm == 'seksi_keamanan';
+    final callerJabatanNorm = callerJabatan.trim().toLowerCase();
+    final callerIsKetua =
+        callerJabatanNorm == 'ketua' ||
+        callerJabatanNorm == 'ketua rt' ||
+        callerJabatanNorm == 'ketua_rt';
 
     showModalBottomSheet(
       context: context,
@@ -979,11 +1000,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final member = activeMembers[i];
                       final name = member.name.trim();
                       final warga = memberWargaMap[member.userId];
-                      final memberPhone =
-                          (member.phone ?? warga?.phoneNumber ?? '').trim();
-                      final isKetuaPhone = isKetua && memberPhone.isNotEmpty;
-                      final isSecurityPhone =
-                          isSecurity && memberPhone.isNotEmpty;
+                      final memberPhone = (member.phone ?? '').trim();
+                      // Contact privacy: only exact RT jabatan "ketua" may receive phone/email.
+                      // Backend redacts for everyone else; UI must not display leaked/fallback contacts.
+      final canViewContact = _isKetuaRT(ref.read(authRepositoryProvider)?.asData?.value);
+                      final showPhone = canViewContact && memberPhone.isNotEmpty;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1051,8 +1072,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                     ],
-                                    // Ketua RT → tampilkan nomor telepon
-                                    if (isKetuaPhone) ...[
+                                    // Ketua RT dan Keamanan → tampilkan nomor telepon
+                                    if (showPhone) ...[
                                       const SizedBox(height: 2),
                                       Row(
                                         crossAxisAlignment:
@@ -1074,64 +1095,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                               fontWeight: FontWeight.w700,
                                               fontSize: 11,
                                               color: AppColors.warning,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                    // Petugas Keamanan → tampilkan nomor telepon dengan style monospace
-                                    if (isSecurityPhone) ...[
-                                      const SizedBox(height: 2),
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.phone,
-                                            size: 11,
-                                            color: AppColors.success,
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Expanded(
-                                            child: Text(
-                                              memberPhone,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontFamily: 'monospace',
-                                                letterSpacing: 0.6,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 11,
-                                                color: AppColors.warning,
-                                              ),
-                                            ),
-                                          ),
-                                          GestureDetector(
-                                            onTap: () {
-                                              Clipboard.setData(
-                                                ClipboardData(
-                                                  text: memberPhone,
-                                                ),
-                                              );
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Nomor telepon $name disalin',
-                                                  ),
-                                                  behavior:
-                                                      SnackBarBehavior.floating,
-                                                  duration: const Duration(
-                                                    seconds: 2,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            child: Icon(
-                                              Icons.copy_rounded,
-                                              size: 16,
-                                              color: AppColors.accent,
                                             ),
                                           ),
                                         ],
@@ -1160,6 +1123,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required ThemeData theme,
     required bool isDark,
     required List<MappedResident> wargaResidents,
+    required String callerJabatan,
   }) {
     final jabatan = node.positionLabel;
     final color = _getJabatanColor(jabatan);
@@ -1175,6 +1139,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           color: color,
           isDark: isDark,
           wargaResidents: wargaResidents,
+          callerJabatan: callerJabatan,
         ),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

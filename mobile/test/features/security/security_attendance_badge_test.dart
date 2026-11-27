@@ -212,11 +212,11 @@ void main() {
       );
       expect(
         attendanceStatusColors('sudah_absen_pulang', isDark: false).background,
-        AppColors.info.withValues(alpha: 0.18),
+        AppColors.infoBlue.withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('sudah_absen_pulang', isDark: true).background,
-        AppColors.info.withValues(alpha: 0.24),
+        AppColors.infoBlue.withValues(alpha: 0.24),
       );
       expect(
         attendanceStatusColors('status_baru', isDark: false).border,
@@ -510,7 +510,7 @@ void main() {
             'sudah_absen_pulang',
             isDark: isDark,
           ).background,
-          AppColors.info.withValues(alpha: isDark ? 0.24 : 0.18),
+          AppColors.infoBlue.withValues(alpha: isDark ? 0.24 : 0.18),
         );
       },
     );

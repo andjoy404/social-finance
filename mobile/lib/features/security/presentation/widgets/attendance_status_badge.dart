@@ -67,7 +67,7 @@ String attendanceStatusLabelOf(String? raw) {
       base = AppColors.success; // hijau
       break;
     case 'sudah_absen_pulang':
-      base = AppColors.info; // biru
+      base = AppColors.infoBlue; // biru
       break;
     case 'tidak_hadir':
       base = AppColors.danger; // merah

@@ -10,8 +10,13 @@ import '../providers/security_providers.dart';
 
 class SecurityQrScannerScreen extends ConsumerStatefulWidget {
   final String actionMode;
+  final String? shiftConfigId;
 
-  const SecurityQrScannerScreen({super.key, this.actionMode = 'auto'});
+  const SecurityQrScannerScreen({
+    super.key,
+    this.actionMode = 'auto',
+    this.shiftConfigId,
+  });
 
   @override
   ConsumerState<SecurityQrScannerScreen> createState() =>
@@ -54,6 +59,7 @@ class _SecurityQrScannerScreenState
       final result = await api.scanQrAttendance(
         qrToken: token,
         action: widget.actionMode,
+        shiftConfigId: widget.shiftConfigId,
         idempotencyKey: _pendingIdempotencyKey,
       );
       if (!mounted) return;
@@ -96,7 +102,12 @@ class _SecurityQrScannerScreenState
           autofocus: true,
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Batal'),
           ),
@@ -135,7 +146,7 @@ class _SecurityQrScannerScreenState
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error, child) {
+            errorBuilder: (context, error) {
               final isDenied =
                   error.errorCode == MobileScannerErrorCode.permissionDenied;
               return Center(

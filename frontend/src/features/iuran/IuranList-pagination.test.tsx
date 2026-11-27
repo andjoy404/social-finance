@@ -441,8 +441,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     })
 
     // WARGA tabs should NOT be visible
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'IURAN WARGA' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'KELOLA IURAN' })).toBeNull()
   })
 
   it('WARGA user cannot access ?tab=kelola-iuran via URL', async () => {
@@ -464,8 +464,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     })
 
     // WARGA cannot see any tab buttons even with URL param
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'KELOLA IURAN' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'IURAN WARGA' })).toBeNull()
   })
 
   it('Bendahara user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
@@ -495,9 +495,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Saya' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN SAYA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'KELOLA IURAN' })).toBeVisible()
   })
 
   it('does not fan out payments API requests for Iuran Warga bills', async () => {
@@ -633,9 +633,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       )
     })
 
-    const saya = screen.getByRole('button', { name: 'Iuran Saya' })
-    const warga = screen.getByRole('button', { name: 'Iuran Warga' })
-    const kelola = screen.getByRole('button', { name: 'Kelola Iuran' })
+    const saya = screen.getByRole('button', { name: 'IURAN SAYA' })
+    const warga = screen.getByRole('button', { name: 'IURAN WARGA' })
+    const kelola = screen.getByRole('button', { name: 'KELOLA IURAN' })
 
     expect(saya.compareDocumentPosition(warga) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(warga.compareDocumentPosition(kelola) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -662,7 +662,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     const calls = (api.apiListBills as any).mock.calls
     const lastParams = calls[calls.length - 1]?.[1]
     expect(lastParams?.my_bills).not.toBe(true)
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
   })
 
   it('Pengurus (ketua) user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
@@ -683,8 +683,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'KELOLA IURAN' })).toBeVisible()
   })
 
   it('Super-admin user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
@@ -705,8 +705,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'KELOLA IURAN' })).toBeVisible()
   })
 
   it('Ketua RT with role=warga and jabatan=ketua sees Iuran Warga and Kelola Iuran tabs', async () => {
@@ -736,8 +736,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     })
 
     // jabatan=ketua grants management access even with role=warga.
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'KELOLA IURAN' })).toBeVisible()
   })
 
   it('Bendahara RT with role=bendahara and jabatan=null sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
@@ -766,8 +766,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'IURAN WARGA' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'KELOLA IURAN' })).toBeVisible()
   })
 
   it('User with role=warga and effectivePermissions finance.read does NOT see Iuran Warga or Kelola Iuran tabs', async () => {
@@ -798,8 +798,8 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     })
 
     // role=warga always wins over effectivePermissions: manager tabs stay hidden.
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'IURAN WARGA' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'KELOLA IURAN' })).toBeNull()
   })
 })
 

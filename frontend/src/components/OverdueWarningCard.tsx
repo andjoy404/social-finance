@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { useAuth } from '@/app/AuthContext'
 import {
@@ -22,6 +22,7 @@ const FOCUS_REFRESH_THROTTLE_MS = 2000
 export function OverdueWarningCard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [summary, setSummary] = useState<ApiOverdueWarningSummary | null>(null)
   const requestSeqRef = useRef(0)
   const lastFetchedAtRef = useRef(0)
@@ -29,10 +30,12 @@ export function OverdueWarningCard() {
   const userId = user?.id ?? null
   const rtId = user?.rtId ?? user?.rt?.id ?? null
   const hasUser = !!userId
+  const isRwView = location.pathname.startsWith('/rw-view')
+  const isEligible = hasUser && !isRwView && !!rtId
 
   const fetchSummary = useCallback(
     async (force = false) => {
-      if (!hasUser || !userId) {
+      if (!isEligible || !userId) {
         setSummary(null)
         return
       }
@@ -60,21 +63,21 @@ export function OverdueWarningCard() {
         }
       }
     },
-    [hasUser, userId, rtId],
+    [isEligible, userId],
   )
 
   // Initial load on login / user or RT context change
   useEffect(() => {
-    if (!hasUser || !userId) {
+    if (!isEligible || !userId) {
       setSummary(null)
       return
     }
     void fetchSummary(true)
-  }, [hasUser, userId, rtId, fetchSummary])
+  }, [isEligible, userId, fetchSummary])
 
   // Refresh on window focus / visibilitychange and on explicit iuran data updates
   useEffect(() => {
-    if (!hasUser || !userId) return
+    if (!isEligible || !userId) return
 
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -96,10 +99,10 @@ export function OverdueWarningCard() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
       window.removeEventListener(IURAN_DATA_UPDATED_EVENT, handleIuranDataUpdated)
     }
-  }, [hasUser, userId, fetchSummary])
+  }, [isEligible, userId, fetchSummary])
 
   if (
-    !hasUser ||
+    !isEligible ||
     !summary ||
     !summary.has_overdue_3_months ||
     summary.total_outstanding <= 0 ||

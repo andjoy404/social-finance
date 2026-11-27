@@ -43,6 +43,11 @@ String appJabatanDisplayName(String jabatan) {
     case 'bendahara':
     case 'bendahara_rt':
       return 'Bendahara';
+    case 'humas':
+    case 'humas_rt':
+    case 'seksi_humas':
+    case 'seksi_humas_rt':
+      return 'Humas';
     case 'keamanan':
     case 'keamanan_rt':
     case 'seksi_keamanan':

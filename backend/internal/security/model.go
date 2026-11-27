@@ -210,7 +210,7 @@ type SecurityOfficer struct {
 	ResidentID   *string `json:"resident_id,omitempty"`
 	FullName     string  `json:"full_name"`
 	Email        string  `json:"email"`
-	Phone        *string `json:"phone,omitempty"`
+	Phone        *string `json:"phone_number,omitempty"`
 	IsActive        bool    `json:"is_active"`
 	AvatarPath      *string `json:"avatar_path,omitempty"`
 	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
@@ -219,15 +219,15 @@ type SecurityOfficer struct {
 type SecuritySchedule struct {
 	ID                           string     `json:"id"`
 	AssignmentID                 string     `json:"assignment_id"`
-	AssignmentStartDate          string     `json:"assignment_start_date"`
-	AssignmentEndDate            string     `json:"assignment_end_date"`
+	AssignmentStartDate          *string    `json:"assignment_start_date,omitempty"`
+	AssignmentEndDate            *string    `json:"assignment_end_date,omitempty"`
 	RTID                         string     `json:"rt_id"`
 	UserID                       string     `json:"user_id"`
 	OfficerName                  string     `json:"officer_name,omitempty"`
 	MembershipID                 string     `json:"membership_id"`
 	ShiftConfigID                string     `json:"shift_config_id"`
 	ShiftVersion                 int        `json:"shift_version"`
-	ShiftDate                    string     `json:"shift_date"`
+	ShiftDate                    string     `json:"shift_date,omitempty"`
 	ShiftName                    string     `json:"shift_name"`
 	StartTime                    string     `json:"start_time"`
 	EndTime                      string     `json:"end_time"`
@@ -237,10 +237,11 @@ type SecuritySchedule struct {
 	CheckInWindowAfterMinutes    int        `json:"check_in_window_after_minutes"`
 	AbsentCutoffMinutes          int        `json:"absent_cutoff_minutes"`
 	MissingCheckoutCutoffMinutes int        `json:"missing_checkout_cutoff_minutes"`
-	ScheduledStartAt             time.Time  `json:"scheduled_start_at"`
-	ScheduledEndAt               time.Time  `json:"scheduled_end_at"`
+	ScheduledStartAt             time.Time  `json:"scheduled_start_at,omitempty"`
+	ScheduledEndAt               time.Time  `json:"scheduled_end_at,omitempty"`
 	Notes                        *string    `json:"notes,omitempty"`
 	Status                       string     `json:"status"`
+	IsActive                     bool       `json:"is_active"`
 	AttendanceStatus             string     `json:"attendance_status,omitempty"`
 	AttendanceStatusLabel        string     `json:"attendance_status_label,omitempty"`
 	CheckedInAt                  *time.Time `json:"checked_in_at,omitempty"`
@@ -316,13 +317,34 @@ type AttendanceRecord struct {
 	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
+type OfficerShiftOccurrence struct {
+	DateLabel       string     `json:"date_label"`       // "kemarin", "hari_ini", "besok", "lusa"
+	DateLabelID     string     `json:"date_label_id"`    // "Kemarin", "Hari Ini", "Besok", "Lusa"
+	ShiftDate       string     `json:"shift_date"`       // "YYYY-MM-DD" (occurrence date, start date)
+	ScheduleID      string     `json:"schedule_id"`
+	ShiftConfigID   string     `json:"shift_config_id"`
+	ShiftName       string     `json:"shift_name"`
+	StartTime       string     `json:"start_time"`       // "HH:MM"
+	EndTime         string     `json:"end_time"`         // "HH:MM"
+	CrossesMidnight bool       `json:"crosses_midnight"`
+	Status          string     `json:"status"`           // "belum_hadir", "hadir", "terlambat", "sudah_absen_pulang", "tidak_hadir"
+	StatusLabel     string     `json:"status_label"`     // "Belum Hadir", "Hadir", "Terlambat", "Sudah Absen Pulang", "Tidak Hadir"
+	AttendanceID    string     `json:"attendance_id,omitempty"`
+	CheckedInAt     *time.Time `json:"checked_in_at,omitempty"`
+	CheckedOutAt    *time.Time `json:"checked_out_at,omitempty"`
+	CanCheckIn      bool       `json:"can_check_in"`
+	CanCheckOut     bool       `json:"can_check_out"`
+	CanCorrect      bool       `json:"can_correct"`
+}
+
 type OfficerAttendanceOverview struct {
-	ServerTime      time.Time          `json:"server_time"`
-	Timezone        string             `json:"timezone"`
-	CurrentSchedule *SecuritySchedule  `json:"current_schedule,omitempty"`
-	CurrentRecord   *AttendanceRecord  `json:"current_record,omitempty"`
-	UpcomingShifts  []SecuritySchedule `json:"upcoming_shifts"`
-	RecentHistory   []AttendanceRecord `json:"recent_history"`
+	ServerTime      time.Time                `json:"server_time"`
+	Timezone        string                   `json:"timezone"`
+	CurrentSchedule *SecuritySchedule        `json:"current_schedule,omitempty"`
+	CurrentRecord   *AttendanceRecord        `json:"current_record,omitempty"`
+	UpcomingShifts  []SecuritySchedule       `json:"upcoming_shifts"`
+	RecentHistory   []AttendanceRecord       `json:"recent_history"`
+	Occurrences     []OfficerShiftOccurrence `json:"occurrences"`
 }
 
 type AttendanceScanResult struct {
@@ -378,6 +400,7 @@ type GuestBookEntry struct {
 	DestinationLabel string     `json:"destination_label"`
 	VehiclePlate     *string    `json:"vehicle_plate,omitempty"`
 	Notes            *string    `json:"notes,omitempty"`
+	PhotoKey         *string    `json:"photo_key,omitempty"`
 	CheckedInAt      time.Time  `json:"checked_in_at"`
 	CheckedOutAt     *time.Time `json:"checked_out_at,omitempty"`
 	CheckoutDeviceID *string    `json:"checkout_device_id,omitempty"`
@@ -432,13 +455,13 @@ type SecurityDashboardSummary struct {
 
 // OnDutyOfficerSummary is used by Beranda HomeDashboard integration without coupling modules.
 type OnDutyOfficerSummary struct {
-	UserID      string
-	FullName    string
-	ShiftName   string
-	ShiftStart  string
-	ShiftEnd    string
-	Status      string
-	PhoneNumber     *string
+	UserID          string  `json:"user_id"`
+	FullName        string  `json:"full_name"`
+	ShiftName       string  `json:"shift_name"`
+	ShiftStart      string  `json:"shift_start"`
+	ShiftEnd        string  `json:"shift_end"`
+	Status          string  `json:"status"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
 	AvatarPath      *string `json:"avatar_path,omitempty"`
 	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
 }
@@ -470,19 +493,21 @@ type UpsertShiftRequest struct {
 type CreateScheduleRequest struct {
 	UserID        string  `json:"user_id"`
 	ShiftConfigID string  `json:"shift_config_id"`
-	StartDate     string  `json:"start_date"`
-	EndDate       string  `json:"end_date"`
+	StartDate     string  `json:"start_date,omitempty"`
+	EndDate       string  `json:"end_date,omitempty"`
 	ShiftDate     string  `json:"shift_date,omitempty"` // Legacy one-day client compatibility.
-	Notes         *string `json:"notes"`
+	Notes         *string `json:"notes,omitempty"`
+	IsActive      *bool   `json:"is_active,omitempty"`
 }
 
 type UpdateScheduleRequest struct {
 	UserID        string  `json:"user_id"`
 	ShiftConfigID string  `json:"shift_config_id"`
-	StartDate     string  `json:"start_date"`
-	EndDate       string  `json:"end_date"`
+	StartDate     *string `json:"start_date,omitempty"` // nil = preserve existing; empty string = clear to NULL
+	EndDate       *string `json:"end_date,omitempty"`   // nil = preserve existing; empty string = clear to NULL
 	ShiftDate     string  `json:"shift_date,omitempty"` // Legacy one-day client compatibility.
-	Notes         *string `json:"notes"`
+	Notes         *string `json:"notes,omitempty"`
+	IsActive      *bool   `json:"is_active,omitempty"`
 }
 
 type CreateSwapRequest struct {
@@ -502,12 +527,15 @@ type SwapDecideRequest struct {
 }
 
 type ScanQRRequest struct {
-	QRToken string `json:"qr_token"`
-	Action  string `json:"action"` // "check_in", "check_out", or "auto"/empty
+	QRToken       string `json:"qr_token"`
+	Action        string `json:"action"` // "check_in", "check_out", or "auto"/empty
+	ShiftConfigID string `json:"shift_config_id,omitempty"`
 }
 
 type CreateCorrectionRequest struct {
-	AttendanceRecordID    string  `json:"attendance_record_id"`
+	AttendanceRecordID    string  `json:"attendance_record_id,omitempty"`
+	ScheduleID            string  `json:"schedule_id,omitempty"`
+	ShiftDate             string  `json:"shift_date,omitempty"`
 	RequestType           string  `json:"request_type"`
 	RequestedStatus       string  `json:"requested_status"`
 	RequestedCheckedInAt  *string `json:"requested_checked_in_at,omitempty"`
@@ -528,6 +556,7 @@ type CreateGuestBookRequest struct {
 	DestinationLabel string  `json:"destination_label"`
 	VehiclePlate     *string `json:"vehicle_plate,omitempty"`
 	Notes            *string `json:"notes,omitempty"`
+	PhotoKey         *string `json:"photo_key,omitempty"`
 }
 
 // MaskPhone protects PII by masking middle digits of phone numbers.
@@ -554,4 +583,148 @@ func MaskPhone(raw *string) *string {
 	}
 	res := prefix + mid + suffix
 	return &res
+}
+
+// ── Patrol & Paket Models ───────────────────────────────────────────────────
+
+type PatrolTemplate struct {
+	ID            string    `json:"id"`
+	RTID          string    `json:"rt_id"`
+	Name          string    `json:"name"`
+	LocationLabel string    `json:"location_label"`
+	IsActive      bool      `json:"is_active"`
+	CreatedBy     *string   `json:"created_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type CreatePatrolTemplateInput struct {
+	Name          string `json:"name"`
+	LocationLabel string `json:"location_label"`
+}
+
+type UpdatePatrolTemplateInput struct {
+	Name          string `json:"name"`
+	LocationLabel string `json:"location_label"`
+	IsActive      *bool  `json:"is_active,omitempty"`
+}
+
+type SecurityAlertsResult struct {
+	PendingCorrections       int  `json:"pending_corrections"`
+	RecentPatrols            int  `json:"recent_patrols"`
+	PendingCorrectionsUnread int  `json:"pending_corrections_unread"`
+	PatrolUnread             int  `json:"patrol_unread"`
+	PaketUnread              int  `json:"paket_unread"`
+	HasAlert                 bool `json:"has_alert"`
+}
+
+type MarkReadReceiptInput struct {
+	Domain  string   `json:"domain"`
+	ItemIDs []string `json:"item_ids,omitempty"`
+}
+
+type PatrolPhoto struct {
+	ID               string    `json:"id"`
+	PatrolBundleID   string    `json:"patrol_bundle_id"`
+	PatrolTemplateID string    `json:"patrol_template_id"`
+	TemplateName     string    `json:"template_name,omitempty"`
+	LocationLabel    string    `json:"location_label,omitempty"`
+	ImageKey         string    `json:"image_key"`
+	ImageURL         string    `json:"image_url"`
+	CapturedAt       time.Time `json:"captured_at"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type PatrolBundle struct {
+	ID                   string        `json:"id"`
+	RTID                 string        `json:"rt_id"`
+	CreatedBy            string        `json:"created_by"`
+	CreatedByName        string        `json:"created_by_name,omitempty"`
+	CurrentDutyOfficerID *string       `json:"current_duty_officer_id,omitempty"`
+	DutyOfficerName      string        `json:"duty_officer_name,omitempty"`
+	SubmittedAt          time.Time     `json:"submitted_at"`
+	Notes                *string       `json:"notes,omitempty"`
+	Photos               []PatrolPhoto `json:"photos,omitempty"`
+	PhotoCount           int           `json:"photo_count"`
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+}
+
+type CreatePatrolPhoto struct {
+	PatrolTemplateID string    `json:"patrol_template_id"`
+	ImageKey         string    `json:"image_key"`
+	CapturedAt       time.Time `json:"captured_at"`
+}
+
+type CreatePatrolBundleInput struct {
+	Notes  *string             `json:"notes"`
+	Photos []CreatePatrolPhoto `json:"photos"`
+}
+
+type PaketPhoto struct {
+	ID            string    `json:"id"`
+	PaketItemID   string    `json:"paket_item_id"`
+	PaketReportID string    `json:"paket_report_id"`
+	ImageKey      string    `json:"image_key"`
+	ImageURL      string    `json:"image_url"`
+	PhotoType     string    `json:"photo_type"` // 'paket' or 'bukti_pengambilan'
+	CapturedAt    time.Time `json:"captured_at"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type PaketItem struct {
+	ID               string       `json:"id"`
+	PaketReportID    string       `json:"paket_report_id"`
+	Description      *string      `json:"description,omitempty"`
+	Status           string       `json:"status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
+	StatusChangedAt  *time.Time   `json:"status_changed_at,omitempty"`
+	StatusChangedBy  *string      `json:"status_changed_by,omitempty"`
+	ChangedByName    string       `json:"changed_by_name,omitempty"`
+	HandedOverAt     *time.Time   `json:"handed_over_at,omitempty"`
+	HandedOverBy     *string      `json:"handed_over_by,omitempty"`
+	HandedOverByName string       `json:"handed_over_by_name,omitempty"`
+	Photos           []PaketPhoto `json:"photos,omitempty"`
+	CreatedAt        time.Time    `json:"created_at"`
+	UpdatedAt        time.Time    `json:"updated_at"`
+}
+
+type PaketReport struct {
+	ID                   string      `json:"id"`
+	RTID                 string      `json:"rt_id"`
+	ReceiverWargaID      string      `json:"receiver_warga_id"`
+	ReceiverName         string      `json:"receiver_name,omitempty"`
+	ReceiverHouseNumber  string      `json:"receiver_house_number,omitempty"`
+	CreatedBy            string      `json:"created_by"`
+	CreatedByName        string      `json:"created_by_name,omitempty"`
+	HandedOverAt         *time.Time  `json:"handed_over_at,omitempty"`
+	HandedOverBy         *string     `json:"handed_over_by,omitempty"`
+	HandedOverByName     string      `json:"handed_over_by_name,omitempty"`
+	TotalItems           int         `json:"total_items"`
+	HandedOverItemsCount int         `json:"handed_over_items_count"`
+	PendingItemsCount    int         `json:"pending_items_count"`
+	Items                []PaketItem `json:"items,omitempty"`
+	OverallStatus        string      `json:"overall_status"` // 'dititipkan', 'sudah_diambil', 'dibatalkan'
+	CreatedAt            time.Time   `json:"created_at"`
+	UpdatedAt            time.Time   `json:"updated_at"`
+}
+
+type CreatePaketItem struct {
+	Description *string  `json:"description"`
+	ImageKeys   []string `json:"image_keys"`
+}
+
+type CreatePaketReportInput struct {
+	ReceiverWargaID string            `json:"receiver_warga_id"`
+	Items           []CreatePaketItem `json:"items"`
+}
+
+type UpdatePaketItemStatusInput struct {
+	Status        string  `json:"status"`
+	ProofImageKey *string `json:"proof_image_key,omitempty"`
+}
+
+type MaskedWargaSearchResult struct {
+	ID          string `json:"id"`
+	FullName    string `json:"full_name"`
+	HouseNumber string `json:"house_number"`
 }

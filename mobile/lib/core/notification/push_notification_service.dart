@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/device_id_service.dart';
 import '../api/device_service.dart';
 import 'notification_url_helper.dart';
 
@@ -31,8 +32,10 @@ class PushNotificationService {
   static bool _firebaseCoreUnavailable = false;
 
   final DeviceService _deviceService;
+  final DeviceIdService? _deviceIdService;
   bool _isInitialized = false;
   Future<void>? _initInFlight;
+  Future<void>? _registerInFlight;
   bool _isUserLoggedIn = false;
   String? _registeredToken;
   StreamSubscription<String>? _tokenRefreshSub;
@@ -48,7 +51,7 @@ class PushNotificationService {
       StreamController<Map<String, dynamic>>.broadcast();
   final Set<String> _processedMessageIds = <String>{};
 
-  PushNotificationService(this._deviceService);
+  PushNotificationService(this._deviceService, [this._deviceIdService]);
 
   bool get isInitialized => _isInitialized;
   bool get isUserLoggedIn => _isUserLoggedIn;
@@ -104,6 +107,12 @@ class PushNotificationService {
     }
   }
 
+  String get _currentPlatform {
+    if (kIsWeb) return 'web';
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'ios';
+    return 'android';
+  }
+
   Future<void> _doInitialize({
     FirebaseMessaging? messagingInstance,
     bool requestPermissionOnStartup = true,
@@ -131,6 +140,21 @@ class PushNotificationService {
         );
         if (kDebugMode) {
           debugPrint('PushNotificationService: Permission status: ${settings.authorizationStatus}');
+        }
+      }
+
+      // Ensure iOS presents foreground push banners/sound/badges natively.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          await messaging.setForegroundNotificationPresentationOptions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('PushNotificationService: iOS foreground presentation options warning: $e');
+          }
         }
       }
 
@@ -166,14 +190,21 @@ class PushNotificationService {
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
-    if (message.messageId != null) {
-      if (_processedMessageIds.contains(message.messageId)) {
+    final dedupKey = (message.messageId?.trim().isNotEmpty == true)
+        ? message.messageId!.trim()
+        : (message.data['notification_id']?.toString().trim().isNotEmpty == true
+            ? 'nid:${message.data['notification_id']}'
+            : (message.data['dedup_key']?.toString().trim().isNotEmpty == true
+                ? 'dk:${message.data['dedup_key']}'
+                : null));
+    if (dedupKey != null) {
+      if (_processedMessageIds.contains(dedupKey)) {
         if (kDebugMode) {
-          debugPrint('FCM foreground message duplicate suppressed: ${message.messageId}');
+          debugPrint('FCM foreground message duplicate suppressed: $dedupKey');
         }
         return;
       }
-      _processedMessageIds.add(message.messageId!);
+      _processedMessageIds.add(dedupKey);
       if (_processedMessageIds.length > 100) {
         _processedMessageIds.clear();
       }
@@ -210,14 +241,25 @@ class PushNotificationService {
 
   /// Posts a native Android heads-up notification banner at the top of the screen.
   /// Returns a map with display status (e.g. `ANDROID_DISPLAY_REQUESTED` or `DISPLAY_FAILED`).
+  ///
+  /// [authToken] and [rtId] are forwarded strictly in-memory over the native
+  /// MethodChannel so the native bitmap fetcher can send `Authorization: Bearer`
+  /// and `X-RT-ID` HTTP headers when downloading authenticated attachment images
+  /// for the expanded `BigPictureStyle` notification popup. They are NEVER
+  /// embedded in URLs, Intent extras, or logs.
   Future<Map<String, dynamic>> showHeadsUpNotification({
     required String title,
     required String body,
     required String deepLink,
     String? imageUrl,
+    String? authToken,
+    String? rtId,
+    String? baseUrl,
+    Uint8List? imageBytes,
     String? notificationId,
     String? type,
     String? sentAt,
+    int? preloadTimeoutMs,
     int? id,
   }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
@@ -229,10 +271,16 @@ class PushNotificationService {
         'body': body,
         'deep_link': deepLink,
         'image_url': imageUrl,
+        if (authToken != null && authToken.isNotEmpty) 'auth_token': authToken,
+        if (rtId != null && rtId.isNotEmpty) 'rt_id': rtId,
+        if (baseUrl != null && baseUrl.isNotEmpty) 'base_url': baseUrl,
+        if (imageBytes != null && imageBytes.isNotEmpty)
+          'image_bytes': imageBytes,
         if (notificationId != null && notificationId.isNotEmpty)
           'notification_id': notificationId,
         if (type != null && type.isNotEmpty) 'type': type,
         if (sentAt != null && sentAt.isNotEmpty) 'sent_at': sentAt,
+        if (preloadTimeoutMs != null) 'preload_timeout_ms': preloadTimeoutMs,
         'id': id ?? (DateTime.now().millisecondsSinceEpoch % 100000),
       });
       if (res is Map) {
@@ -249,6 +297,44 @@ class PushNotificationService {
         debugPrint('PushNotificationService: failed to show native heads-up notification: $e');
       }
       return {'status': 'DISPLAY_FAILED', 'reason': e.toString()};
+    }
+  }
+
+  /// Syncs the active authenticated session into Android Keystore-encrypted
+  /// storage so background/terminated FCM delivery can fetch private RT/RW
+  /// notification attachment images with `Authorization: Bearer` and `X-RT-ID`.
+  /// Never logs tokens; no-op on non-Android platforms.
+  Future<void> syncNativeNotificationAuth({
+    required String? accessToken,
+    String? rtId,
+    String? baseUrl,
+  }) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final token = accessToken?.trim();
+      if (token == null || token.isEmpty) {
+        await _nativeChannel.invokeMethod('clearNotificationAuth');
+        return;
+      }
+      await _nativeChannel.invokeMethod('syncNotificationAuth', {
+        'access_token': token,
+        if (rtId != null && rtId.trim().isNotEmpty) 'rt_id': rtId.trim(),
+        if (baseUrl != null && baseUrl.trim().isNotEmpty)
+          'base_url': baseUrl.trim(),
+      });
+    } catch (_) {
+      // Safe no-op in tests or environments without the native channel handler.
+    }
+  }
+
+  /// Clears Keystore-encrypted native notification auth credentials on logout
+  /// or session invalidation.
+  Future<void> clearNativeNotificationAuth() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await _nativeChannel.invokeMethod('clearNotificationAuth');
+    } catch (_) {
+      // Safe no-op in tests or environments without the native channel handler.
     }
   }
 
@@ -357,8 +443,26 @@ class PushNotificationService {
   }
 
   /// Called after successful login or session restore to register device token with backend.
+  /// Always confirms active token registration with the backend (even if the same
+  /// token was registered in a prior session) so multi-device / same-account push
+  /// delivery never stalls on an inactive server-side `user_devices` row.
   Future<void> onUserLoggedIn({FirebaseMessaging? messagingInstance}) async {
     _isUserLoggedIn = true;
+    if (_registerInFlight != null) {
+      return _registerInFlight!;
+    }
+    final future = _doRegisterDevice(messagingInstance: messagingInstance);
+    _registerInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_registerInFlight, future)) {
+        _registerInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doRegisterDevice({FirebaseMessaging? messagingInstance}) async {
     try {
       if (!_isInitialized) {
         await initialize(messagingInstance: messagingInstance);
@@ -373,15 +477,18 @@ class PushNotificationService {
 
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) {
-        if (_registeredToken != token) {
-          await _deviceService.registerDevice(
-            fcmToken: token,
-            platform: 'android',
-          );
-          _registeredToken = token;
-          if (kDebugMode) {
-            debugPrint('PushNotificationService: Device token registered successfully');
-          }
+        String? deviceId;
+        try {
+          deviceId = await _deviceIdService?.getDeviceId();
+        } catch (_) {}
+        await _deviceService.registerDevice(
+          fcmToken: token,
+          platform: _currentPlatform,
+          deviceId: deviceId,
+        );
+        _registeredToken = token;
+        if (kDebugMode) {
+          debugPrint('PushNotificationService: Device token registered successfully');
         }
       } else {
         if (kDebugMode) {
@@ -393,6 +500,16 @@ class PushNotificationService {
         debugPrint('PushNotificationService: Failed to register device token on login: $e');
       }
     }
+  }
+
+  /// Retries device token registration when the user is logged in and a prior
+  /// registration attempt did not complete (for example after offline startup).
+  Future<void> ensureDeviceRegistered({
+    FirebaseMessaging? messagingInstance,
+  }) async {
+    if (!_isUserLoggedIn) return;
+    if (_registeredToken != null && _registeredToken!.isNotEmpty) return;
+    await onUserLoggedIn(messagingInstance: messagingInstance);
   }
 
   /// Called on logout to unregister device from backend so other users don't receive alerts.
@@ -422,9 +539,14 @@ class PushNotificationService {
   Future<void> _onTokenRefreshed(String newToken) async {
     if (_isUserLoggedIn) {
       try {
+        String? deviceId;
+        try {
+          deviceId = await _deviceIdService?.getDeviceId();
+        } catch (_) {}
         await _deviceService.registerDevice(
           fcmToken: newToken,
-          platform: 'android',
+          platform: _currentPlatform,
+          deviceId: deviceId,
         );
         _registeredToken = newToken;
         if (kDebugMode) {
@@ -451,7 +573,8 @@ class PushNotificationService {
 
 final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
   final deviceService = ref.watch(deviceServiceProvider);
-  final service = PushNotificationService(deviceService);
+  final deviceIdService = ref.watch(deviceIdServiceProvider);
+  final service = PushNotificationService(deviceService, deviceIdService);
   ref.onDispose(() => service.dispose());
   return service;
 });

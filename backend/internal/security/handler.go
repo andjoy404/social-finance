@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1125,6 +1127,80 @@ func (h *Handler) PosCheckoutGuestBook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (h *Handler) UploadGuestBookPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.guest_book", "security.attendance", "security.schedule.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "file exceeds maximum allowed size (5MB)", nil)
+		return
+	}
+	file, fileHeader, err := r.FormFile("photo")
+	if err != nil {
+		httpx.WriteValidationError(w, "missing photo form field", nil)
+		return
+	}
+	defer file.Close()
+
+	meta, err := h.store.UploadCommunityImage(r.Context(), rtID, "guest-book", fileHeader.Filename, file, fileHeader.Size)
+	if err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"image_key": meta.Key,
+	})
+}
+
+func (h *Handler) GetGuestBookPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, _, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.guest_book", "security.attendance", "security.schedule.read", "notification.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		httpx.WriteValidationError(w, "missing image key", nil)
+		return
+	}
+
+	reader, err := h.store.GetCommunityImage(r.Context(), key)
+	if err != nil {
+		httpx.WriteNotFound(w, "image not found")
+		return
+	}
+	defer reader.Body.Close()
+
+	if reader.ContentType != "" {
+		w.Header().Set("Content-Type", reader.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = io.Copy(w, reader.Body)
+}
+
 func (h *Handler) PosListHouseholds(w http.ResponseWriter, r *http.Request) {
 	dc := GetDeviceContext(r)
 	if dc == nil {
@@ -1175,4 +1251,570 @@ func (h *Handler) PosMonitoringSampah(w http.ResponseWriter, r *http.Request) {
 		"data":      items,
 		"eval_date": evalDate.Format("2006-01-02"),
 	})
+}
+
+// ── Patrol Handlers ──────────────────────────────────────────────────────────
+
+func (h *Handler) ListPatrolTemplates(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.read", "patrol.template.manage", "patrol.create", "security.schedule.read", "security.attendance")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	templates, err := h.svc.ListPatrolTemplates(r.Context(), rtID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": templates})
+}
+
+func (h *Handler) CreatePatrolTemplate(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.template.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	var input CreatePatrolTemplateInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tmpl, err := h.svc.CreatePatrolTemplate(r.Context(), rtID, input.Name, input.LocationLabel, ac.UserID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, tmpl)
+}
+
+func (h *Handler) UpdatePatrolTemplate(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.template.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	var input UpdatePatrolTemplateInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tmpl, err := h.svc.UpdatePatrolTemplate(r.Context(), rtID, id, input.Name, input.LocationLabel, input.IsActive)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tmpl)
+}
+
+func (h *Handler) DeletePatrolTemplate(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.template.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if err := h.svc.DeletePatrolTemplate(r.Context(), rtID, id); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListPatrolBundles(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.read", "patrol.create", "security.schedule.read", "security.attendance")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage < 1 || perPage > 50 {
+		perPage = 20
+	}
+	offset := (page - 1) * perPage
+
+	bundles, total, err := h.svc.ListPatrolBundles(r.Context(), rtID, perPage, offset)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writePaginated(w, bundles, page, perPage, total)
+}
+
+func (h *Handler) GetPatrolBundle(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.read", "patrol.create", "security.schedule.read", "security.attendance")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	bundle, err := h.svc.GetPatrolBundle(r.Context(), rtID, id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bundle)
+}
+
+func (h *Handler) CreatePatrolBundle(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.create")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	var input CreatePatrolBundleInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	bundle, err := h.svc.CreatePatrolBundle(r.Context(), rtID, ac.UserID, input.Notes, input.Photos)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, bundle)
+}
+
+func (h *Handler) UploadPatrolPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.create")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "file exceeds maximum allowed size (5MB)", nil)
+		return
+	}
+	file, fileHeader, err := r.FormFile("photo")
+	if err != nil {
+		httpx.WriteValidationError(w, "missing photo form field", nil)
+		return
+	}
+	defer file.Close()
+
+	meta, err := h.store.UploadCommunityImage(r.Context(), rtID, "patrol", fileHeader.Filename, file, fileHeader.Size)
+	if err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"image_key": meta.Key,
+	})
+}
+
+func (h *Handler) GetPatrolPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "patrol.read", "patrol.create", "security.schedule.read", "security.attendance")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	photoID := chi.URLParam(r, "photoId")
+	key, err := h.svc.GetPatrolPhotoKey(r.Context(), rtID, photoID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	reader, err := h.store.GetCommunityImage(r.Context(), key)
+	if err != nil {
+		httpx.WriteNotFound(w, "image not found")
+		return
+	}
+	defer reader.Body.Close()
+
+	if reader.ContentType != "" {
+		w.Header().Set("Content-Type", reader.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.Copy(w, reader.Body)
+}
+
+// ── Paket Handlers ───────────────────────────────────────────────────────────
+
+func (h *Handler) ListPaketReports(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage < 1 || perPage > 50 {
+		perPage = 20
+	}
+	offset := (page - 1) * perPage
+
+	reports, total, err := h.svc.ListPaketReports(r.Context(), rtID, perPage, offset)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writePaginated(w, reports, page, perPage, total)
+}
+
+func (h *Handler) GetPaketReport(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		// Non-officer/warga: only allowed if they are the recipient of this package report in their RT
+		isReceiver, err := h.svc.IsPaketReceiver(r.Context(), rtID, id, ac.UserID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if !isReceiver {
+			httpx.WriteForbidden(w, "insufficient permission")
+			return
+		}
+	}
+
+	report, err := h.svc.GetPaketReport(r.Context(), rtID, id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *Handler) CreatePaketReport(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.create")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	var input CreatePaketReportInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	report, err := h.svc.CreatePaketReport(r.Context(), rtID, ac.UserID, input.ReceiverWargaID, input.Items)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, report)
+}
+
+func (h *Handler) UpdatePaketItemStatus(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.status_change")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	reportID := chi.URLParam(r, "id")
+	itemID := chi.URLParam(r, "itemId")
+
+	var input UpdatePaketItemStatusInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	if err := h.svc.UpdatePaketItemStatus(r.Context(), rtID, reportID, itemID, input.Status, ac.UserID, input.ProofImageKey); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	report, err := h.svc.GetPaketReport(r.Context(), rtID, reportID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *Handler) UploadPaketPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.create", "paket.status_change")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "file exceeds maximum allowed size (5MB)", nil)
+		return
+	}
+	file, fileHeader, err := r.FormFile("photo")
+	if err != nil {
+		httpx.WriteValidationError(w, "missing photo form field", nil)
+		return
+	}
+	defer file.Close()
+
+	meta, err := h.store.UploadCommunityImage(r.Context(), rtID, "paket", fileHeader.Filename, file, fileHeader.Size)
+	if err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"image_key": meta.Key,
+	})
+}
+
+func (h *Handler) GetPaketPhoto(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	photoID := chi.URLParam(r, "photoId")
+
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.read", "paket.create", "security.schedule.read", "security.attendance", "notification.manage")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		// Non-officer/warga: only allowed if they are the recipient of the package containing this photo
+		isReceiver, err := h.svc.IsPaketPhotoReceiver(r.Context(), rtID, photoID, ac.UserID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if !isReceiver {
+			httpx.WriteForbidden(w, "insufficient permission")
+			return
+		}
+	}
+
+	key, err := h.svc.GetPaketPhotoKey(r.Context(), rtID, photoID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	reader, err := h.store.GetCommunityImage(r.Context(), key)
+	if err != nil {
+		httpx.WriteNotFound(w, "image not found")
+		return
+	}
+	defer reader.Body.Close()
+
+	if reader.ContentType != "" {
+		w.Header().Set("Content-Type", reader.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.Copy(w, reader.Body)
+}
+
+func (h *Handler) SearchWargaMasked(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "paket.create", "security.attendance", "security.schedule.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	q := r.URL.Query().Get("q")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	res, err := h.svc.SearchWargaMasked(r.Context(), rtID, q, limit)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": res})
+}
+
+func (h *Handler) GetSecurityAlerts(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.read", "security.attendance", "security.correction", "patrol.read", "paket.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+
+	res, err := h.svc.GetSecurityAlerts(r.Context(), rtID, ac.UserID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": res,
+	})
+}
+
+func (h *Handler) MarkReadReceipts(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.read", "security.attendance", "security.correction", "patrol.read", "paket.read")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "insufficient permission")
+		return
+	}
+	var input MarkReadReceiptInput
+	if err := decodeJSON(r, &input); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+	if err := h.svc.MarkReadReceipt(r.Context(), ac.UserID, rtID, input.Domain, input.ItemIDs); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }

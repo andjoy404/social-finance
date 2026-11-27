@@ -205,24 +205,24 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.getByText('Warga')).toBeInTheDocument()
     expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
-    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
     expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
   })
 
-  it('shows Sampah and Kelola Keamanan for Ketua RT alongside normal RT nav items', () => {
+  it('shows Sampah and Keamanan for Ketua RT alongside normal RT nav items', () => {
     renderSidebar(mockKetuaRTUser)
     expect(screen.getByText('Sampah')).toBeInTheDocument()
-    expect(screen.getByText('Kelola Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan')).toBeInTheDocument()
     expect(screen.getByText('Beranda')).toBeInTheDocument()
     expect(screen.getByText('Warga')).toBeInTheDocument()
   })
 
-  it('hides Kelola Keamanan for warga and cleaning officer', () => {
+  it('hides Keamanan for warga and cleaning officer', () => {
     renderSidebar(mockWargaUser)
-    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
   })
 
   it('shows Notifikasi for Pengurus without granting notification management', () => {
@@ -340,9 +340,10 @@ describe('Sidebar — navigation items', () => {
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(12) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Kelola Keamanan, Notifikasi, Kelola RT, Kelola RW
+    expect(links.length).toBe(13) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Kelola Keamanan, Buku Tamu, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.getByText('Buku Tamu')).toBeInTheDocument()
   })
 
   it('shows Notifikasi menu for Ketua RT and links to /notifikasi', () => {
@@ -389,6 +390,62 @@ describe('Sidebar — navigation items', () => {
     expect(screen.queryByText('Warga')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
     expect(screen.queryByText(/Kas/i)).not.toBeInTheDocument()
+  })
+
+  it('shows Keuangan, Kas, Data RW, Notifikasi, Keamanan and Iuran for humas, but hides Lokasi Dana and Buku Tamu', () => {
+    const mockHumasUser: AuthUser = {
+      id: 'user-humas-002',
+      name: 'Position Humas RT 002',
+      email: 'humas-002@local.com',
+      systemRole: null,
+      role: 'pengurus',
+      jabatan: 'humas',
+      rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+      rtCode: '002',
+      rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      rwId: 'rw-002',
+    }
+    renderSidebar(mockHumasUser)
+    expect(screen.getByText('Keuangan')).toBeInTheDocument()
+    expect(screen.getByText('Kas')).toBeInTheDocument()
+    expect(screen.getByText('Data RW')).toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Iuran')).toBeInTheDocument()
+    expect(document.querySelector('a[href="/lokasi-dana"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('Buku Tamu')).not.toBeInTheDocument()
+  })
+
+  it('shows Warga menus and Data RW for operasional, but hides Keuangan, Kas RT, Lokasi Dana, Keamanan, and Buku Tamu', () => {
+    const mockOperasionalUser: AuthUser = {
+      id: 'user-operasional-002',
+      name: 'Position Operasional RT 002',
+      email: 'operasional-002@local.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: 'operasional',
+      rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+      rtCode: '002',
+      rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      rwId: 'rw-002',
+    }
+    renderSidebar(mockOperasionalUser)
+    // Standard Warga items
+    expect(screen.getByText('Beranda')).toBeInTheDocument()
+    expect(screen.getByText('Iuran')).toBeInTheDocument()
+    expect(screen.getByText('Warga')).toBeInTheDocument()
+    expect(screen.getByText('Pengumuman')).toBeInTheDocument()
+    expect(screen.getByText('Kegiatan')).toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    // Read-only Data RW is granted
+    expect(screen.getByText('Data RW')).toBeInTheDocument()
+    // Officer / write / RT-finance items are strictly hidden
+    expect(screen.queryByText('Keuangan')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href="/lokasi-dana"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('Keamanan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Buku Tamu')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
   it('contains nav entry for /iuran (active route)', () => {
@@ -520,6 +577,199 @@ describe('Sidebar — active route detection', () => {
     const kelolaRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Kelola RW'))
     expect(kelolaRwLink).toBeInTheDocument()
     expect(kelolaRwLink).not.toHaveClass('nav-item-active')
+  })
+
+  it('highlights ONLY Kas RT on /kas and nested /kas/* routes, NOT Data RW', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'bendahara' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    for (const path of ['/kas', '/kas/transaksi/tx-1']) {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[path]}>
+          <Sidebar />
+        </MemoryRouter>,
+      )
+      const kasRtLink = document.querySelector('a[href="/kas"]')
+      const dataRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+      expect(kasRtLink).toHaveClass('nav-item-active')
+      expect(dataRwLink).not.toHaveClass('nav-item-active')
+      unmount()
+    }
+  })
+
+  it('does NOT highlight Kas RT on Data RW -> Kas (/rw-view/:rwId/kas); highlights Data RW instead', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'bendahara' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const kasRtLink = document.querySelector('a[href="/kas"]')
+    const dataRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(kasRtLink).toBeInTheDocument()
+    expect(kasRtLink).not.toHaveClass('nav-item-active')
+    expect(dataRwLink).toHaveClass('nav-item-active')
+  })
+
+  it('highlights parent Data RW and matching RW submenu on multi-RW /rw-view/:rwId/kas without highlighting Kas RT', () => {
+    const multiRwUser: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-2', rw_name: 'RW 002', jabatan: 'bendahara' },
+        { rw_id: 'rw-20', rw_name: 'RW 020', jabatan: 'ketua' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: multiRwUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-20/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const kasRtLink = document.querySelector('a[href="/kas"]')
+    const dataRwParent = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW (2)'))
+    const rw2Sub = screen.getAllByRole('link').find(l => l.textContent?.includes('RW 002'))
+    const rw20Sub = screen.getAllByRole('link').find(l => l.textContent?.includes('RW 020'))
+
+    expect(kasRtLink).not.toHaveClass('nav-item-active')
+    expect(dataRwParent).toHaveClass('nav-item-active')
+    expect(rw2Sub).not.toHaveClass('nav-item-active')
+    expect(rw20Sub).toHaveClass('nav-item-active')
+  })
+
+  it('updates highlight accurately when navigating Kas RT -> Data RW Kas -> Kas RT', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'ketua' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+
+    const getKasRt = () => document.querySelector('a[href="/kas"]') as HTMLElement
+    const getDataRw = () => screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW')) as HTMLElement
+
+    // Start at Kas RT
+    expect(getKasRt()).toHaveClass('nav-item-active')
+    expect(getDataRw()).not.toHaveClass('nav-item-active')
+
+    // Click Data RW (goes to /rw-view/rw-002/dashboard)
+    fireEvent.click(getDataRw())
+    expect(getDataRw()).toHaveClass('nav-item-active')
+    expect(getKasRt()).not.toHaveClass('nav-item-active')
+
+    // Click Kas RT again
+    fireEvent.click(getKasRt())
+    expect(getKasRt()).toHaveClass('nav-item-active')
+    expect(getDataRw()).not.toHaveClass('nav-item-active')
+  })
+
+  it('preserves read-only highlight and visibility for operasional and humas on /rw-view/:rwId/kas', () => {
+    const operasionalUser: AuthUser = {
+      id: 'user-op-1',
+      name: 'Operasional',
+      email: 'op@local.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: 'operasional',
+      rt: { id: 'rt-1', name: '001' },
+      rtCode: '001',
+      rtId: 'rt-1',
+      rwId: 'rw-002',
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: operasionalUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    const opDataRw = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(opDataRw).toHaveClass('nav-item-active')
+    unmount()
+
+    const humasUser: AuthUser = {
+      id: 'user-humas-1',
+      name: 'Humas',
+      email: 'humas@local.com',
+      systemRole: null,
+      role: 'pengurus',
+      jabatan: 'humas',
+      rt: { id: 'rt-1', name: '001' },
+      rtCode: '001',
+      rtId: 'rt-1',
+      rwId: 'rw-002',
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: humasUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/kas']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    // Humas has no Kas RT link; its Kas link points directly to /rw-view/rw-002/kas
+    expect(document.querySelector('a[href="/kas"]')).not.toBeInTheDocument()
+    const humasKasRw = document.querySelector('a[href="/rw-view/rw-002/kas"]')
+    const humasDataRw = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(humasKasRw).toHaveClass('nav-item-active')
+    expect(humasDataRw).toHaveClass('nav-item-active')
   })
 
 })

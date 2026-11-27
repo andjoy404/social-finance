@@ -532,8 +532,8 @@ void main() {
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
       expect(scaffold.drawer, isNotNull);
 
-      // Verify each item inside BottomAppBar is wrapped in Expanded (equal width division)
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
+      // Verify that BottomAppBar renders navigation items
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(GestureDetector)), findsWidgets);
 
       // Open drawer via ScaffoldState and verify drawer contents
       final scaffoldState = tester.state<ScaffoldState>(find.byType(Scaffold));
@@ -610,6 +610,167 @@ void main() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
+    });
+
+    testWidgets('Navigation Shell for Anggota RT shows Data RW, Warga, Notifikasi, and Profil (exactly 4 tabs wrapped in Expanded)', (tester) async {
+      final anggotaRtUser = {
+        'id': 'user-anggota-rt',
+        'email': 'anggota.rt@test.com',
+        'name': 'Anggota RT Urena',
+        'role': AppRole.warga,
+        'jabatan': 'anggota_rt',
+        'rt': '001',
+        'rw': '002',
+        'rw_memberships': <Map<String, dynamic>>[
+          {
+            'rw_id': 'rw-002',
+            'rw_name': 'RW 002 Urena',
+            'jabatan': 'anggota_rt',
+            'source': 'rt_inferred',
+          }
+        ],
+      };
+
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          ShellRoute(
+            builder: (context, state, child) => MainNavigationShell(child: child),
+            routes: [
+              GoRoute(
+                path: '/home',
+                builder: (context, state) => const Text('Anggota RT Home'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(anggotaRtUser)),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Fixed bottom nav has 2 tabs (Beranda and Menu), while Menu sheet contains Data RW, Warga, Notifikasi, and Profil
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(2));
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Data RW'), findsWidgets);
+      expect(find.text('Warga'), findsWidgets);
+      expect(find.text('Notifikasi'), findsWidgets);
+      expect(find.text('Profil'), findsWidgets);
+      expect(find.text('Keuangan'), findsNothing);
+      expect(find.text('Iuran'), findsNothing);
+      expect(find.text('Kegiatan'), findsNothing);
+      expect(find.text('Keamanan'), findsNothing);
+    });
+
+    testWidgets('Navigation Shell for Anggota RT with jabatan anggota shows Data RW, Warga, Notifikasi, and Profil', (tester) async {
+      final anggotaUser = {
+        'id': 'user-anggota-plain',
+        'email': 'anggota.plain@test.com',
+        'name': 'Anggota Pengurus RT',
+        'role': 'pengurus',
+        'jabatan': 'anggota',
+        'rt': '001',
+        'rw': '002',
+        'rw_id': 'rw-002',
+        'rw_memberships': <Map<String, dynamic>>[
+          {
+            'rw_id': 'rw-002',
+            'rw_name': 'RW 002 Urena',
+            'jabatan': 'anggota',
+            'source': 'rt_inferred',
+          }
+        ],
+      };
+
+      final router = GoRouter(
+        initialLocation: '/home',
+        routes: [
+          ShellRoute(
+            builder: (context, state, child) => MainNavigationShell(child: child),
+            routes: [
+              GoRoute(
+                path: '/home',
+                builder: (context, state) => const Text('Anggota RT Home'),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(anggotaUser)),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(2));
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Data RW'), findsWidgets);
+      expect(find.text('Warga'), findsWidgets);
+      expect(find.text('Notifikasi'), findsWidgets);
+      expect(find.text('Profil'), findsWidgets);
+      expect(find.text('Keuangan'), findsNothing);
+      expect(find.text('Iuran'), findsNothing);
+    });
+
+    testWidgets('RwKeuanganScreen for Anggota RT shows BERANDA and KAS tabs, but hides LOKASI DANA and NOTIFIKASI', (tester) async {
+      for (final jab in ['anggota', 'anggota_rt']) {
+        final user = {
+          'id': 'user-$jab',
+          'email': '$jab@test.com',
+          'name': 'Anggota RT $jab',
+          'role': 'pengurus',
+          'jabatan': jab,
+          'rw_id': 'rw-002',
+          'rw_memberships': [
+            {
+              'rw_id': 'rw-002',
+              'rw_name': 'RW 002',
+              'jabatan': jab,
+              'source': 'rt_inferred',
+            }
+          ],
+        };
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+              authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(user)),
+            ],
+            child: const MaterialApp(
+              home: RwKeuanganScreen(rwId: 'rw-002'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('BERANDA'), findsOneWidget);
+        expect(find.text('KAS'), findsOneWidget);
+        expect(find.text('LOKASI DANA'), findsNothing);
+        expect(find.text('NOTIFIKASI'), findsNothing);
+      }
     });
 
     testWidgets('RwKeuanganScreen has 3 tabs (BERANDA, KAS, LOKASI DANA) and defaults to BERANDA', (tester) async {
@@ -775,7 +936,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('RwKeuanganScreen rt_inferred user shows 1 tab only (BERANDA)', (tester) async {
+    testWidgets('RwKeuanganScreen rt_inferred user shows 2 tabs (BERANDA and KAS READ-ONLY)', (tester) async {
       final rtInferredUser = {
         'id': 'user-rt-inferred',
         'email': 'ketua.rt@test.com',
@@ -802,10 +963,18 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Only BERANDA tab for rt_inferred user (KAS and LOKASI DANA are hidden)
+      // BERANDA and KAS tabs for rt_inferred user; LOKASI DANA and NOTIFIKASI are hidden
       expect(find.widgetWithText(Tab, 'BERANDA'), findsOneWidget);
-      expect(find.widgetWithText(Tab, 'KAS'), findsNothing);
+      expect(find.widgetWithText(Tab, 'KAS'), findsOneWidget);
       expect(find.widgetWithText(Tab, 'LOKASI DANA'), findsNothing);
+      expect(find.widgetWithText(Tab, 'NOTIFIKASI'), findsNothing);
+
+      // Tap KAS tab and verify read-only mode (no write buttons)
+      await tester.tap(find.widgetWithText(Tab, 'KAS'));
+      await tester.pumpAndSettle();
+      expect(find.text('Catat Kas Masuk'), findsNothing);
+      expect(find.text('Catat Kas Keluar'), findsNothing);
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

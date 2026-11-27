@@ -34,6 +34,40 @@ void main() {
         isFalse,
       );
 
+      // Operasional and Humas can read personal iuran
+      expect(
+        canReadIuran({
+          'role': AppRole.pengurus,
+          'jabatan': 'operasional',
+          'effective_permissions': <String>[],
+        }),
+        isTrue,
+      );
+      expect(
+        canReadIuran({
+          'role': AppRole.pengurus,
+          'jabatan': 'humas',
+          'effective_permissions': <String>[],
+        }),
+        isTrue,
+      );
+      expect(
+        canManageIuran({
+          'role': AppRole.pengurus,
+          'jabatan': 'humas',
+          'effective_permissions': <String>[],
+        }),
+        isFalse,
+      );
+      expect(
+        canManageIuran({
+          'role': AppRole.pengurus,
+          'jabatan': 'operasional',
+          'effective_permissions': <String>[],
+        }),
+        isFalse,
+      );
+
       const managementPermissions = [
         'finance.create',
         'finance.update',

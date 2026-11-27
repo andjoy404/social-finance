@@ -57,7 +57,7 @@ class DataChoiceDialog extends StatelessWidget {
               icon: Icons.work_outline,
               title: 'Petugas',
               subtitle: 'Tambahkan petugas khusus (keamanan/kebersihan)',
-              color: AppColors.info,
+              color: AppColors.infoBlue,
               isDark: isDark,
               onTap: () => onChoice('petugas'),
             ),
@@ -78,11 +78,12 @@ class DataChoiceDialog extends StatelessWidget {
                 ),
                 child: SizedBox(
                   height: 48,
-                  child: OutlinedButton(
+                  child: ElevatedButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: AppColors.danger),
-                      foregroundColor: AppColors.danger,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.sm,
                         vertical: 12,
@@ -96,6 +97,7 @@ class DataChoiceDialog extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                     ),
                   ),

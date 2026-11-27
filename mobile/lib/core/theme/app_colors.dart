@@ -40,7 +40,7 @@ class AppColors {
   /* Semantic info — Blue */
   /// Web: --sf-info (#5794f2)
   /// Used for: information, notifications
-  static const Color info = Color(0xFF5794F2);
+  static const Color infoBlue = Color(0xFF5794F2);
 
   /// Semantic teal — Teal
   /// Web: --sf-teal (#009688)

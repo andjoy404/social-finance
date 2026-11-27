@@ -763,14 +763,14 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
 
   Widget _buildBatalButton() => SizedBox(
     height: 48,
-    child: OutlinedButton(
+    child: ElevatedButton(
       onPressed: _saving
           ? null
           : () => KasFormNavigationGuard.requestFormCancel(context),
-      style: OutlinedButton.styleFrom(
+      style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.danger),
+        elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         visualDensity: VisualDensity.compact,
         shape: RoundedRectangleBorder(
@@ -804,30 +804,12 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final availableWidth = constraints.maxWidth;
-                final gap = AppSpacing.sm;
-                final buttonWidth = (availableWidth - 32 - gap) / 2;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildBatalButton(),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    SizedBox(
-                      width: buttonWidth > 0
-                          ? buttonWidth
-                          : availableWidth - 32,
-                      child: _buildSimpanButton(),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                Expanded(child: _buildBatalButton()),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: _buildSimpanButton()),
+              ],
             ),
           ),
         ),
@@ -1332,11 +1314,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   width: double.maxFinite,
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   decoration: BoxDecoration(
-                    color: AppColors.info.withValues(
+                    color: AppColors.infoBlue.withValues(
                       alpha: isDark ? 0.15 : 0.08,
                     ),
                     border: Border.all(
-                      color: AppColors.info.withValues(
+                      color: AppColors.infoBlue.withValues(
                         alpha: isDark ? 0.3 : 0.2,
                       ),
                     ),
@@ -1345,7 +1327,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: AppColors.info),
+                      Icon(Icons.info_outline, size: 16, color: AppColors.infoBlue),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(

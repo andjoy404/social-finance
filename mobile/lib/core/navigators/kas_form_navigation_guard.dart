@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 
 /// One navigation guard shared by form back/pop and shell navigation.
@@ -156,7 +157,7 @@ class KasFormNavigationGuard {
                   key: const Key('kas-cancel-confirm'),
                   onPressed: () => Navigator.of(dialogContext).pop(true),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEF4444),
+                    backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),

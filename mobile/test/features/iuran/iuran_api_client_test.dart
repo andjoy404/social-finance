@@ -184,6 +184,7 @@ void main() {
                 'period': '2026-10',
                 'due_date': '2026-10-25',
                 'status': 'partial',
+                'paid_amount': '10000.00',
                 'is_voluntary': false,
               },
               {

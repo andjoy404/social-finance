@@ -19,11 +19,12 @@ const (
 // NOTE: Source is serialized in the JWT (rw_context claim) so the middleware can
 // distinguish explicit from inferred memberships.  Client input is NEVER trusted.
 type RWMembership struct {
-	RWID     string              `json:"rw_id"`
-	RWNumber int                 `json:"rw_number"`
-	RWName   string              `json:"rw_name"`
-	Jabatan  string              `json:"jabatan"`
-	Source   RWMembershipSource  `json:"source"`
+	RWID        string             `json:"rw_id"`
+	RWNumber    int                `json:"rw_number"`
+	RWName      string             `json:"rw_name"`
+	Jabatan     string             `json:"jabatan"`
+	Source      RWMembershipSource `json:"source"`
+	Permissions []string           `json:"permissions,omitempty"`
 }
 
 // SystemRole represents a global-level role (not tied to an RT).
@@ -67,6 +68,9 @@ const (
 	JabatanOperasional Jabatan = "operasional"
 	JabatanKebersihan  Jabatan = "kebersihan"
 	JabatanAnggota     Jabatan = "anggota"
+	JabatanAnggotaRT   Jabatan = "anggota_rt"
+	JabatanAnggotaRW   Jabatan = "anggota_rw"
+	JabatanHumas       Jabatan = "humas"
 )
 
 // ValidJabatans maps recognized RT positions.
@@ -80,6 +84,9 @@ var ValidJabatans = map[Jabatan]bool{
 	JabatanOperasional: true,
 	JabatanKebersihan:  true,
 	JabatanAnggota:     true,
+	JabatanAnggotaRT:   true,
+	JabatanAnggotaRW:   true,
+	JabatanHumas:       true,
 }
 
 // AllJabatans returns all valid jabatan values in a stable order.
@@ -93,6 +100,9 @@ var AllJabatans = []Jabatan{
 	JabatanOperasional,
 	JabatanKebersihan,
 	JabatanAnggota,
+	JabatanAnggotaRT,
+	JabatanAnggotaRW,
+	JabatanHumas,
 }
 
 // AuthContext is attached to the request context after successful

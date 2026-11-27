@@ -43,9 +43,13 @@ type refreshRequest struct {
 	DeviceID     string `json:"device_id,omitempty"`
 }
 
-// logoutRequest is the body of a logout POST request.
+// logoutRequest is the optional body of a logout POST request.
+// When refresh_token or device_id is provided, only that session/device is
+// revoked so other devices logged into the same account stay authenticated.
 type logoutRequest struct {
 	MembershipID string `json:"membership_id"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
 }
 
 // UpdateProfileRequest is the body of a profile update PUT request.
@@ -484,6 +488,11 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req logoutRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
@@ -494,16 +503,9 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if ac.MembershipID != "" {
-		if err := h.svc.Logout(ctx, tx, ac.MembershipID); err != nil {
-			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
-			return
-		}
-	} else {
-		if err := h.svc.SystemLogout(ctx, tx, ac.UserID); err != nil {
-			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
-			return
-		}
+	if err := h.svc.LogoutSession(ctx, tx, ac.UserID, ac.MembershipID, req.RefreshToken, req.DeviceID); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -643,10 +645,12 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 					var sName string
 					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:     sID,
-							RWNumber: sNumber,
-							RWName:   sName,
-							Jabatan:  "super_admin",
+							RWID:        sID,
+							RWNumber:    sNumber,
+							RWName:      sName,
+							Jabatan:     "super_admin",
+							Source:      RWMembershipSourceExplicit,
+							Permissions: SuperAdminRWPermissions(),
 						})
 					}
 				}
@@ -813,10 +817,12 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 					var sName string
 					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:     sID,
-							RWNumber: sNumber,
-							RWName:   sName,
-							Jabatan:  "super_admin",
+							RWID:        sID,
+							RWNumber:    sNumber,
+							RWName:      sName,
+							Jabatan:     "super_admin",
+							Source:      RWMembershipSourceExplicit,
+							Permissions: SuperAdminRWPermissions(),
 						})
 					}
 				}
@@ -948,6 +954,12 @@ func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, 
 		{code: "security.correction", roleAllows: false},
 		{code: "security.guest_book", roleAllows: false},
 		{code: "resident.profile_photo.manage", roleAllows: false},
+		{code: "patrol.create", roleAllows: false},
+		{code: "patrol.read", roleAllows: false},
+		{code: "patrol.template.manage", roleAllows: false},
+		{code: "paket.create", roleAllows: false},
+		{code: "paket.read", roleAllows: false},
+		{code: "paket.status_change", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)

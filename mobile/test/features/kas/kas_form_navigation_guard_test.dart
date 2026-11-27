@@ -14,8 +14,10 @@ import 'package:social_finance/features/dashboard/presentation/screens/dashboard
 import 'package:social_finance/features/fund_location/data/fund_location_api_client.dart';
 import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
-import 'package:social_finance/features/iuran/data/iuran_api_client.dart' as iuran_api;
-import 'package:social_finance/features/iuran/data/iuran_api_models.dart' as iuran_models;
+import 'package:social_finance/features/iuran/data/iuran_api_client.dart'
+    as iuran_api;
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart'
+    as iuran_models;
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_form_screen.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_payment_screen.dart';
@@ -194,11 +196,11 @@ class _FakeKasApiClient implements KasApiClient {
 
 class _FakeFundLocationRepository extends FundLocationRepository {
   _FakeFundLocationRepository()
-      : super(
-          apiClient: FundLocationApiClient(
-            dio: Dio(BaseOptions(baseUrl: 'http://test.local')),
-          ),
-        );
+    : super(
+        apiClient: FundLocationApiClient(
+          dio: Dio(BaseOptions(baseUrl: 'http://test.local')),
+        ),
+      );
 
   @override
   Future<List<FundLocation>> fetchLocations({
@@ -254,8 +256,16 @@ rp.ProviderScope _buildTestApp(_FakeKasApiClient kasApiClient) {
 
 Future<void> _openKasTab(WidgetTester tester) async {
   final kasTab = find.byKey(const Key('nav-item-kas'));
-  await tester.ensureVisible(kasTab);
-  await tester.tap(kasTab);
+  if (kasTab.evaluate().isEmpty) {
+    final menuTab = find.byKey(const Key('nav-item-menu'));
+    if (menuTab.evaluate().isNotEmpty) {
+      await tester.tap(menuTab);
+      await tester.pumpAndSettle();
+    }
+  }
+  final foundKasTab = find.byKey(const Key('nav-item-kas'));
+  await tester.ensureVisible(foundKasTab);
+  await tester.tap(foundKasTab);
   await tester.pumpAndSettle();
   expect(find.byType(KasScreen), findsOneWidget);
 }
@@ -348,6 +358,7 @@ void main() {
 
         // Tap Beranda on bottom nav
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
 
@@ -398,6 +409,7 @@ void main() {
         await tester.pump();
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
 
@@ -497,6 +509,7 @@ void main() {
         await tester.pump();
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
@@ -517,6 +530,7 @@ void main() {
         await _openKasMasukForm(tester);
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
         await tester.tap(berandaTab);
         // Second tap before pumping dialog completion
         await tester.tap(berandaTab, warnIfMissed: false);
@@ -703,7 +717,10 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.enterText(_nominalField(), '50000');
-        await tester.enterText(_keteranganField(), 'Pengeluaran konsumsi rapat');
+        await tester.enterText(
+          _keteranganField(),
+          'Pengeluaran konsumsi rapat',
+        );
         await tester.pump();
 
         final simpanKeluar = find.text('Simpan');
@@ -733,7 +750,9 @@ void main() {
         await _openKasTab(tester);
 
         // Navigate from Kas list to Beranda -> no dialog
-        await tester.tap(find.byKey(const Key('nav-item-beranda')));
+        final berandaTab = find.byKey(const Key('nav-item-beranda'));
+        await tester.ensureVisible(berandaTab);
+        await tester.tap(berandaTab);
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
         expect(find.byType(DashboardScreen), findsOneWidget);

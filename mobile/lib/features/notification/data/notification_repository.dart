@@ -359,3 +359,34 @@ final notificationSchedulesProvider =
       final repo = ref.watch(notificationRepositoryProvider);
       return repo.fetchSchedules();
     });
+
+class NotificationUnreadCountNotifier extends StateNotifier<int> {
+  final NotificationRepository _repo;
+
+  NotificationUnreadCountNotifier(this._repo) : super(0) {
+    refresh();
+  }
+
+  Future<void> refresh() async {
+    try {
+      final count = await _repo.fetchUnreadCount();
+      state = count;
+    } catch (_) {
+      // Ignore network errors or unauthenticated errors
+    }
+  }
+
+  void decrement() {
+    if (state > 0) state = state - 1;
+  }
+
+  void clear() {
+    state = 0;
+  }
+}
+
+final notificationUnreadCountProvider =
+    StateNotifierProvider<NotificationUnreadCountNotifier, int>((ref) {
+  final repo = ref.watch(notificationRepositoryProvider);
+  return NotificationUnreadCountNotifier(repo);
+});

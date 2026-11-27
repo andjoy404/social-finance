@@ -17,6 +17,11 @@ const Set<String> kIuranManagementJabatan = {
 
 bool canReadIuran(Map<String, dynamic>? user) {
   if (user == null) return false;
+  final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+  // Jabatan Sosial, Operasional, and Humas are ordinary residents who can access their own household's Iuran.
+  if (jabatan == 'sosial' || jabatan == 'operasional' || jabatan == 'humas') return true;
+  // Sekretaris RT can read their own Iuran (bills/payments).
+  // Admin Iuran operations are blocked by canManageIuran and backend authorization.
   return _roleAllowsRead(user) && _hasPermission(user, 'finance.read');
 }
 

@@ -236,10 +236,7 @@ class ApiClient {
   }
 
   static String _resolveInitialBaseUrl() {
-    if (ApiConfig.hasBaseUrl) {
-      return ApiConfig.normalizedBaseUrl;
-    }
-    return '';
+    return ApiConfig.effectiveDefaultBaseUrl;
   }
 
   /// Current configured base URL.
@@ -263,6 +260,55 @@ class ApiClient {
     _refreshGate = null;
     _refreshInFlight = false;
     setBaseUrl(newBaseUrl);
+  }
+
+  /// Performs a single-flight access token refresh shared with the 401
+  /// interceptor gate so proactive resume/startup refreshes and concurrent 401
+  /// responses never trigger duplicate `/auth/refresh` rotations.
+  ///
+  /// Returns `true` if tokens were refreshed, `false` otherwise.
+  /// Transient network/server failures preserve existing tokens and session.
+  /// Permanent refresh failures (revoked/expired refresh token) clear tokens
+  /// and invoke [onUnauthorized].
+  Future<bool> refreshAccessToken() async {
+    if (_refreshToken == null || _refreshToken!.isEmpty) {
+      return false;
+    }
+    final existingGate = _refreshGate;
+    if (existingGate != null && _refreshInFlight) {
+      final attempt = await existingGate.future;
+      return attempt.status == _RefreshStatus.refreshed &&
+          attempt.response != null;
+    }
+
+    _refreshInFlight = true;
+    final gate = Completer<_RefreshAttemptResult>();
+    _refreshGate = gate;
+
+    late final _RefreshAttemptResult attempt;
+    try {
+      attempt = await _doRefresh();
+    } catch (_) {
+      attempt = const _RefreshAttemptResult.permanentFailure();
+    } finally {
+      if (!gate.isCompleted) {
+        gate.complete(attempt);
+      }
+      _refreshInFlight = false;
+      _refreshGate = null;
+    }
+
+    if (attempt.status == _RefreshStatus.refreshed &&
+        attempt.response != null) {
+      return true;
+    }
+    if (attempt.status == _RefreshStatus.transientFailure) {
+      return false;
+    }
+    clearToken();
+    clearRefreshToken();
+    onUnauthorized?.call();
+    return false;
   }
 
   /// Performs a single refresh-token operation and classifies the outcome.

@@ -799,11 +799,13 @@ func (s *Service) CommitScheduleImport(ctx context.Context, rtID, actorID string
 			}
 			createdCount++
 		} else {
+			startPtr := &r.StartDate
+			endPtr := &r.EndDate
 			updateReq := UpdateScheduleRequest{
 				UserID:        r.OfficerUserID,
 				ShiftConfigID: r.ShiftConfigID,
-				StartDate:     r.StartDate,
-				EndDate:       r.EndDate,
+				StartDate:     startPtr,
+				EndDate:       endPtr,
 				Notes:         notesPtr,
 			}
 			if _, err := s.repo.updateSchedulePeriodTx(ctx, tx, rtID, r.ScheduleID, actorID, updateReq, start, end, now); err != nil {

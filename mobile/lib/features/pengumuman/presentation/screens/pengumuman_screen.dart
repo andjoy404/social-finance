@@ -107,7 +107,6 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     }
   }
 
-
   String? _formatWindow(CommunityAnnouncement a) =>
       scheduleWindowLabel(a.scheduledStart, a.scheduledEnd);
 
@@ -138,7 +137,12 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
@@ -187,19 +191,20 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
               ),
               child: Row(
                 children: [
-                  for (final entry in (canManage
-                      ? const [
-                          ('Semua', 'all'),
-                          ('Aktif', 'active'),
-                          ('Draf', 'draft'),
-                          ('Terjadwal', 'scheduled'),
-                          ('Diarsipkan', 'archived'),
-                        ]
-                      : const [
-                          ('Semua', 'all'),
-                          ('Aktif', 'active'),
-                          ('Riwayat', 'history'),
-                        ])) ...[
+                  for (final entry
+                      in (canManage
+                          ? const [
+                              ('Semua', 'all'),
+                              ('Aktif', 'active'),
+                              ('Draf', 'draft'),
+                              ('Terjadwal', 'scheduled'),
+                              ('Diarsipkan', 'archived'),
+                            ]
+                          : const [
+                              ('Semua', 'all'),
+                              ('Aktif', 'active'),
+                              ('Riwayat', 'history'),
+                            ])) ...[
                     ChoiceChip(
                       label: Text(entry.$1),
                       selected: _statusFilter == entry.$2,
@@ -382,12 +387,14 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
                     if (a.imageUrl != null && a.imageUrl!.isNotEmpty)
                       AppBadge(
                         label: 'Gambar Terlampir',
-                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
-                        textColor: AppColors.info,
+                        backgroundColor: AppColors.infoBlue.withValues(alpha: 0.15),
+                        textColor: AppColors.infoBlue,
                       ),
-                    if (a.deepLink != null && a.deepLink!.isNotEmpty)
+                    if (a.deepLink != null &&
+                        a.deepLink!.isNotEmpty &&
+                        formatDeepLinkDestination(a.deepLink).isNotEmpty)
                       AppBadge(
-                        label: a.deepLink!,
+                        label: formatDeepLinkDestination(a.deepLink),
                         backgroundColor: AppColors.accent.withValues(
                           alpha: 0.15,
                         ),
@@ -430,7 +437,7 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
                       icon: const Icon(
                         Icons.visibility_outlined,
                         size: 20,
-                        color: AppColors.info,
+                        color: AppColors.infoBlue,
                       ),
                       tooltip: 'Detail',
                       onPressed: () => context.push('/home/pengumuman/${a.id}'),

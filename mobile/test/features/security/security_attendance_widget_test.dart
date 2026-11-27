@@ -17,6 +17,7 @@ import 'package:social_finance/features/security/presentation/providers/security
 import 'package:social_finance/features/security/presentation/screens/pos_activation_screen.dart';
 import 'package:social_finance/features/security/presentation/screens/pos_kiosk_screen.dart';
 import 'package:social_finance/features/security/presentation/screens/security_absen_screen.dart';
+import 'package:social_finance/features/rw/data/rw_providers.dart';
 
 class _FakeAuthRepository
     extends StateNotifier<AsyncValue<Map<String, dynamic>?>?>
@@ -111,7 +112,8 @@ class _FakeSecurityApiClient extends SecurityApiClient {
           status: 'scheduled',
         ),
       ],
-      recentHistory: const [],
+      occurrences: customOccurrences,
+      recentHistory: customHistory.isNotEmpty ? customHistory : const [],
     );
   }
 
@@ -135,8 +137,52 @@ class _FakeSecurityApiClient extends SecurityApiClient {
     ),
   ];
 
+  List<AttendanceCorrection> correctionsList = [];
+  List<AttendanceRecord> customHistory = [];
+  List<OfficerShiftOccurrence> customOccurrences = [];
+  String? lastCreatedRecordId;
+  String? lastCreatedScheduleId;
+  String? lastCreatedShiftDate;
+  String? lastCreatedStatus;
+  String? lastCreatedReason;
+
   @override
-  Future<List<AttendanceCorrection>> listCorrections() async => const [];
+  Future<List<AttendanceCorrection>> listCorrections() async => correctionsList;
+
+  @override
+  Future<AttendanceCorrection> createCorrection({
+    String? attendanceRecordId,
+    String? scheduleId,
+    String? shiftDate,
+    required String requestType,
+    required String requestedStatus,
+    String? requestedCheckedInAt,
+    String? requestedCheckedOutAt,
+    required String reason,
+  }) async {
+    lastCreatedRecordId = attendanceRecordId;
+    lastCreatedScheduleId = scheduleId;
+    lastCreatedShiftDate = shiftDate;
+    lastCreatedStatus = requestedStatus;
+    lastCreatedReason = reason;
+    final created = AttendanceCorrection(
+      id: 'corr-new',
+      attendanceRecordId: attendanceRecordId ?? 'att-generated',
+      scheduleId: scheduleId ?? 'sch-today',
+      officerName: 'Pak Budi',
+      requestedBy: 'user-sec-1',
+      shiftDate: shiftDate ?? '2026-11-12',
+      shiftName: 'Shift Malam',
+      requestType: requestType,
+      originalStatus: 'terlambat',
+      requestedStatus: requestedStatus,
+      reason: reason,
+      status: 'pending',
+      createdAt: DateTime.now(),
+    );
+    correctionsList = [...correctionsList, created];
+    return created;
+  }
 
   @override
   Future<PosDeviceSession> activatePosDevice({
@@ -320,7 +366,7 @@ void main() {
       };
 
       final router = GoRouter(
-        initialLocation: '/home/warga',
+        initialLocation: '/home/patroli',
         routes: [
           ShellRoute(
             builder: (context, state, child) =>
@@ -332,11 +378,19 @@ void main() {
               ),
               GoRoute(
                 path: '/home/absen',
-                builder: (context, state) => const Text('Halaman Absen'),
+                builder: (context, state) => const Text('Halaman Absensi'),
+              ),
+              GoRoute(
+                path: '/home/patroli',
+                builder: (context, state) => const Text('Halaman Patroli'),
               ),
               GoRoute(
                 path: '/home/notifikasi',
-                builder: (context, state) => const Text('Halaman Notifikasi'),
+                builder: (context, state) => const Text('Halaman Sampah'),
+              ),
+              GoRoute(
+                path: '/home/paket',
+                builder: (context, state) => const Text('Halaman Paket'),
               ),
               GoRoute(
                 path: '/home/profile',
@@ -353,33 +407,34 @@ void main() {
             authRepositoryProvider.overrideWith(
               (_) => _FakeAuthRepository(AsyncData(securityUser)),
             ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
           ],
           child: MaterialApp.router(routerConfig: router),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Warga'), findsOneWidget);
-      expect(find.text('Absen'), findsOneWidget);
-      expect(find.text('Notifikasi'), findsOneWidget);
-      expect(find.text('Profil'), findsOneWidget);
-      expect(find.text('Sampah'), findsNothing);
-      expect(find.text('Beranda'), findsNothing);
+      // Fixed bottom nav contains Beranda and Menu
+      expect(find.byKey(const Key('nav-item-beranda')), findsOneWidget);
+      expect(find.byKey(const Key('nav-item-menu')), findsOneWidget);
 
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
-        lessThan(tester.getCenter(find.byKey(const Key('nav-item-absen'))).dx),
-      );
-      expect(
-        tester.getCenter(find.byKey(const Key('nav-item-absen'))).dx,
-        lessThan(
-          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
-        ),
-      );
-
-      await tester.tap(find.byKey(const Key('nav-item-absen')));
+      // Open collapsed menu grid
+      await tester.tap(find.byKey(const Key('nav-item-menu')));
       await tester.pumpAndSettle();
-      expect(find.text('Halaman Absen'), findsOneWidget);
+
+      expect(find.text('Warga'), findsOneWidget);
+      expect(find.text('Absensi'), findsOneWidget);
+      expect(find.text('Patroli'), findsOneWidget);
+      expect(find.text('Sampah'), findsOneWidget);
+      expect(find.text('Paket'), findsOneWidget);
+      expect(find.text('Profil'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('nav-item-patroli')));
+      await tester.pumpAndSettle();
+      expect(find.text('Halaman Patroli'), findsOneWidget);
     },
   );
 
@@ -400,6 +455,10 @@ void main() {
             authRepositoryProvider.overrideWith(
               (_) => _FakeAuthRepository(AsyncData(securityUser)),
             ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
             securityApiClientProvider.overrideWithValue(fakeApi),
           ],
           child: const MaterialApp(home: SecurityAbsenScreen()),
@@ -542,6 +601,282 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'Next date shift remains available and previous completed shift does not lock out next day',
+    (tester) async {
+      final fakeApi = _FakeSecurityApiClient();
+      // Configure overview for Day 2:
+      // Yesterday (Day 1) was completed and is in recent history, but today has no record yet.
+      final securityUser = {
+        'id': 'user-sec-1',
+        'name': 'Pak Budi',
+        'role': AppRole.warga,
+        'jabatan': 'keamanan',
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith(
+              (_) => _FakeAuthRepository(AsyncData(securityUser)),
+            ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
+            securityApiClientProvider.overrideWithValue(fakeApi),
+          ],
+          child: const MaterialApp(home: SecurityAbsenScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Today's shift should have Scan QR button available
+      expect(find.text('Scan QR untuk Check-In'), findsOneWidget);
+      expect(find.text('Absensi shift ini telah selesai.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Security officer can access manual correction, validate reason, submit correction, and view pending request in history',
+    (tester) async {
+      final fakeApi = _FakeSecurityApiClient();
+      final securityUser = {
+        'id': 'user-sec-1',
+        'name': 'Pak Budi',
+        'role': AppRole.warga,
+        'jabatan': 'keamanan',
+      };
+
+      // Populate history with an eligible attendance record from yesterday
+      fakeApi.customHistory = [
+        AttendanceRecord(
+          id: 'att-hist-1',
+          rtId: 'rt-002',
+          scheduleId: 'sch-today',
+          userId: 'user-sec-1',
+          officerName: 'Pak Budi',
+          shiftConfigId: 'shift-malam',
+          shiftVersion: 1,
+          shiftDate: '2026-11-11',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'terlambat',
+          statusLabel: 'Terlambat',
+          lateMinutes: 25,
+          correctionLocked: false,
+          checkedInAt: DateTime(2026, 11, 11, 20, 25),
+        ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith(
+              (_) => _FakeAuthRepository(AsyncData(securityUser)),
+            ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
+            securityApiClientProvider.overrideWithValue(fakeApi),
+          ],
+          child: const MaterialApp(home: SecurityAbsenScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 1. Switch to 'Riwayat & Koreksi' tab
+      await tester.tap(find.text('Riwayat & Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 2. Verify attendance record is displayed in history with Koreksi button
+      expect(find.text('2026-11-11 · Shift Malam'), findsOneWidget);
+      expect(find.text('Terlambat'), findsOneWidget);
+      final koreksiBtn = find.widgetWithText(TextButton, 'Koreksi');
+      expect(koreksiBtn, findsOneWidget);
+
+      // 3. Tap 'Koreksi' button to open dialog
+      await tester.tap(koreksiBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ajukan Koreksi Absensi'), findsOneWidget);
+      expect(find.text('2026-11-11 · Shift Malam (Terlambat)'), findsOneWidget);
+
+      // 4. Test validation error: submit without reason
+      final submitBtn = find.widgetWithText(ElevatedButton, 'Kirim Koreksi');
+      await tester.tap(submitBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alasan koreksi wajib diisi.'), findsOneWidget);
+
+      // 5. Open dialog again and provide valid reason and status
+      await tester.tap(koreksiBtn);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Lupa scan pulang karena patroli darurat',
+      );
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kirim Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 6. Verify API was called with exact record ID and reason
+      expect(fakeApi.lastCreatedRecordId, 'att-hist-1');
+      expect(fakeApi.lastCreatedReason, 'Lupa scan pulang karena patroli darurat');
+
+      // 7. Verify newly created correction is now listed in history with pending status
+      expect(find.textContaining('Status: pending'), findsOneWidget);
+      expect(
+        find.textContaining('Alasan: Lupa scan pulang karena patroli darurat'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'SecurityAbsenScreen renders occurrences for [-1, H, +1, +2] and supports occurrence-based correction',
+    (tester) async {
+      final fakeApi = _FakeSecurityApiClient();
+      final securityUser = {
+        'id': 'user-sec-1',
+        'name': 'Pak Budi',
+        'role': AppRole.warga,
+        'jabatan': 'keamanan',
+      };
+
+      fakeApi.customOccurrences = [
+        const OfficerShiftOccurrence(
+          dateLabel: 'kemarin',
+          dateLabelId: 'Kemarin',
+          shiftDate: '2026-11-11',
+          scheduleId: 'sch-kemarin',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: true,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'hari_ini',
+          dateLabelId: 'Hari Ini',
+          shiftDate: '2026-11-12',
+          scheduleId: 'sch-today',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: true,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'besok',
+          dateLabelId: 'Besok',
+          shiftDate: '2026-11-13',
+          scheduleId: 'sch-besok',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+        const OfficerShiftOccurrence(
+          dateLabel: 'lusa',
+          dateLabelId: 'Lusa',
+          shiftDate: '2026-11-14',
+          scheduleId: 'sch-lusa',
+          shiftConfigId: 'shift-malam',
+          shiftName: 'Shift Malam',
+          startTime: '20:00:00',
+          endTime: '06:00:00',
+          crossesMidnight: true,
+          status: 'belum_hadir',
+          statusLabel: 'Belum Hadir',
+          canCheckIn: false,
+          canCheckOut: false,
+          canCorrect: false,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith(
+              (_) => _FakeAuthRepository(AsyncData(securityUser)),
+            ),
+            securityAlertsDataProvider.overrideWith(
+              (ref) async => const SecurityAlertsData(),
+            ),
+            securityAlertsProvider.overrideWith((ref) async => false),
+            securityApiClientProvider.overrideWithValue(fakeApi),
+          ],
+          child: const MaterialApp(home: SecurityAbsenScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 1. Verify occurrences are listed in Absen & Jadwal tab
+      expect(
+        find.text('Jadwal Shift (Kemarin, Hari Ini, Besok, Lusa)'),
+        findsOneWidget,
+      );
+      expect(find.text('Kemarin (2026-11-11)'), findsOneWidget);
+      expect(find.text('Hari Ini (2026-11-12)'), findsOneWidget);
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Besok (2026-11-13)'), findsOneWidget);
+      expect(find.text('Lusa (2026-11-14)'), findsOneWidget);
+
+      // 2. Switch to Riwayat & Koreksi tab
+      await tester.tap(find.text('Riwayat & Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 3. Verify Pelaksanaan Shift (Kemarin & Hari Ini) is visible with Ajukan Koreksi button on Kemarin
+      expect(
+        find.text('Pelaksanaan Shift (Kemarin & Hari Ini)'),
+        findsOneWidget,
+      );
+      expect(find.text('Kemarin (2026-11-11) · Shift Malam'), findsOneWidget);
+      final ajukanBtn = find.widgetWithText(TextButton, 'Ajukan Koreksi');
+      expect(ajukanBtn, findsOneWidget);
+
+      // 4. Tap 'Ajukan Koreksi' and submit with reason
+      await tester.tap(ajukanBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ajukan Koreksi Absensi'), findsOneWidget);
+      await tester.enterText(
+        find.byType(TextField),
+        'Hadir bertugas namun sistem error',
+      );
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kirim Koreksi'));
+      await tester.pumpAndSettle();
+
+      // 5. Verify API called with scheduleId and shiftDate
+      expect(fakeApi.lastCreatedScheduleId, 'sch-kemarin');
+      expect(fakeApi.lastCreatedShiftDate, '2026-11-11');
+      expect(fakeApi.lastCreatedReason, 'Hadir bertugas namun sistem error');
     },
   );
 }

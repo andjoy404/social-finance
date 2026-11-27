@@ -180,15 +180,21 @@ func (s *Service) ListActivities(ctx context.Context, rtID, pubStatus, status st
 	if !isOfficer {
 		pubStatus = "published"
 	}
-	activities, total, err := s.repo.ListActivities(ctx, nil, rtID, pubStatus, status, limit, offset)
+
+	// Check if user can see archived activities
+	includeArchived := status == "archived"
+
+	activities, total, err := s.repo.ListActivities(ctx, nil, rtID, pubStatus, status, includeArchived, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Compute dynamic status based on time
-	now := time.Now()
-	for i := range activities {
-		activities[i].Status = activityDynamicStatus(&activities[i], now)
+	// Compute dynamic status based on time (skip for archived results)
+	if status != "archived" {
+		now := time.Now()
+		for i := range activities {
+			activities[i].Status = activityDynamicStatus(&activities[i], now)
+		}
 	}
 
 	return activities, total, nil
@@ -462,9 +468,9 @@ func (s *Service) DeleteActivity(ctx context.Context, rtID, id string) error {
 		return ErrNotFound
 	}
 	// Only drafts may be hard-deleted. Published activities must be
-	// cancelled instead so published history is preserved.
+	// cancelled or archived instead so published history is preserved.
 	if existing.PublicationStatus != "draft" {
-		return fmt.Errorf("%w: only draft activities can be deleted; cancel published activities instead", ErrValidation)
+		return fmt.Errorf("%w: only draft activities can be deleted; cancel or archive published activities instead", ErrValidation)
 	}
 
 	tx, err := s.repo.BeginTx(ctx)
@@ -481,6 +487,72 @@ func (s *Service) DeleteActivity(ctx context.Context, rtID, id string) error {
 			return ErrNotFound
 		}
 		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Service) ArchiveActivity(ctx context.Context, rtID, id, userID string) error {
+	existing, err := s.repo.GetActivityByID(ctx, nil, rtID, id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrNotFound
+	}
+	// Archived activities cannot be re-archived; use unarchive first.
+	if existing.ArchivedAt != nil {
+		return fmt.Errorf("%w: activity is already archived", ErrValidation)
+	}
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.repo.ArchiveActivity(ctx, tx, rtID, id, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+	// Hide the banner but keep the row (publish history) intact.
+	if err := s.repo.DeactivateBannerBySource(ctx, tx, rtID, "activity", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Service) UnarchiveActivity(ctx context.Context, rtID, id, userID string) error {
+	existing, err := s.repo.GetActivityByID(ctx, nil, rtID, id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrNotFound
+	}
+	// Only archived activities can be unarchived.
+	if existing.ArchivedAt == nil {
+		return fmt.Errorf("%w: activity is not archived", ErrValidation)
+	}
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.repo.UnarchiveActivity(ctx, tx, rtID, id, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+	// Re-activate banner if the activity is published.
+	if existing.PublicationStatus == "published" && existing.ShowOnBanner {
+		if err := s.syncActivityBanner(ctx, tx, existing); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -1070,7 +1142,9 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 		greeting = "Selamat Malam"
 	}
 
-	// 5. Security on-duty info (officers actually on duty now; backed by Security Attendance module)
+	// 5. Security on-duty info (officers actually on duty now; backed by Security Attendance module).
+	// Contact privacy: phone/email are Warga PII and must only be returned to exact RT jabatan ketua.
+	// No bypass via role, generic permission, RW membership, org structure, or Super Admin.
 	securityInfo := SecurityOnDutyInfo{
 		IsAvailable: false,
 		Message:     "Tidak ada petugas keamanan yang sedang bertugas.",
@@ -1078,14 +1152,16 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 	}
 	if s.onDutyReader != nil {
 		if officers, err := s.onDutyReader(ctx, rtID); err == nil && len(officers) > 0 {
-			// Officers who are actually on duty are shown as an emergency
-			// hotline: their phone number is exposed to every authenticated
-			// member of the RT. Callers need not hold
-			// organization.contact.read (that permission only governs the
-			// personal data of the organization structure, not the duty hotline).
+			redacted := make([]SecurityOfficer, 0, len(officers))
+			for _, o := range officers {
+				if !canViewContact {
+					o.PhoneNumber = nil
+				}
+				redacted = append(redacted, o)
+			}
 			securityInfo.IsAvailable = true
 			securityInfo.Message = "Petugas keamanan sedang bertugas."
-			securityInfo.Officers = officers
+			securityInfo.Officers = redacted
 		}
 	}
 

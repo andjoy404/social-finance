@@ -134,7 +134,7 @@ Color getStatusColor(IuranStatus status, BuildContext context) {
     IuranStatus.belumBayar => AppColors.danger,
     IuranStatus.sebagian => AppColors.warning,
     IuranStatus.lunas => AppColors.success,
-    IuranStatus.sukarela => AppColors.info,
+    IuranStatus.sukarela => AppColors.infoBlue,
   };
 }
 

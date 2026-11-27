@@ -356,6 +356,10 @@ void main() {
     // Tap Batal without Save
     await tester.tap(find.text('Batal').last);
     await tester.pumpAndSettle();
+    if (find.text('Ya, Batalkan').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Ya, Batalkan'));
+      await tester.pumpAndSettle();
+    }
 
     // No API call
     expect(repo.updatePeriodCalls, isEmpty);
@@ -394,7 +398,7 @@ void main() {
     await _openEditMultiMonth(tester, repo);
 
     // Verify dialog opened
-    expect(find.text('Edit Iuran'), findsOneWidget);
+    expect(find.text('Ubah Iuran'), findsOneWidget);
 
     // Verify 12 switches render
     expect(find.byType(Switch), findsNWidgets(12));
@@ -557,7 +561,7 @@ void main() {
     expect(find.textContaining('2/3 periode berhasil disimpan'), findsOneWidget);
 
     // Dialog remains open (not false success)
-    expect(find.text('Edit Iuran'), findsOneWidget);
+    expect(find.text('Ubah Iuran'), findsOneWidget);
 
     // Period 1 and 3 succeeded on server, Period 2 was not saved
     expect(repo._monthActiveState['2026-01'], false);
@@ -588,7 +592,7 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
     // Dialog is dismissed
-    expect(find.text('Edit Iuran'), findsNothing);
+    expect(find.text('Ubah Iuran'), findsNothing);
 
     // updateDue was called with isActive: false
     expect(repo.updateDueCalls, hasLength(1));

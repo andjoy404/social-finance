@@ -5,6 +5,7 @@ import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
@@ -251,12 +252,12 @@ class _DispatchCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      resolvedImage,
+                    child: AuthenticatedNetworkImage(
+                      imageUrl: resolvedImage,
                       height: 150,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      errorWidget: const SizedBox.shrink(),
                     ),
                   ),
                 ],
@@ -348,19 +349,12 @@ class _DispatchDetailScreen extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  resolvedImage,
+                child: AuthenticatedNetworkImage(
+                  imageUrl: resolvedImage,
                   height: 240,
                   width: double.infinity,
                   fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return const SizedBox(
-                      height: 240,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  },
-                  errorBuilder: (_, _, _) => const _ImageUnavailable(
+                  errorWidget: const _ImageUnavailable(
                     message: 'Foto gagal dimuat atau URL tidak valid.',
                   ),
                 ),
@@ -402,13 +396,10 @@ class _FullImageScreen extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.8,
           maxScale: 5,
-          child: Image.network(
-            imageUrl,
+          child: AuthenticatedNetworkImage(
+            imageUrl: imageUrl,
             fit: BoxFit.contain,
-            loadingBuilder: (context, child, progress) => progress == null
-                ? child
-                : const CircularProgressIndicator(color: Colors.white),
-            errorBuilder: (_, _, _) => const _ImageUnavailable(
+            errorWidget: const _ImageUnavailable(
               message: 'Foto tidak dapat dimuat.',
               dark: true,
             ),

@@ -367,6 +367,23 @@ class RwApiClient {
     return RwNotificationLogsPage.fromJson(data);
   }
 
+  Future<RwNotificationLogsPage> getNotificationLogsMine(
+    String rwId, {
+    int page = 1,
+    int pageSize = 20,
+    String? eventType,
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'page_size': pageSize,
+    };
+    if (eventType != null && eventType.isNotEmpty) query['event_type'] = eventType;
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/mine';
+    final response = await _apiClient.get(url, queryParameters: query);
+    final data = response.data as Map<String, dynamic>;
+    return RwNotificationLogsPage.fromJson(data);
+  }
+
   Future<int> sendManualPush(String rwId, {required String title, required String body}) async {
     final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/manual';
     final response = await _apiClient.post(url, data: {'title': title, 'body': body});
@@ -398,18 +415,60 @@ class RwApiClient {
     required String eventType,
     required String title,
     required String body,
+    String? imageUrl,
     String channel = 'push',
   }) async {
     final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/templates';
-    final response = await _apiClient.post(url, data: {
+    final payload = <String, dynamic>{
       'name': name,
       'event_type': eventType,
       'channel': channel,
       'title': title,
       'body': body,
-    });
+    };
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      payload['image_url'] = imageUrl;
+    }
+    final response = await _apiClient.post(url, data: payload);
     final data = response.data as Map<String, dynamic>;
     return RwNotificationTemplate.fromJson((data['data'] as Map).cast<String, dynamic>());
+  }
+
+  Future<RwNotificationTemplate> updateNotificationTemplate(
+    String rwId,
+    String templateId, {
+    String? name,
+    String? title,
+    String? body,
+    String? imageUrl,
+    bool? isActive,
+  }) async {
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/templates/${Uri.encodeComponent(templateId)}';
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (title != null) payload['title'] = title;
+    if (body != null) payload['body'] = body;
+    if (imageUrl != null) payload['image_url'] = imageUrl;
+    if (isActive != null) payload['is_active'] = isActive;
+    final response = await _apiClient.put(url, data: payload);
+    final data = response.data as Map<String, dynamic>;
+    return RwNotificationTemplate.fromJson((data['data'] as Map).cast<String, dynamic>());
+  }
+
+  Future<String> uploadNotificationImage(
+    String rwId, {
+    required String eventType,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/upload-image';
+    final formData = FormData.fromMap({
+      'event_type': eventType,
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _apiClient.dio.post(url, data: formData);
+    final data = response.data as Map<String, dynamic>;
+    return (data['image_url'] ?? data['data']?['image_url'] ?? '').toString();
   }
 
   Future<RwNotificationTemplate> toggleNotificationTemplate(String rwId, String templateId) async {
@@ -458,6 +517,23 @@ class RwApiClient {
       return (inner['sent_count'] as num).toInt();
     }
     return 0;
+  }
+
+  Future<int> getRWUnreadCount(String rwId) async {
+    try {
+      final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/notifications/unread-count';
+      final response = await _apiClient.get(url);
+      final data = response.data;
+      if (data != null) {
+        final inner = data['data'];
+        if (inner is Map && inner['unread_count'] != null) {
+          return (inner['unread_count'] as num).toInt();
+        }
+      }
+      return 0;
+    } catch (_) {
+      return 0;
+    }
   }
 }
 
