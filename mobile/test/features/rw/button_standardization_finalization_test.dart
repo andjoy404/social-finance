@@ -367,6 +367,10 @@ void main() {
           // Close Masuk dialog and verify Catat KAS Keluar RW too
           await tester.tap(find.text('Batal'));
           await tester.pumpAndSettle();
+          if (find.text('Ya, Batalkan').evaluate().isNotEmpty) {
+            await tester.tap(find.text('Ya, Batalkan'));
+            await tester.pumpAndSettle();
+          }
 
           final keluarBtn = find.text('Catat Kas Keluar');
           await tester.ensureVisible(keluarBtn);
@@ -385,6 +389,10 @@ void main() {
 
           await tester.tap(find.text('Batal'));
           await tester.pumpAndSettle();
+          if (find.text('Ya, Batalkan').evaluate().isNotEmpty) {
+            await tester.tap(find.text('Ya, Batalkan'));
+            await tester.pumpAndSettle();
+          }
 
           // 2) Inspect RW Notification Tambah Template & Ubah Template dialogs on narrow 320px screen
           await tester.binding.setSurfaceSize(const Size(320, 740));
@@ -466,6 +474,10 @@ void main() {
 
           await tester.tap(find.text('Batal'));
           await tester.pumpAndSettle();
+          if (find.text('Ya, Batalkan').evaluate().isNotEmpty) {
+            await tester.tap(find.text('Ya, Batalkan'));
+            await tester.pumpAndSettle();
+          }
 
           // Open Ubah Template (existing image -> previously showed "Ganti dari Galeri")
           final editBtn = find.byKey(const Key('rwNotifTplEdit_t-img'));
@@ -484,6 +496,10 @@ void main() {
 
           await tester.tap(find.text('Batal'));
           await tester.pumpAndSettle();
+          if (find.text('Ya, Batalkan').evaluate().isNotEmpty) {
+            await tester.tap(find.text('Ya, Batalkan'));
+            await tester.pumpAndSettle();
+          }
         }
       },
     );

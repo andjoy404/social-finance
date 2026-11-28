@@ -133,7 +133,7 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
                                         monthLabel,
                                         style: widget.theme.textTheme.bodySmall
                                             ?.copyWith(
-                                          fontSize: 11,
+                                          fontSize: constraints.maxWidth < 300 ? 9.5 : 11,
                                         ),
                                       ),
                                     ),
@@ -178,7 +178,7 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
                             },
                           ),
                           borderData: FlBorderData(show: false),
-                          barGroups: _buildBarGroups(),
+                          barGroups: _buildBarGroups(constraints.maxWidth),
                         ),
                       ),
                       if (hasTooltipGroup)
@@ -290,8 +290,15 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
     );
   }
 
-  List<BarChartGroupData> _buildBarGroups() {
-    return List.generate(widget.summary.monthlyData.length, (index) {
+  List<BarChartGroupData> _buildBarGroups(double chartWidth) {
+    final count = widget.summary.monthlyData.length;
+    const leftAxisWidth = 38.0;
+    final plotWidth = (chartWidth - leftAxisWidth).clamp(1.0, double.infinity);
+    final slotWidth = count > 0 ? (plotWidth / count) : 20.0;
+    final rodWidth = (slotWidth * 0.28).clamp(4.0, 12.0);
+    final barsSpace = (rodWidth * 0.35).clamp(1.5, 4.0);
+
+    return List.generate(count, (index) {
       final point = widget.summary.monthlyData[index];
       final isHovered = _hoveredIndex == index;
       return BarChartGroupData(
@@ -302,7 +309,7 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
             color: isHovered
                 ? AppColors.seed.withValues(alpha: 0.30)
                 : AppColors.income,
-            width: 12,
+            width: rodWidth,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
             backDrawRodData: BackgroundBarChartRodData(
               show: true,
@@ -317,7 +324,7 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
             color: isHovered
                 ? AppColors.seed.withValues(alpha: 0.30)
                 : AppColors.expense,
-            width: 12,
+            width: rodWidth,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
             backDrawRodData: BackgroundBarChartRodData(
               show: true,
@@ -328,17 +335,19 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
             ),
           ),
         ],
-        barsSpace: 4,
+        barsSpace: barsSpace,
       );
     });
   }
 
   Widget _buildLegend() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 20,
+      runSpacing: 8,
       children: [
         _LegendItem(color: AppColors.income, label: 'Pemasukan'),
-        const SizedBox(width: 24),
         _LegendItem(color: AppColors.expense, label: 'Pengeluaran'),
       ],
     );

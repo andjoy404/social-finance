@@ -353,10 +353,9 @@ void main() {
     await tester.pump();
     final bottomNav = find.byType(BottomAppBar);
     expect(find.descendant(of: bottomNav, matching: find.text('Beranda')), findsOneWidget);
-    expect(find.descendant(of: bottomNav, matching: find.text('Kas')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Keuangan')), findsOneWidget);
     expect(find.descendant(of: bottomNav, matching: find.text('Iuran')), findsOneWidget);
-    expect(find.descendant(of: bottomNav, matching: find.text('Warga')), findsOneWidget);
-    expect(find.descendant(of: bottomNav, matching: find.text('Profil')), findsOneWidget);
+    expect(find.descendant(of: bottomNav, matching: find.text('Menu')), findsOneWidget);
   });
 
   // ── Dashboard scrolling at narrow phone width ──

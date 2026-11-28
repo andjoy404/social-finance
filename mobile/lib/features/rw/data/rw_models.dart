@@ -237,7 +237,11 @@ class RwTransaction {
       try {
         return DateTime.parse(s);
       } catch (_) {
-        return DateTime.now();
+        try {
+          return DateTime.parse(s.replaceFirst(' ', 'T'));
+        } catch (_) {
+          return DateTime.now();
+        }
       }
     }
 
@@ -364,7 +368,11 @@ class RwFundLocation {
       try {
         return DateTime.parse(s);
       } catch (_) {
-        return DateTime.now();
+        try {
+          return DateTime.parse(s.replaceFirst(' ', 'T'));
+        } catch (_) {
+          return DateTime.now();
+        }
       }
     }
 
@@ -483,7 +491,11 @@ class RwFundTransfer {
       try {
         return DateTime.parse(s);
       } catch (_) {
-        return DateTime.now();
+        try {
+          return DateTime.parse(s.replaceFirst(' ', 'T'));
+        } catch (_) {
+          return DateTime.now();
+        }
       }
     }
 
@@ -540,7 +552,11 @@ class RwLocationMutation {
       try {
         return DateTime.parse(s);
       } catch (_) {
-        return DateTime.now();
+        try {
+          return DateTime.parse(s.replaceFirst(' ', 'T'));
+        } catch (_) {
+          return DateTime.now();
+        }
       }
     }
 

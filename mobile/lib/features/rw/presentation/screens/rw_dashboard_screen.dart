@@ -72,31 +72,12 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
       final api = ref.read(rwApiClientProvider);
       final periodStr = _formatPeriod();
 
-      // Read-only RT officials (rt_inferred membership) may only read Beranda
-      // (rw.dashboard.read). KAS/transaction endpoints require rw.kas.read and
-      // are denied by the backend — mirror the web, which also renders Beranda
-      // without transactions for these users.
-      final user = ref.read(authRepositoryProvider)?.valueOrNull;
-      final hasFeatureAccess =
-          rwMembershipHasFeatureAccess(user, widget.rwId);
-
       final dashboardFuture = api.getDashboard(
         widget.rwId,
         period: periodStr,
       );
 
       Future<RwTransactionsResponse> fetchRecentTx() async {
-        if (!hasFeatureAccess) {
-          return const RwTransactionsResponse(
-            data: [],
-            pagination: RwPaginationInfo(
-              page: 1,
-              pageSize: 5,
-              total: 0,
-              totalPages: 0,
-            ),
-          );
-        }
         try {
           return await api.getTransactions(
             rwId: widget.rwId,
@@ -118,17 +99,6 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
       }
 
       Future<RwTransactionsResponse> fetchYearTx() async {
-        if (!hasFeatureAccess) {
-          return const RwTransactionsResponse(
-            data: [],
-            pagination: RwPaginationInfo(
-              page: 1,
-              pageSize: 100,
-              total: 0,
-              totalPages: 0,
-            ),
-          );
-        }
         try {
           return await api.getTransactions(
             rwId: widget.rwId,
