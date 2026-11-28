@@ -3,6 +3,7 @@ import { CheckCircleOutlined, CloseCircleOutlined, SwapOutlined, SendOutlined, H
 import { apiDecideSecurityCorrection } from './securityApi'
 import type { AttendanceCorrection } from './securityApi'
 import { useState, type CSSProperties } from 'react'
+import { useAntdModalGuard } from '@/hooks/useUnsavedChangesGuard'
 
 type StatusTone = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
@@ -112,6 +113,16 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
   const [confirmAction, setConfirmAction] = useState<'approve' | 'reject' | null>(null)
   const [decisionNote, setDecisionNote] = useState('')
 
+  const decisionGuard = useAntdModalGuard({
+    open: confirmAction !== null,
+    isDirty: confirmAction !== null && decisionNote.trim().length > 0,
+    isSaving: deciding !== null,
+    onClose: () => {
+      setConfirmAction(null)
+      setDecisionNote('')
+    },
+  })
+
   if (!correction) return null
 
   const isPending = correction.status === 'pending'
@@ -131,10 +142,12 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
       const cleanedNote = noteText?.trim()
       await apiDecideSecurityCorrection(correction.id, approve, cleanedNote ? cleanedNote : undefined)
       message.success(approve ? 'Koreksi disetujui' : 'Koreksi ditolak')
-      setConfirmAction(null)
-      setDecisionNote('')
-      onRefresh()
-      onClose()
+      decisionGuard.exitAfterSave(() => {
+        setConfirmAction(null)
+        setDecisionNote('')
+        onRefresh()
+        onClose()
+      })
     } catch (e: any) {
       message.error(e?.message || 'Gagal memproses keputusan')
     } finally {
@@ -405,12 +418,10 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
         cancelText="Batal"
         confirmLoading={deciding !== null}
         okButtonProps={confirmAction === 'reject' ? { danger: true } : undefined}
-        onCancel={() => {
-          if (deciding === null) {
-            setConfirmAction(null)
-            setDecisionNote('')
-          }
-        }}
+        onCancel={decisionGuard.onCancel}
+        keyboard={decisionGuard.keyboard}
+        maskClosable={decisionGuard.maskClosable}
+        closable={decisionGuard.closable}
         onOk={() => {
           if (confirmAction) {
             void handleDecide(confirmAction === 'approve', decisionNote)
@@ -445,6 +456,7 @@ export function CorrectionDetailModal({ open, correction, onClose, onRefresh, ca
           onChange={(e) => setDecisionNote(e.target.value)}
         />
       </Modal>
+      {decisionGuard.confirmModal}
     </>
   )
 }

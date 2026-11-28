@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
@@ -15,6 +15,7 @@ import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { SummaryCard } from '@/components/SummaryCard'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import type { IuranStatus } from './iuranTypes'
 import {
   BACKEND_STATUS_MAP,
@@ -1269,6 +1270,19 @@ export function IuranDetail({
   const [reversingLoading, setReversingLoading] = useState(false)
   const [reversalError, setReversalError] = useState('')
 
+  const reversalGuard = useUnsavedChangesGuard({
+    active: Boolean(reversingPayment),
+    isDirty: Boolean(reversingPayment) && reversalReason.trim().length > 0,
+    isSaving: reversingLoading,
+  })
+  const handleCloseReversal = useCallback(() => {
+    void reversalGuard.guardedClose(() => {
+      setReversingPayment(null)
+      setReversalReason('')
+      setReversalError('')
+    })
+  }, [reversalGuard])
+
   useEffect(() => {
     const token = getSessionPair()?.accessToken
     if (token) {
@@ -1443,8 +1457,10 @@ export function IuranDetail({
       const token = getSessionPair()?.accessToken
       if (!token) throw new Error('Sesi telah berakhir. Silakan login ulang.')
       await apiReversePayment(token, reversingPayment.id, reversalReason.trim())
-      setReversingPayment(null)
-      setReversalReason('')
+      reversalGuard.exitAfterSave(() => {
+        setReversingPayment(null)
+        setReversalReason('')
+      })
       await loadBill()
       onStatusChange?.()
     } catch (err: any) {
@@ -1681,8 +1697,8 @@ export function IuranDetail({
 
         {/* Reversal Confirmation Modal in Modal Mode */}
         {reversingPayment && (
-          <Modal open onClose={() => setReversingPayment(null)} width={460}>
-            <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={() => setReversingPayment(null)} />
+          <Modal open onClose={handleCloseReversal} width={460}>
+            <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={handleCloseReversal} />
             <form onSubmit={handleReversePayment}>
               <ModalBody>
                 <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--sf-text)' }}>
@@ -1708,12 +1724,13 @@ export function IuranDetail({
                 </div>
               </ModalBody>
               <ModalFooter>
-                <button type="button" className="sf-btn-ghost" onClick={() => setReversingPayment(null)}>Batal</button>
+                <button type="button" className="sf-btn-ghost" onClick={handleCloseReversal} disabled={reversingLoading}>Batal</button>
                 <button type="submit" className="sf-btn" disabled={reversingLoading} style={{ background: 'var(--sf-danger)', color: '#fff' }}>
                   {reversingLoading ? 'Memproses...' : 'Konfirmasi Reversal'}
                 </button>
               </ModalFooter>
             </form>
+            {reversalGuard.confirmModal}
           </Modal>
         )}
 
@@ -1865,8 +1882,8 @@ export function IuranDetail({
 
           {/* Reversal Confirmation Modal in Page Mode */}
           {reversingPayment && (
-            <Modal open onClose={() => setReversingPayment(null)} width={460}>
-              <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={() => setReversingPayment(null)} />
+            <Modal open onClose={handleCloseReversal} width={460}>
+              <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={handleCloseReversal} />
               <form onSubmit={handleReversePayment}>
                 <ModalBody>
                   <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--sf-text)' }}>
@@ -1892,12 +1909,13 @@ export function IuranDetail({
                   </div>
                 </ModalBody>
                 <ModalFooter>
-                  <button type="button" className="sf-btn-ghost" onClick={() => setReversingPayment(null)}>Batal</button>
+                  <button type="button" className="sf-btn-ghost" onClick={handleCloseReversal} disabled={reversingLoading}>Batal</button>
                   <button type="submit" className="sf-btn" disabled={reversingLoading} style={{ background: 'var(--sf-danger)', color: '#fff' }}>
                     {reversingLoading ? 'Memproses...' : 'Konfirmasi Reversal'}
                   </button>
                 </ModalFooter>
               </form>
+              {reversalGuard.confirmModal}
             </Modal>
           )}
 
@@ -1962,6 +1980,39 @@ function VerificationDialog({
     }
     return ''
   })
+  const initialSnapshotRef = useRef({
+    officerNotes,
+    selectedLocationId: eligibleLocations.length === 1 ? eligibleLocations[0].id : '',
+    actualReceivedDate: todayStr,
+  })
+  const isSubmitting = verifyingId === verifyingPayment.id
+  const isDirty = canApprove && isSnapshotDirty(
+    { officerNotes, selectedLocationId, actualReceivedDate },
+    initialSnapshotRef.current,
+  )
+  const { guardedClose, confirmModal } = useUnsavedChangesGuard({
+    active: true,
+    isDirty,
+    isSaving: isSubmitting,
+  })
+  const handleClose = useCallback(() => {
+    void guardedClose(() => {
+      onNotesChange('')
+      onClose()
+    })
+  }, [guardedClose, onClose, onNotesChange])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleClose])
+
   return (
     <div
       style={{
@@ -1976,7 +2027,7 @@ function VerificationDialog({
         zIndex: 1100,
         padding: '16px',
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         style={{
@@ -2015,7 +2066,8 @@ function VerificationDialog({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={isSubmitting}
             style={{
               background: 'none',
               border: 'none',
@@ -2321,7 +2373,8 @@ function VerificationDialog({
         >
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={isSubmitting}
             style={{
               padding: '8px 16px',
               fontSize: '13px',
@@ -2397,6 +2450,7 @@ function VerificationDialog({
           )}
         </div>
       </div>
+      {confirmModal}
     </div>
   )
 }

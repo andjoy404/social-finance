@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -41,9 +40,30 @@ class _SpecialResidentCreateScreenState
   String? _error;
   List<String> _validationErrors = [];
 
+  static const String _routePath = '/home/warga/baru/petugas';
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'jabatan': _jabatan,
+    'fullName': _fullNameCtrl.text,
+    'nik': _nikCtrl.text,
+    'phone': _phoneCtrl.text,
+    'email': _emailCtrl.text,
+    'password': _passwordCtrl.text,
+    'isActive': _isActive,
+    'selectedRtId': _selectedRtId,
+  };
+
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => _saving,
+    );
     _nikCtrl.addListener(() {
       if (_nikCtrl.text.length > 16) {
         _nikCtrl.text = _nikCtrl.text.substring(0, 16);
@@ -56,10 +76,12 @@ class _SpecialResidentCreateScreenState
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _fullNameCtrl.dispose();
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -160,19 +182,12 @@ class _SpecialResidentCreateScreenState
             backgroundColor: AppColors.success,
           ),
         );
-        // Successful save — allow the subsequent pop through the route guard.
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/home/warga');
-          }
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Successful save — exit via official guard path without dialog.
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -184,10 +199,14 @@ class _SpecialResidentCreateScreenState
     }
   }
 
-  /// Show confirmation dialog before canceling the form.
+  /// Show confirmation dialog before canceling the form if dirty.
   /// Used by AppBar back, Android system back, and the Batal button.
   Future<void> _confirmCancel() async {
-    await KasFormNavigationGuard.requestFormCancel(context);
+    await FormNavigationGuard.requestFormCancel(
+      context,
+      routePath: _routePath,
+      fallbackRoute: '/home/warga',
+    );
   }
 
   @override

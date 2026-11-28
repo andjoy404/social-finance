@@ -8,10 +8,9 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -83,17 +82,39 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
   XFile? _proofFile;
   String? _proofPreviewPath;
 
+  static const String _routePath = '/home/kas/keluar';
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'tanggal': _tanggalCtrl.text,
+    'nominal': _nominalCtrl.text,
+    'keterangan': _keteranganCtrl.text,
+    'selectedCategoryId': _selectedCategoryId,
+    'selectedExpenseCategory': _selectedExpenseCategory,
+    'selectedLocationId': _selectedLocationId,
+    'paymentMethod': _paymentMethod,
+    'proofPreviewPath': _proofPreviewPath,
+  };
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _tanggalCtrl.text =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => _saving,
+    );
     _loadCategories();
   }
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _tanggalCtrl.dispose();
     _nominalCtrl.dispose();
     _keteranganCtrl.dispose();
@@ -123,12 +144,16 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       } catch (_) {}
 
       if (mounted) {
+        final wasDirty = _snapshot.isDirty(_currentValues());
         setState(() {
           _expenseCategories = expenseCats;
-          _selectedCategoryId = defaultId;
+          _selectedCategoryId ??= defaultId;
           _locations = locs;
           _loadingCategories = false;
         });
+        if (!wasDirty) {
+          _snapshot.reset(_currentValues());
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -258,15 +283,13 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        // Refresh parent KAS list by popping with success
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          context.pop(true);
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Refresh parent KAS list by popping with success via official guard path
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/kas',
+          result: true,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -328,7 +351,11 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await KasFormNavigationGuard.requestFormCancel(context);
+        await FormNavigationGuard.requestFormCancel(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/kas',
+        );
       },
       child: Scaffold(
         appBar: AppBar(
@@ -755,7 +782,11 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     child: ElevatedButton(
       onPressed: _saving
           ? null
-          : () => KasFormNavigationGuard.requestFormCancel(context),
+          : () => FormNavigationGuard.requestFormCancel(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/kas',
+            ),
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,

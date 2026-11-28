@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useState, useCallback, type MouseEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, hasPermission, type RWMembership } from '@/app/AuthContext'
+import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext'
 import { DownOutlined } from '@ant-design/icons'
 import {
   MenuFoldOutlined,
@@ -52,6 +53,27 @@ type NavItem = {
 export function Sidebar() {
   const { user } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
+  const unsavedGuard = useUnsavedChangesContext()
+
+  const handleLinkClick = useCallback(
+    (e: MouseEvent<HTMLAnchorElement>, to: string) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+        return
+      }
+      if (location.pathname === to) return
+      if (!unsavedGuard) return
+      if (unsavedGuard.isAnySaving()) {
+        e.preventDefault()
+        return
+      }
+      if (unsavedGuard.isAnyDirty()) {
+        e.preventDefault()
+        void unsavedGuard.confirmNavigation(() => navigate(to))
+      }
+    },
+    [location.pathname, navigate, unsavedGuard],
+  )
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem('sf_sidebar_collapsed')
@@ -312,6 +334,7 @@ export function Sidebar() {
                 <div key={item.id}>
                   <Link
                     to={item.to}
+                    onClick={(e) => handleLinkClick(e, item.to)}
                     className={`nav-item${active ? ' nav-item-active' : ''}`}
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                   >
@@ -331,6 +354,7 @@ export function Sidebar() {
                         <Link
                           key={m.rw_id}
                           to={rwPath}
+                          onClick={(e) => handleLinkClick(e, rwPath)}
                           className={`nav-item${rwActive ? ' nav-item-active' : ''}`}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '6px 8px' }}
                         >
@@ -351,6 +375,7 @@ export function Sidebar() {
               <Link
                 key={item.id}
                 to={item.to}
+                onClick={(e) => handleLinkClick(e, item.to)}
                 className={`nav-item${active ? ' nav-item-active' : ''}`}
               >
                 <span className="nav-item-icon">{item.icon}</span>

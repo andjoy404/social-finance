@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -966,62 +967,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
 
   // --- Dialogs & Operations ---
 
-  Future<bool> _confirmCancel(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text(
-          'Perubahan yang belum disimpan akan hilang.',
-        ),
-        actions: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    key: const Key('fund-cancel-stay'),
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B7280),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Tetap di Halaman'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    key: const Key('fund-cancel-confirm'),
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.danger,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Ya, Batalkan'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-    return confirmed == true;
-  }
+  Future<bool> _confirmCancel(BuildContext context) =>
+      FormNavigationGuard.confirm(context);
 
   void _showAddLocationDialog(BuildContext context) {
     final nameCtrl = TextEditingController();
@@ -1059,7 +1006,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
             }
 
             return PopScope(
-              canPop: !isDirty() && !saving,
+              canPop: false,
               onPopInvokedWithResult: (didPop, result) async {
                 if (didPop) return;
                 await handleCancel();
@@ -1346,7 +1293,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
             }
 
             return PopScope(
-              canPop: !isDirty() && !saving,
+              canPop: false,
               onPopInvokedWithResult: (didPop, result) async {
                 if (didPop) return;
                 await handleCancel();
@@ -1684,7 +1631,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
             );
 
             return PopScope(
-              canPop: !isDirty() && !saving,
+              canPop: false,
               onPopInvokedWithResult: (didPop, result) async {
                 if (didPop) return;
                 await handleCancel();
@@ -2011,7 +1958,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
             }
 
             return PopScope(
-              canPop: !isDirty() && !saving,
+              canPop: false,
               onPopInvokedWithResult: (didPop, result) async {
                 if (didPop) return;
                 await handleCancel();
@@ -2150,51 +2097,62 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     final reasonCtrl = TextEditingController();
     bool submitting = false;
     String? error;
+    final snapshot = FormSnapshot({'reason': ''});
+    bool isDirty() => snapshot.isDirty({'reason': reasonCtrl.text});
 
     showDialog(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Batalkan Transfer (Reversal)'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (error != null) ...[
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => submitting,
+              child: AlertDialog(
+                title: const Text('Batalkan Transfer (Reversal)'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (error != null) ...[
+                        Text(
+                          error!,
+                          style: const TextStyle(color: AppColors.danger),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       Text(
-                        error!,
-                        style: const TextStyle(color: AppColors.danger),
+                        'Transfer sebesar ${formatRupiah(transfer.amountRupiah)} dari "${transfer.fromLocationName}" ke "${transfer.toLocationName}" akan dibalikkan.',
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reasonCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Alasan Pembatalan (Wajib, min. 5 karakter)',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 2,
+                      ),
                     ],
-                    Text(
-                      'Transfer sebesar ${formatRupiah(transfer.amountRupiah)} dari "${transfer.fromLocationName}" ke "${transfer.toLocationName}" akan dibalikkan.',
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: reasonCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Alasan Pembatalan (Wajib, min. 5 karakter)',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 2,
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.danger,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
                   ),
-                  onPressed: submitting ? null : () => Navigator.pop(dialogCtx),
-                  child: const Text('Batal'),
                 ),
+                actions: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                    onPressed: submitting
+                        ? null
+                        : () => FormNavigationGuard.requestModalClose(
+                            dialogCtx,
+                            isDirty: isDirty(),
+                            isSaving: submitting,
+                          ),
+                    child: const Text('Batal'),
+                  ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.danger,
@@ -2261,6 +2219,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         ),
                 ),
               ],
+            ),
             );
           },
         );

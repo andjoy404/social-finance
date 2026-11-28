@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/app/app.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/notification/push_notification_service.dart';
 import 'package:social_finance/core/utils/jakarta_time_utils.dart';
@@ -828,9 +829,28 @@ class _NotificationManagementScreenState
       }
     }
 
+    final templateSnap = FormSnapshot({
+      'name': nameController.text,
+      'title': titleController.text,
+      'body': bodyController.text,
+      'image': imageController.text,
+      'event': selectedEvent,
+      'pickedBytes': pickedImageBytes,
+    });
+    bool isTemplateDirty() => templateSnap.isDirty({
+      'name': nameController.text,
+      'title': titleController.text,
+      'body': bodyController.text,
+      'image': imageController.text,
+      'event': selectedEvent,
+      'pickedBytes': pickedImageBytes,
+    });
+    bool isSavingTemplate = false;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return StatefulBuilder(
@@ -851,10 +871,13 @@ class _NotificationManagementScreenState
               ),
             );
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
+            return GuardedFormModalScope(
+              isDirty: isTemplateDirty,
+              isSaving: () => isSavingTemplate || isUploadingImage,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                ),
               child: Container(
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.of(ctx).size.height * 0.85,
@@ -1505,7 +1528,13 @@ class _NotificationManagementScreenState
                             child: SizedBox(
                               height: 48,
                               child: ElevatedButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
+                                onPressed: (isSavingTemplate || isUploadingImage)
+                                    ? null
+                                    : () => FormNavigationGuard.requestModalClose(
+                                        ctx,
+                                        isDirty: isTemplateDirty(),
+                                        isSaving: isSavingTemplate || isUploadingImage,
+                                      ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.danger,
                                   foregroundColor: Colors.white,
@@ -1518,7 +1547,9 @@ class _NotificationManagementScreenState
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () async {
+                              onPressed: (isSavingTemplate || isUploadingImage)
+                                  ? null
+                                  : () async {
                                 final name = nameController.text.trim();
                                 final title = titleController.text.trim();
                                 final body = bodyController.text.trim();
@@ -1543,6 +1574,7 @@ class _NotificationManagementScreenState
                                     : null;
 
                                 final messenger = ScaffoldMessenger.of(context);
+                                setSheetState(() => isSavingTemplate = true);
                                 try {
                                   final repo = ref.read(
                                     notificationRepositoryProvider,
@@ -1579,6 +1611,9 @@ class _NotificationManagementScreenState
                                     ),
                                   );
                                 } catch (e) {
+                                  if (ctx.mounted) {
+                                    setSheetState(() => isSavingTemplate = false);
+                                  }
                                   if (!mounted) return;
                                   messenger.showSnackBar(
                                     SnackBar(content: Text(e.toString())),
@@ -1597,6 +1632,7 @@ class _NotificationManagementScreenState
                     ],
                   ),
                 ),
+              ),
               ),
             );
           },
@@ -3121,6 +3157,41 @@ class _NotificationManagementScreenState
 
     if (!mounted) return;
 
+    final activeTemplatesInitial = templates.where((t) => t.isActive).toList();
+    if (selectedTemplateId == null && activeTemplatesInitial.isNotEmpty) {
+      selectedTemplateId = activeTemplatesInitial.first.id;
+    } else if (selectedTemplateId != null &&
+        !activeTemplatesInitial.any((t) => t.id == selectedTemplateId)) {
+      selectedTemplateId = activeTemplatesInitial.isNotEmpty
+          ? activeTemplatesInitial.first.id
+          : null;
+    }
+
+    final scheduleSnap = FormSnapshot({
+      'name': nameCtrl.text,
+      'timezone': timezoneCtrl.text,
+      'selectedDays': selectedDays.toList()..sort(),
+      'sendHour': sendHour,
+      'sendMinute': sendMinute,
+      'isActive': isActive,
+      'activityId': selectedActivityId,
+      'executionAt': executionAt,
+      'eventType': selectedEventType,
+      'templateId': selectedTemplateId,
+    });
+    bool isScheduleDirty() => scheduleSnap.isDirty({
+      'name': nameCtrl.text,
+      'timezone': timezoneCtrl.text,
+      'selectedDays': selectedDays.toList()..sort(),
+      'sendHour': sendHour,
+      'sendMinute': sendMinute,
+      'isActive': isActive,
+      'activityId': selectedActivityId,
+      'executionAt': executionAt,
+      'eventType': selectedEventType,
+      'templateId': selectedTemplateId,
+    });
+
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -3136,8 +3207,12 @@ class _NotificationManagementScreenState
                   : null;
             }
 
-            return AlertDialog(
-              title: Text(isEdit ? 'Ubah Jadwal' : 'Buat Jadwal Baru'),
+            return GuardedFormModalScope(
+              isDirty: isScheduleDirty,
+              isSaving: () => _isSavingSchedule,
+              popResult: false,
+              child: AlertDialog(
+                title: Text(isEdit ? 'Ubah Jadwal' : 'Buat Jadwal Baru'),
               content: SizedBox(
                 width: 440,
                 child: SingleChildScrollView(
@@ -3425,7 +3500,14 @@ class _NotificationManagementScreenState
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  onPressed: _isSavingSchedule
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogContext,
+                          isDirty: isScheduleDirty(),
+                          isSaving: _isSavingSchedule,
+                          result: false,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -3588,6 +3670,7 @@ class _NotificationManagementScreenState
                       : Text(isEdit ? 'Simpan Perubahan' : 'Buat Jadwal'),
                 ),
               ],
+            ),
             );
           },
         );

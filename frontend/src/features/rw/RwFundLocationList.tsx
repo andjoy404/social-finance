@@ -9,7 +9,7 @@
  *   - Rekonsiliasi Saldo Kas vs Total Lokasi
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   BankOutlined,
   WalletOutlined,
@@ -24,8 +24,10 @@ import {
   PoweroffOutlined,
 } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
+import { Modal } from '@/components/Modal'
 import { SearchBox } from '@/components/SearchBox'
 import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
@@ -133,6 +135,96 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
   const [actionError, setActionError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const defaultCreateForm = {
+    name: '',
+    category: 'rekening' as 'rekening' | 'brankas' | 'coh',
+    bank_name: '',
+    account_number: '',
+    account_holder: '',
+  }
+  const defaultTransferForm = {
+    from_location_id: '',
+    to_location_id: '',
+    amount: '',
+    notes: '',
+  }
+  const editingInitialRef = useRef<{
+    name: string
+    bank_name: string
+    account_number: string
+    account_holder: string
+  } | null>(null)
+  const allocateInitialRef = useRef({ location_id: '', amount: '', notes: '' })
+
+  const createGuard = useUnsavedChangesGuard({
+    active: showCreateModal,
+    isDirty: showCreateModal && isSnapshotDirty(createForm, defaultCreateForm),
+    isSaving: submitting,
+  })
+  const editGuard = useUnsavedChangesGuard({
+    active: Boolean(editingLocation),
+    isDirty: Boolean(editingLocation) && isSnapshotDirty(
+      {
+        name: editingLocation?.name || '',
+        bank_name: editingLocation?.bank_name || '',
+        account_number: editingLocation?.account_number || '',
+        account_holder: editingLocation?.account_holder || '',
+      },
+      editingInitialRef.current,
+    ),
+    isSaving: submitting,
+  })
+  const transferGuard = useUnsavedChangesGuard({
+    active: showTransferModal,
+    isDirty: showTransferModal && isSnapshotDirty(transferForm, defaultTransferForm),
+    isSaving: submitting,
+  })
+  const allocateGuard = useUnsavedChangesGuard({
+    active: showAllocateModal,
+    isDirty: showAllocateModal && isSnapshotDirty(allocateForm, allocateInitialRef.current),
+    isSaving: submittingAllocate,
+  })
+  const reversalGuard = useUnsavedChangesGuard({
+    active: Boolean(reversingTransfer),
+    isDirty: Boolean(reversingTransfer) && reversalReason.trim().length > 0,
+    isSaving: submittingReversal,
+  })
+
+  const closeCreateModal = () => {
+    void createGuard.guardedClose(() => {
+      setShowCreateModal(false)
+      setCreateForm(defaultCreateForm)
+      setActionError(null)
+    })
+  }
+  const closeEditModal = () => {
+    void editGuard.guardedClose(() => {
+      setEditingLocation(null)
+      editingInitialRef.current = null
+      setActionError(null)
+    })
+  }
+  const closeTransferModal = () => {
+    void transferGuard.guardedClose(() => {
+      setShowTransferModal(false)
+      setTransferForm(defaultTransferForm)
+      setActionError(null)
+    })
+  }
+  const closeAllocateModal = () => {
+    void allocateGuard.guardedClose(() => {
+      setShowAllocateModal(false)
+      setAllocateError(null)
+    })
+  }
+  const closeReversalModal = () => {
+    void reversalGuard.guardedClose(() => {
+      setReversingTransfer(null)
+      setReversalReason('')
+      setReversalError(null)
+    })
+  }
+
   const loadData = useCallback(async () => {
     const token = getSessionPair()?.accessToken
     if (!token) return
@@ -236,13 +328,15 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
         account_number: createForm.account_number.trim() || undefined,
         account_holder: createForm.account_holder.trim() || undefined,
       })
-      setShowCreateModal(false)
-      setCreateForm({
-        name: '',
-        category: 'rekening',
-        bank_name: '',
-        account_number: '',
-        account_holder: '',
+      createGuard.exitAfterSave(() => {
+        setShowCreateModal(false)
+        setCreateForm({
+          name: '',
+          category: 'rekening',
+          bank_name: '',
+          account_number: '',
+          account_holder: '',
+        })
       })
       loadData()
     } catch (err: any) {
@@ -271,7 +365,10 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
         account_number: editingLocation.account_number?.trim() || undefined,
         account_holder: editingLocation.account_holder?.trim() || undefined,
       })
-      setEditingLocation(null)
+      editGuard.exitAfterSave(() => {
+        setEditingLocation(null)
+        editingInitialRef.current = null
+      })
       loadData()
     } catch (err: any) {
       setActionError(err?.message || 'Gagal memperbarui lokasi dana RW')
@@ -338,12 +435,14 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
         transfer_date: dateStr,
         notes: transferForm.notes.trim() || undefined,
       })
-      setShowTransferModal(false)
-      setTransferForm({
-        from_location_id: '',
-        to_location_id: '',
-        amount: '',
-        notes: '',
+      transferGuard.exitAfterSave(() => {
+        setShowTransferModal(false)
+        setTransferForm({
+          from_location_id: '',
+          to_location_id: '',
+          amount: '',
+          notes: '',
+        })
       })
       loadData()
     } catch (err: any) {
@@ -354,11 +453,13 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
   }
 
   const openAllocationModal = () => {
-    setAllocateForm({
+    const init = {
       location_id: activeLocations.length > 0 ? activeLocations[0].id : '',
       amount: '',
       notes: '',
-    })
+    }
+    allocateInitialRef.current = init
+    setAllocateForm(init)
     setAllocateError(null)
     setShowAllocateModal(true)
   }
@@ -392,11 +493,13 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
         amount: `${amt.toFixed(2)}`,
         notes: allocateForm.notes.trim() || undefined,
       })
-      setShowAllocateModal(false)
-      setAllocateForm({
-        location_id: activeLocations.length > 0 ? activeLocations[0].id : '',
-        amount: '',
-        notes: '',
+      allocateGuard.exitAfterSave(() => {
+        setShowAllocateModal(false)
+        setAllocateForm({
+          location_id: activeLocations.length > 0 ? activeLocations[0].id : '',
+          amount: '',
+          notes: '',
+        })
       })
       loadData()
       // Refresh reconciliation data to show updated unallocated balance
@@ -479,7 +582,10 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
     setReversalError(null)
     try {
       await apiReverseRWTransfer(token, rwId, reversingTransfer.id, reversalReason.trim())
-      setReversingTransfer(null)
+      reversalGuard.exitAfterSave(() => {
+        setReversingTransfer(null)
+        setReversalReason('')
+      })
       // Refresh transfers list
       const updatedTransfers = await apiListRWTransfers(token, rwId)
       setTransfers(updatedTransfers)
@@ -844,6 +950,12 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                               className="sf-btn sf-btn-outline sf-btn-sm"
                               onClick={() => {
                                 setActionError(null)
+                                editingInitialRef.current = {
+                                  name: loc.name || '',
+                                  bank_name: loc.bank_name || '',
+                                  account_number: loc.account_number || '',
+                                  account_holder: loc.account_holder || '',
+                                }
                                 setEditingLocation({ ...loc })
                               }}
                               title="Edit"
@@ -874,11 +986,10 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
 
       {/* Modal: Tambah Lokasi */}
       {showCreateModal && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 480 }}>
+        <Modal open onClose={closeCreateModal} width={480}>
             <div className="sf-modal-header">
               <h3>Tambah Lokasi Dana RW</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setShowCreateModal(false)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeCreateModal} disabled={submitting}>✕</button>
             </div>
             <form onSubmit={handleCreateLocation}>
               <div className="sf-modal-body">
@@ -943,23 +1054,21 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 )}
               </div>
               <div className="sf-modal-footer">
-                <button type="button" className="sf-btn sf-btn-outline" onClick={() => setShowCreateModal(false)}>Batal</button>
+                <button type="button" className="sf-btn sf-btn-outline" onClick={closeCreateModal} disabled={submitting}>Batal</button>
                 <button type="submit" className="sf-btn sf-btn-primary" disabled={submitting}>
                   {submitting ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Edit Lokasi */}
       {editingLocation && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 480 }}>
+        <Modal open onClose={closeEditModal} width={480}>
             <div className="sf-modal-header">
               <h3>Edit Lokasi Dana: {editingLocation.name}</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setEditingLocation(null)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeEditModal} disabled={submitting}>✕</button>
             </div>
             <form onSubmit={handleUpdateLocation}>
               <div className="sf-modal-body">
@@ -1007,23 +1116,21 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 )}
               </div>
               <div className="sf-modal-footer">
-                <button type="button" className="sf-btn sf-btn-outline" onClick={() => setEditingLocation(null)}>Batal</button>
+                <button type="button" className="sf-btn sf-btn-outline" onClick={closeEditModal} disabled={submitting}>Batal</button>
                 <button type="submit" className="sf-btn sf-btn-primary" disabled={submitting}>
                   {submitting ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Transfer Antar-Lokasi */}
       {showTransferModal && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 480 }}>
+        <Modal open onClose={closeTransferModal} width={480}>
             <div className="sf-modal-header">
               <h3>Transfer Antar-Lokasi RW</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setShowTransferModal(false)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeTransferModal} disabled={submitting}>✕</button>
             </div>
             <form onSubmit={handleTransfer}>
               <div className="sf-modal-body">
@@ -1087,23 +1194,21 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 </div>
               </div>
               <div className="sf-modal-footer">
-                <button type="button" className="sf-btn sf-btn-outline" onClick={() => setShowTransferModal(false)}>Batal</button>
+                <button type="button" className="sf-btn sf-btn-outline" onClick={closeTransferModal} disabled={submitting}>Batal</button>
                 <button type="submit" className="sf-btn sf-btn-primary" disabled={submitting}>
                   {submitting ? 'Memproses...' : 'Kirim Transfer'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Alokasi Saldo Awal */}
       {showAllocateModal && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 480 }}>
+        <Modal open onClose={closeAllocateModal} width={480}>
             <div className="sf-modal-header">
               <h3>Alokasi Saldo Awal Kas Historis</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setShowAllocateModal(false)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeAllocateModal} disabled={submittingAllocate}>✕</button>
             </div>
             <div className="sf-modal-body">
               <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 12 }}>
@@ -1160,13 +1265,12 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
               </form>
             </div>
             <div className="sf-modal-footer">
-              <button type="button" className="sf-btn sf-btn-outline" onClick={() => setShowAllocateModal(false)}>Batal</button>
+              <button type="button" className="sf-btn sf-btn-outline" onClick={closeAllocateModal} disabled={submittingAllocate}>Batal</button>
               <button type="submit" className="sf-btn sf-btn-primary" disabled={submittingAllocate}>
                 {submittingAllocate ? 'Memproses...' : 'Simpan Alokasi'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Riwayat Mutasi */}
@@ -1414,11 +1518,10 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
 
       {/* Modal: Konfirmasi Reversal Transfer */}
       {reversingTransfer && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 450 }}>
+        <Modal open onClose={closeReversalModal} width={450}>
             <div className="sf-modal-header">
               <h3 style={{ color: 'var(--sf-danger)' }}>Batalkan Transfer (Reversal)</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setReversingTransfer(null)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeReversalModal} disabled={submittingReversal}>✕</button>
             </div>
             <form onSubmit={handleConfirmReverse}>
               <div className="sf-modal-body">
@@ -1459,7 +1562,7 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 <button
                   type="button"
                   className="sf-btn sf-btn-outline"
-                  onClick={() => setReversingTransfer(null)}
+                  onClick={closeReversalModal}
                   disabled={submittingReversal}
                 >
                   Batal
@@ -1474,9 +1577,13 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
+      {createGuard.confirmModal}
+      {editGuard.confirmModal}
+      {transferGuard.confirmModal}
+      {allocateGuard.confirmModal}
+      {reversalGuard.confirmModal}
     </>
   )
 }

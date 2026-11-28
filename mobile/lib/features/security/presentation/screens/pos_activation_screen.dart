@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/storage/app_storage.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/url_utils.dart';
@@ -18,28 +19,49 @@ class PosActivationScreen extends ConsumerStatefulWidget {
 }
 
 class _PosActivationScreenState extends ConsumerState<PosActivationScreen> {
+  static const String _routePath = '/pos/activate';
+
   final _serverCtrl = TextEditingController();
   final _tokenCtrl = TextEditingController();
   String? _error;
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'server': _serverCtrl.text,
+    'token': _tokenCtrl.text,
+  };
+
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => ref.read(posSessionProvider).loading,
+    );
     _prefillServerUrl();
   }
 
   Future<void> _prefillServerUrl() async {
     final lastUrl = await SharedPrefsStorage().getLastApiUrl();
     if (!mounted) return;
+    final wasDirty = _snapshot.isDirty(_currentValues());
     if (lastUrl != null && lastUrl.isNotEmpty) {
       _serverCtrl.text = lastUrl;
     } else {
       _serverCtrl.text = ApiConfig.effectiveDefaultBaseUrl;
     }
+    if (!wasDirty) {
+      _snapshot.reset(_currentValues());
+    }
   }
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _serverCtrl.dispose();
     _tokenCtrl.dispose();
     super.dispose();
@@ -71,24 +93,44 @@ class _PosActivationScreenState extends ConsumerState<PosActivationScreen> {
           .read(posSessionProvider.notifier)
           .activate(serverUrl: serverUrl, pairingToken: pairingToken);
       if (!mounted) return;
-      context.go('/pos');
+      FormNavigationGuard.allowExitFor(_routePath);
+      try {
+        context.go('/pos');
+      } catch (_) {
+        FormNavigationGuard.revokeExitFor(_routePath);
+        rethrow;
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
   }
 
+  Future<void> _handleCancel() async {
+    await FormNavigationGuard.requestFormCancel(
+      context,
+      routePath: _routePath,
+      onPop: () => context.go('/login'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final posState = ref.watch(posSessionProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Aktivasi Perangkat Pos'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/login'),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _handleCancel();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Aktivasi Perangkat Pos'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: posState.loading ? null : _handleCancel,
+          ),
         ),
-      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -168,6 +210,7 @@ class _PosActivationScreenState extends ConsumerState<PosActivationScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

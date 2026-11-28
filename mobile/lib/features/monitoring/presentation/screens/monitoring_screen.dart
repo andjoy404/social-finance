@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
@@ -710,8 +711,11 @@ class _NoteDialogState extends State<_NoteDialog> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(
+    return GuardedFormModalScope(
+      isDirty: () => _controller.text.isNotEmpty,
+      isSaving: () => false,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       title: Text(
@@ -754,7 +758,11 @@ class _NoteDialogState extends State<_NoteDialog> {
               fontSize: 14,
             ),
           ),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => FormNavigationGuard.requestModalClose(
+            context,
+            isDirty: _controller.text.isNotEmpty,
+            isSaving: false,
+          ),
           child: const Text('Batal'),
         ),
         ElevatedButton(
@@ -780,6 +788,7 @@ class _NoteDialogState extends State<_NoteDialog> {
           child: const Text('Simpan'),
         ),
       ],
+      ),
     );
   }
 }

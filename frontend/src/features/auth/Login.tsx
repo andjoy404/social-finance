@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, apiResetPasswordWithCode } from '@/app/api'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { MailOutlined, LockOutlined, EyeOutlined, EyeInvisibleOutlined, KeyOutlined } from '@ant-design/icons'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import logoAnimated from '@/assets/logo-animated.gif'
 import logoStatic from '@/assets/logo.png'
 
@@ -53,6 +54,25 @@ export function Login() {
   const [resetSuccess, setResetSuccess] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
   const [showResetNewPassword, setShowResetNewPassword] = useState(false)
+  const resetInitialRef = useRef({
+    resetIdentifier: '',
+    resetCode: '',
+    resetNewPassword: '',
+    resetConfirmPassword: '',
+  })
+
+  const resetDirty = showResetModal && !resetSuccess && isSnapshotDirty(
+    { resetIdentifier, resetCode, resetNewPassword, resetConfirmPassword },
+    resetInitialRef.current,
+  )
+  const resetGuard = useUnsavedChangesGuard({
+    active: showResetModal,
+    isDirty: resetDirty,
+    isSaving: resetLoading,
+  })
+  const closeResetModal = () => {
+    void resetGuard.guardedClose(() => setShowResetModal(false))
+  }
 
   if (isAuthenticated) {
     navigate('/', { replace: true })
@@ -84,6 +104,12 @@ export function Login() {
       if (err instanceof ApiError) {
         switch (err.code) {
           case 'reset_code_entered':
+            resetInitialRef.current = {
+              resetIdentifier: email.trim(),
+              resetCode: password.trim(),
+              resetNewPassword: '',
+              resetConfirmPassword: '',
+            }
             setResetIdentifier(email.trim())
             setResetCode(password.trim())
             setShowResetModal(true)
@@ -267,7 +293,14 @@ export function Login() {
             <button
               type="button"
               onClick={() => {
-                setResetIdentifier(email.trim())
+                const initId = email.trim()
+                resetInitialRef.current = {
+                  resetIdentifier: initId,
+                  resetCode: '',
+                  resetNewPassword: '',
+                  resetConfirmPassword: '',
+                }
+                setResetIdentifier(initId)
                 setResetCode('')
                 setResetNewPassword('')
                 setResetConfirmPassword('')
@@ -299,8 +332,8 @@ export function Login() {
           </button>
         </form>
 
-        <Modal open={showResetModal} onClose={() => !resetLoading && setShowResetModal(false)} width={460}>
-          <ModalHeader title="Reset Kata Sandi Warga" onClose={() => !resetLoading && setShowResetModal(false)} />
+        <Modal open={showResetModal} onClose={closeResetModal} width={460}>
+          <ModalHeader title="Reset Kata Sandi Warga" onClose={closeResetModal} />
           <form onSubmit={handleResetSubmit}>
             <ModalBody>
               <div style={{ fontSize: 13, color: 'var(--sf-text-muted, #94a3b8)', marginBottom: 16 }}>
@@ -429,7 +462,7 @@ export function Login() {
               <button
                 type="button"
                 className="sf-btn-ghost"
-                onClick={() => setShowResetModal(false)}
+                onClick={closeResetModal}
                 disabled={resetLoading}
               >
                 Batal
@@ -443,6 +476,7 @@ export function Login() {
               </button>
             </ModalFooter>
           </form>
+          {resetGuard.confirmModal}
         </Modal>
       </div>
     </div>

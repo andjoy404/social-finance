@@ -254,7 +254,7 @@ void main() {
       expect(find.text('Perubahan yang belum disimpan akan hilang.'), findsOneWidget);
 
       // Tap Tetap di Halaman
-      await tester.tap(find.byKey(const Key('fund-cancel-stay')));
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
       await tester.pumpAndSettle();
 
       // Confirmation closes, form remains with input preserved
@@ -291,7 +291,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Tap Ya, Batalkan
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
 
       // Both dialogs closed, no repo call
@@ -328,7 +328,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Confirm cancel to clean up
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
       expect(find.text('Tambah Lokasi Dana'), findsNothing);
     });
@@ -473,7 +473,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Tap Tetap di Halaman
-      await tester.tap(find.byKey(const Key('fund-cancel-stay')));
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
       await tester.pumpAndSettle();
 
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
@@ -511,7 +511,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Tap Ya, Batalkan
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
 
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
@@ -548,7 +548,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Confirm cancel to clean up
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
       expect(find.text('Ubah Lokasi Dana'), findsNothing);
     });
@@ -684,7 +684,7 @@ void main() {
       expect(find.text('Perubahan yang belum disimpan akan hilang.'), findsOneWidget);
 
       // Tap Tetap di Halaman
-      await tester.tap(find.byKey(const Key('fund-cancel-stay')));
+      await tester.tap(find.byKey(const Key('kas-cancel-stay')));
       await tester.pumpAndSettle();
 
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
@@ -723,7 +723,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Tap Ya, Batalkan
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
 
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
@@ -758,7 +758,7 @@ void main() {
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
       // Confirm cancel to clean up
-      await tester.tap(find.byKey(const Key('fund-cancel-confirm')));
+      await tester.tap(find.byKey(const Key('kas-cancel-confirm')));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
     });

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/providers/theme_provider.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -511,6 +512,11 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
   bool _loading = false;
   String? _errorMessage;
 
+  bool get _isDirty =>
+      _currentController.text.isNotEmpty ||
+      _newController.text.isNotEmpty ||
+      _confirmController.text.isNotEmpty;
+
   @override
   void dispose() {
     _currentController.dispose();
@@ -576,8 +582,11 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return AlertDialog(
-      title: const Text('Ubah Kata Sandi'),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading,
+      child: AlertDialog(
+        title: const Text('Ubah Kata Sandi'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -662,7 +671,13 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
             foregroundColor: Colors.white,
             elevation: 0,
           ),
-          onPressed: _loading ? null : () => Navigator.of(context).pop(),
+          onPressed: _loading
+              ? null
+              : () => FormNavigationGuard.requestModalClose(
+                  context,
+                  isDirty: _isDirty,
+                  isSaving: _loading,
+                ),
           child: const Text('Batal'),
         ),
         FilledButton(
@@ -683,6 +698,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               : const Text('Simpan'),
         ),
       ],
+      ),
     );
   }
 }
@@ -708,6 +724,8 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
   late final TextEditingController _phoneController;
   bool _loading = false;
   String? _errorMessage;
+
+  bool get _isDirty => _phoneController.text != widget.currentPhone;
 
   @override
   void initState() {
@@ -769,8 +787,11 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return AlertDialog(
-      title: const Text('Ubah Nomor Telepon'),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading,
+      child: AlertDialog(
+        title: const Text('Ubah Nomor Telepon'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -815,7 +836,13 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
             foregroundColor: Colors.white,
             elevation: 0,
           ),
-          onPressed: _loading ? null : () => Navigator.of(context).pop(),
+          onPressed: _loading
+              ? null
+              : () => FormNavigationGuard.requestModalClose(
+                  context,
+                  isDirty: _isDirty,
+                  isSaving: _loading,
+                ),
           child: const Text('Batal'),
         ),
         FilledButton(
@@ -836,6 +863,7 @@ class _EditPhoneDialogState extends State<_EditPhoneDialog> {
               : const Text('Simpan'),
         ),
       ],
+      ),
     );
   }
 }
@@ -861,6 +889,8 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
   late final TextEditingController _emailController;
   bool _loading = false;
   String? _errorMessage;
+
+  bool get _isDirty => _emailController.text != widget.currentEmail;
 
   @override
   void initState() {
@@ -924,8 +954,11 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return AlertDialog(
-      title: const Text('Ubah Email'),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading,
+      child: AlertDialog(
+        title: const Text('Ubah Email'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -970,7 +1003,13 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
             foregroundColor: Colors.white,
             elevation: 0,
           ),
-          onPressed: _loading ? null : () => Navigator.of(context).pop(),
+          onPressed: _loading
+              ? null
+              : () => FormNavigationGuard.requestModalClose(
+                  context,
+                  isDirty: _isDirty,
+                  isSaving: _loading,
+                ),
           child: const Text('Batal'),
         ),
         FilledButton(
@@ -991,6 +1030,7 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
               : const Text('Simpan'),
         ),
       ],
+      ),
     );
   }
 }

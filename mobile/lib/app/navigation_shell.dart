@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/utils/permissions.dart';
@@ -663,10 +663,11 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final location = _currentLocation(context);
     final prevLocation = _lastLocation;
     _lastLocation = location;
-    if (prevLocation != null &&
-        prevLocation != location &&
-        (prevLocation.startsWith('/rw/') || location.startsWith('/rw/'))) {
-      invalidateUserRwUnreadCounts(ref, user);
+    if (prevLocation != null && prevLocation != location) {
+      FormNavigationGuard.clearStaleApprovedExits(activePath: location);
+      if (prevLocation.startsWith('/rw/') || location.startsWith('/rw/')) {
+        invalidateUserRwUnreadCounts(ref, user);
+      }
     }
     final bestMatch = _resolveBottomNavMatch(
       bottomTabs,
@@ -798,6 +799,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
 
     return DoubleBackExitScope(
       allowPop: !_isDirectlyOnTopLevelTab(location, allTabs),
+      onBeforeExit: () async {
+        if (!FormNavigationGuard.isFormPath(location)) return true;
+        if (FormNavigationGuard.isSaving(location)) return false;
+        if (!FormNavigationGuard.isDirty(location)) return true;
+        return FormNavigationGuard.confirm(context);
+      },
       child: Scaffold(
         key: _scaffoldKey,
         body: SafeArea(
@@ -920,6 +927,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (index >= 0 && index < tabs.length) {
       final tab = tabs[index];
       final currentLocation = _currentLocation(tapContext);
+      if (FormNavigationGuard.isSaving(currentLocation)) {
+        return;
+      }
       final authState = ref.read(authRepositoryProvider);
       final user = authState?.valueOrNull;
       final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
@@ -999,32 +1009,21 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         return;
       }
 
-      if (tab.path == '/home/notifikasi') {
-        ref.read(notificationUnreadCountProvider.notifier).refresh();
-      }
-      if (tab.path == '/home/security-management' ||
-          tab.path == '/home/absen') {
-        ref.invalidate(securityAlertsProvider);
-        ref.invalidate(securityAlertsDataProvider);
-      }
-      if (tab.path == '/home/patroli') {
-        ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
-        ref.invalidate(securityAlertsProvider);
-        ref.invalidate(securityAlertsDataProvider);
-      }
-      if (tab.path == '/home/paket') {
-        ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
-        ref.invalidate(securityAlertsProvider);
-        ref.invalidate(securityAlertsDataProvider);
-      }
-
-      // If currently on a guarded form page, always ask for confirmation
-      // before navigating away (bottom nav or drawer).
-      if (KasFormNavigationGuard.isFormPath(currentLocation)) {
-        await _confirmNavigationToTab(tabs, index, currentLocation, tapContext);
+      // If currently on a guarded form route, verify saving & dirty state
+      // BEFORE mutating read receipts or navigating away.
+      if (FormNavigationGuard.isFormPath(currentLocation)) {
+        final navigated = await _confirmNavigationToTab(
+          tabs,
+          index,
+          currentLocation,
+          tapContext,
+        );
+        if (!navigated) return;
+        _triggerTabSideEffects(tab.path);
         return;
       }
 
+      _triggerTabSideEffects(tab.path);
       if (!tapContext.mounted || !mounted) return;
       if (_scaffoldKey.currentState?.isDrawerOpen == true) {
         Navigator.of(tapContext).pop();
@@ -1033,7 +1032,27 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
   }
 
-  Future<void> _confirmNavigationToTab(
+  void _triggerTabSideEffects(String tabPath) {
+    if (tabPath == '/home/notifikasi') {
+      ref.read(notificationUnreadCountProvider.notifier).refresh();
+    }
+    if (tabPath == '/home/security-management' || tabPath == '/home/absen') {
+      ref.invalidate(securityAlertsProvider);
+      ref.invalidate(securityAlertsDataProvider);
+    }
+    if (tabPath == '/home/patroli') {
+      ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
+      ref.invalidate(securityAlertsProvider);
+      ref.invalidate(securityAlertsDataProvider);
+    }
+    if (tabPath == '/home/paket') {
+      ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
+      ref.invalidate(securityAlertsProvider);
+      ref.invalidate(securityAlertsDataProvider);
+    }
+  }
+
+  Future<bool> _confirmNavigationToTab(
     List<_NavRoute> tabs,
     int index,
     String currentLocation,
@@ -1041,7 +1060,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   ) async {
     if (await _confirmAndGo(tapContext, currentLocation, tabs[index].path)) {
       if (mounted) setState(() => _currentMatch = index);
+      return true;
     }
+    return false;
   }
 
   Future<bool> _confirmAndGo(
@@ -1049,7 +1070,17 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     String source,
     String destination,
   ) async {
-    final confirmed = await KasFormNavigationGuard.confirmShellNavigation(
+    if (FormNavigationGuard.isSaving(source)) return false;
+    final normSource = FormNavigationGuard.normalizePath(source);
+    final normDest = FormNavigationGuard.normalizePath(destination);
+    if (source == destination ||
+        (normSource == normDest && !destination.contains('?'))) {
+      if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+        Navigator.of(tapContext).pop();
+      }
+      return false;
+    }
+    final confirmed = await FormNavigationGuard.confirmShellNavigation(
       tapContext,
       source: source,
       destination: destination,
@@ -1058,13 +1089,17 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (_scaffoldKey.currentState?.isDrawerOpen == true) {
       Navigator.of(tapContext).pop();
     }
-    if (KasFormNavigationGuard.isFormPath(source)) {
-      KasFormNavigationGuard.allowExitFor(source);
+    final needsExitBypass =
+        FormNavigationGuard.isFormPath(source) && normSource != normDest;
+    if (needsExitBypass) {
+      FormNavigationGuard.allowExitFor(source);
     }
     try {
       context.go(destination);
     } catch (_) {
-      KasFormNavigationGuard.revokeExitFor(source);
+      if (needsExitBypass) {
+        FormNavigationGuard.revokeExitFor(source);
+      }
       rethrow;
     }
     return true;

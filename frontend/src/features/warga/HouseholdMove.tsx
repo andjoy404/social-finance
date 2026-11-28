@@ -12,6 +12,7 @@ import {
 } from '@/app/api'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AppCard } from '@/components/AppCard'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 type OccupancyStatus = 'OWNER' | 'TENANT'
 
@@ -60,7 +61,20 @@ export function HouseholdMove() {
     occupancy_status: 'OWNER' as OccupancyStatus,
     start_date: '',
   })
+  const [initialForm, setInitialForm] = useState({
+    house_number: '',
+    address: '',
+    occupancy_status: 'OWNER' as OccupancyStatus,
+    start_date: '',
+  })
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+
+  const isDirty = !loading && !notFound && isSnapshotDirty(form, initialForm)
+  const { confirmAction, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: saving,
+    active: !loading && !notFound,
+  })
 
   const fetchHousehold = useCallback(async () => {
     const pair = getSessionPair()
@@ -77,12 +91,14 @@ export function HouseholdMove() {
     try {
       const data: ApiHousehold = await getHousehold(pair.accessToken, id)
 
-      setForm({
+      const loaded = {
         house_number: data.house_number ?? '',
         address: data.address ?? '',
         occupancy_status: (data.occupancy_status as OccupancyStatus) || 'OWNER',
         start_date: '',
-      })
+      }
+      setForm(loaded)
+      setInitialForm(loaded)
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -144,7 +160,7 @@ export function HouseholdMove() {
       }
 
       await moveHousehold(pair.accessToken, id, body)
-      navigate('/warga/' + id)
+      exitAfterSave(() => navigate('/warga/' + id))
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -224,9 +240,16 @@ export function HouseholdMove() {
     <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
       {/* Header */}
       <div style={{ marginBottom: 'var(--sp-lg)' }}>
-        <Link to="/warga" style={{
-          fontSize: '13px', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-xs)', marginBottom: 'var(--sp-md)',
-        }}>
+        <Link
+          to="/warga"
+          onClick={(e) => {
+            e.preventDefault()
+            void confirmAction(() => navigate('/warga'))
+          }}
+          style={{
+            fontSize: '13px', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-xs)', marginBottom: 'var(--sp-md)',
+          }}
+        >
           ← Kembali ke Daftar Warga
         </Link>
         <h2 style={{
@@ -377,6 +400,10 @@ export function HouseholdMove() {
             </button>
             <Link
               to="/warga"
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmAction(() => navigate('/warga'))
+              }}
               style={{
                 padding: '8px 20px',
                 background: 'transparent',
@@ -392,6 +419,7 @@ export function HouseholdMove() {
           </div>
         </form>
       </AppCard>
+      {confirmModal}
     </div>
   )
 }

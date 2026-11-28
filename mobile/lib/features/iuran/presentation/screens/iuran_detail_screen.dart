@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -762,6 +763,16 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     final todayFormatted =
         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final dateController = TextEditingController(text: todayFormatted);
+    final approveSnapshot = FormSnapshot({
+      'locationId': selectedLocationId,
+      'notes': '',
+      'date': todayFormatted,
+    });
+    bool isApproveDirty() => approveSnapshot.isDirty({
+      'locationId': selectedLocationId,
+      'notes': notesController.text,
+      'date': dateController.text,
+    });
 
     if (!context.mounted) return;
 
@@ -770,8 +781,11 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogCtx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Konfirmasi Persetujuan'),
+            return GuardedFormModalScope(
+              isDirty: isApproveDirty,
+              isSaving: () => false,
+              child: AlertDialog(
+                title: const Text('Konfirmasi Persetujuan'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1053,12 +1067,17 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                           horizontal: AppSpacing.sm,
                           vertical: 12,
                         ),
-                        onPressed: () => Navigator.pop(dialogCtx),
+                        onPressed: () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isApproveDirty(),
+                          isSaving: false,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ],
+            ),
             );
           },
         );
@@ -1073,53 +1092,65 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   }) {
     final reasonController = TextEditingController();
     final notesController = TextEditingController();
+    final rejectSnapshot = FormSnapshot({'reason': '', 'notes': ''});
+    bool isRejectDirty() => rejectSnapshot.isDirty({
+      'reason': reasonController.text,
+      'notes': notesController.text,
+    });
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Konfirmasi Penolakan'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Apakah Anda yakin ingin menolak pembayaran ini?',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Catatan Pengurus (opsional)',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
+        return GuardedFormModalScope(
+          isDirty: isRejectDirty,
+          isSaving: () => false,
+          child: AlertDialog(
+            title: const Text('Konfirmasi Penolakan'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Apakah Anda yakin ingin menolak pembayaran ini?',
+                    style: TextStyle(fontSize: 14),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: reasonController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Alasan Penolakan',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: notesController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Catatan Pengurus (opsional)',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-                elevation: 0,
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Alasan Penolakan',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                ],
               ),
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Batal'),
             ),
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                onPressed: () => FormNavigationGuard.requestModalClose(
+                  dialogContext,
+                  isDirty: isRejectDirty(),
+                  isSaving: false,
+                ),
+                child: const Text('Batal'),
+              ),
             ElevatedButton(
               onPressed: () async {
                 final reason = reasonController.text.trim();
@@ -1183,6 +1214,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               child: const Text('Tolak'),
             ),
           ],
+        ),
         );
       },
     );

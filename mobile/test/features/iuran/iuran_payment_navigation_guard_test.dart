@@ -83,10 +83,14 @@ void main() {
   });
 
   group('IuranPaymentScreen — Batal button triggers guard dialog', () {
-    testWidgets('Batal button shows confirmation dialog', (tester) async {
+    testWidgets('Batal button shows confirmation dialog when dirty', (tester) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildTestApp(navigatorKey, 'test-bill-id-1'));
       await tester.pumpAndSettle();
+
+      // Make form dirty
+      await tester.enterText(find.byType(TextFormField).first, '50000');
+      await tester.pump();
 
       // Scroll to Batal button
       await _scrollToBottom(tester);
@@ -95,13 +99,17 @@ void main() {
 
       // Dialog shows "Apakah Anda yakin ingin membatalkan?" (same guard for all forms)
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
-      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Ya, Batalkan'), findsOneWidget);
     });
 
-    testWidgets('Batal → "Tidak" keeps form', (tester) async {
+    testWidgets('Batal → "Tetap di Halaman" keeps form', (tester) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildTestApp(navigatorKey, 'test-bill-id-2'));
       await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, '50000');
+      await tester.pump();
 
       await _scrollToBottom(tester);
       await tester.tap(find.text('Batal'));
@@ -109,8 +117,8 @@ void main() {
 
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
 
-      // Tap "Tidak, Tetap di Halaman"
-      await tester.tap(find.text('Tidak, Tetap di Halaman'));
+      // Tap "Tetap di Halaman"
+      await tester.tap(find.text('Tetap di Halaman'));
       await tester.pumpAndSettle();
 
       // Dialog dismissed, form still visible
@@ -119,12 +127,15 @@ void main() {
   });
 
   group('IuranPaymentScreen — PopScope / back navigation', () {
-    testWidgets('PopScope intercepts back navigation — triggers dialog', (
+    testWidgets('PopScope intercepts back navigation when dirty — triggers dialog', (
       tester,
     ) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildTestApp(navigatorKey, 'test-bill-id-3'));
       await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, '50000');
+      await tester.pump();
 
       // Simulate system back via handlePopRoute
       await tester.binding.handlePopRoute();
@@ -135,7 +146,7 @@ void main() {
         find.text('Apakah Anda yakin ingin membatalkan?'),
         findsOneWidget,
       );
-      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Tetap di Halaman'), findsOneWidget);
     });
   });
 }

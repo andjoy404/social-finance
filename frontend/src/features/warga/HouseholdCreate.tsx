@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   createHousehold,
   getHousehold,
@@ -363,8 +364,19 @@ export function HouseholdCreate() {
   /* SUPER_ADMIN RT selector state */
   const [rtOptions, setRtOptions] = useState<ApiRT[]>([])
   const [selectedRtId, setSelectedRtId] = useState<string>(() => (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sf_active_rt_id') || '' : ''))
+  const initialRtId = useRef(selectedRtId).current
   const [rtLoading, setRtLoading] = useState(false)
   const [rtError, setRtError] = useState<ApiErrorType | null>(null)
+
+  const isDirty = isSnapshotDirty(
+    { form, startDate, endDate, selectedRtId },
+    { form: emptyHouseholdForm, startDate: '', endDate: '', selectedRtId: initialRtId },
+  )
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: loading,
+    active: true,
+  })
 
   useEffect(() => {
     if (!adminMode) return
@@ -400,7 +412,7 @@ export function HouseholdCreate() {
     return () => { cancelled = true }
   }, [adminMode, navigate])
 
-  const handleClose = () => navigate('/warga')
+  const handleClose = () => void guardedClose(() => navigate('/warga'))
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -461,7 +473,7 @@ export function HouseholdCreate() {
       }
 
       await createHousehold(pair.accessToken, body)
-      navigate('/warga')
+      exitAfterSave(() => navigate('/warga'))
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -545,7 +557,7 @@ export function HouseholdCreate() {
           />
         </ModalBody>
         <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={loading}>
             Batal
           </button>
           <button
@@ -557,6 +569,7 @@ export function HouseholdCreate() {
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }
@@ -576,7 +589,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
     return null
   }
 
-  const handleClose = propOnClose ?? (() => navigate('/warga?refresh=1'))
+  const rawClose = propOnClose ?? (() => navigate('/warga?refresh=1'))
 
   const [loadingData, setLoadingData] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -585,7 +598,26 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
   const [form, setForm] = useState<HouseholdFormState>(emptyHouseholdForm)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [initialEditSnapshot, setInitialEditSnapshot] = useState<{
+    form: HouseholdFormState
+    startDate: string
+    endDate: string
+  }>({ form: emptyHouseholdForm, startDate: '', endDate: '' })
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+
+  const isEditDirty =
+    !loadingData &&
+    !notFound &&
+    isSnapshotDirty({ form, startDate, endDate }, initialEditSnapshot)
+
+  const { guardedClose: guardedEditClose, exitAfterSave: exitEditAfterSave, confirmModal: editConfirmModal } =
+    useUnsavedChangesGuard({
+      isDirty: isEditDirty,
+      isSaving: saving,
+      active: !loadingData && !notFound,
+    })
+
+  const handleClose = () => void guardedEditClose(rawClose)
 
   const fetchHousehold = useCallback(async () => {
     const pair = getSessionPair()
@@ -599,7 +631,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
       const data: ApiHousehold = await getHousehold(pair.accessToken, id)
       const rawPhone = data.phone ?? data.head_resident?.phone ?? ''
       const formattedPhone = rawPhone ? formatPhoneDisplay(rawPhone) : ''
-      setForm({
+      const loadedForm: HouseholdFormState = {
         house_number: data.house_number ?? '',
         head_name: data.head_name ?? '',
         nik: data.nik ?? data.head_resident?.nik ?? '',
@@ -609,9 +641,13 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         occupancy_status: (data.occupancy_status as OccupancyStatus) || 'OWNER',
         is_active: data.is_active,
         password: '',
-      })
-      setStartDate(data.start_date ? data.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10))
-      setEndDate(data.end_date ? data.end_date.slice(0, 10) : '')
+      }
+      const loadedStart = data.start_date ? data.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10)
+      const loadedEnd = data.end_date ? data.end_date.slice(0, 10) : ''
+      setForm(loadedForm)
+      setStartDate(loadedStart)
+      setEndDate(loadedEnd)
+      setInitialEditSnapshot({ form: loadedForm, startDate: loadedStart, endDate: loadedEnd })
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -692,11 +728,11 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
 
       await updateHousehold(pair.accessToken, id, body)
       propOnSaved?.()
-      handleClose()
+      exitEditAfterSave(rawClose)
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
+        rawClose()
       } else if (err instanceof ApiErrorType) {
         setError(new ApiErrorType(err.code, err.message || 'Gagal memperbarui rumah tangga.'))
       } else {
@@ -769,7 +805,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             />
           </ModalBody>
           <ModalFooter>
-            <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose}>
+            <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose} disabled={saving}>
               Batal
             </button>
             <button type="submit" className="sf-btn-primary" disabled={saving}>
@@ -778,6 +814,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
           </ModalFooter>
         </form>
       )}
+      {editConfirmModal}
     </Modal>
   )
 }

@@ -61,11 +61,13 @@ void showExitAppSnackBar(BuildContext context) {
 class DoubleBackExitScope extends StatefulWidget {
   final Widget child;
   final bool allowPop;
+  final Future<bool> Function()? onBeforeExit;
 
   const DoubleBackExitScope({
     super.key,
     required this.child,
     this.allowPop = false,
+    this.onBeforeExit,
   });
 
   @override
@@ -79,8 +81,12 @@ class _DoubleBackExitScopeState extends State<DoubleBackExitScope> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: widget.allowPop,
-      onPopInvokedWithResult: (didPop, result) {
+      onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
+        if (widget.onBeforeExit != null) {
+          final canProceed = await widget.onBeforeExit!();
+          if (!canProceed || !context.mounted) return;
+        }
         final now = DateTime.now();
         if (_lastBackPressTime == null ||
             now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {

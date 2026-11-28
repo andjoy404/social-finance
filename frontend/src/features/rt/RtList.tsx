@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiListRTs,
@@ -21,6 +21,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { ApartmentOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
 import { RtCreate } from './RtCreate'
 import { RtDetailModal } from './RtDetailModal'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 type FilterType = 'semua' | 'status'
 
@@ -413,9 +414,24 @@ function RwManageModal({
   const [rwAddress, setRwAddress] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const initialFormRef = useRef({ rwNumber: '', rwName: '', rwHead: '', rwAddress: '' })
+
+  const isDirty = open && isSnapshotDirty(
+    { rwNumber, rwName, rwHead, rwAddress },
+    initialFormRef.current,
+  )
+  const { guardedClose, confirmAction, confirmModal } = useUnsavedChangesGuard({
+    active: open,
+    isDirty,
+    isSaving: saving,
+  })
+  const handleClose = () => {
+    void guardedClose(onClose)
+  }
 
   const resetForm = () => {
     setEditingRw(null)
+    initialFormRef.current = { rwNumber: '', rwName: '', rwHead: '', rwAddress: '' }
     setRwNumber('')
     setRwName('')
     setRwHead('')
@@ -424,12 +440,21 @@ function RwManageModal({
   }
 
   const handleSelectEdit = (rw: ApiRW) => {
-    setEditingRw(rw)
-    setRwNumber(String(rw.rw_number))
-    setRwName(rw.name)
-    setRwHead(rw.head_name ?? '')
-    setRwAddress(rw.address ?? '')
-    setErrorMsg(null)
+    void confirmAction(() => {
+      const next = {
+        rwNumber: String(rw.rw_number),
+        rwName: rw.name,
+        rwHead: rw.head_name ?? '',
+        rwAddress: rw.address ?? '',
+      }
+      initialFormRef.current = next
+      setEditingRw(rw)
+      setRwNumber(next.rwNumber)
+      setRwName(next.rwName)
+      setRwHead(next.rwHead)
+      setRwAddress(next.rwAddress)
+      setErrorMsg(null)
+    })
   }
 
   const handleSaveRw = async (e: React.FormEvent) => {
@@ -497,11 +522,11 @@ function RwManageModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} width={580} overlayClassName="sf-modal-overlay-rt">
+    <Modal open={open} onClose={handleClose} width={580} overlayClassName="sf-modal-overlay-rt">
       <ModalHeader
         title="Kelola RW"
         subtitle="Daftar dan pengaturan Rukun Warga (RW)"
-        onClose={onClose}
+        onClose={handleClose}
       />
       <ModalBody>
         {errorMsg && (
@@ -582,7 +607,7 @@ function RwManageModal({
                 type="button"
                 className="sf-btn-ghost"
                 style={dangerBtnStyle}
-                onClick={resetForm}
+                onClick={() => void confirmAction(resetForm)}
                 disabled={saving}
               >
                 Batal Ubah
@@ -659,10 +684,11 @@ function RwManageModal({
         </div>
       </ModalBody>
       <ModalFooter>
-        <button type="button" className="sf-btn-ghost" style={dangerBtnStyle} onClick={onClose}>
+        <button type="button" className="sf-btn-ghost" style={dangerBtnStyle} onClick={handleClose} disabled={saving}>
           Tutup
         </button>
       </ModalFooter>
+      {confirmModal}
     </Modal>
   )
 }

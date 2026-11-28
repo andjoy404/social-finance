@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   getResident,
   updateResident,
@@ -101,6 +102,14 @@ export function ResidentDetail() {
     startDate: '',
     endDate: '',
   })
+  const editSnapshotRef = useRef(editForm)
+
+  const isEditDirty = isEditing && isSnapshotDirty(editForm, editSnapshotRef.current)
+  const { guardedClose, confirmModal } = useUnsavedChangesGuard({
+    isDirty: isEditDirty,
+    isSaving: saving,
+    active: isEditing,
+  })
 
   // Determine whether this record needs household fields.
   // Non-resident personnel (jabatan + no household_id) do not need these.
@@ -108,7 +117,7 @@ export function ResidentDetail() {
 
   const handleStartEdit = () => {
     if (!resident) return
-    setEditForm({
+    const loadedEdit = {
       fullName: resident.full_name || '',
       nik: resident.nik || '',
       phone: formatPhoneForInput(resident.phone),
@@ -118,19 +127,23 @@ export function ResidentDetail() {
       // Household-level fields
       houseNumber: resident.house_number ?? '',
       occupancyStatus: (resident.occupancy_status as OccupancyStatus) || 'OWNER',
-      address: '',
+      address: editForm.address || '',
       startDate: resident.start_date ? resident.start_date.slice(0, 10) : '',
       endDate: resident.end_date ? resident.end_date.slice(0, 10) : '',
-    })
+    }
+    setEditForm(loadedEdit)
+    editSnapshotRef.current = loadedEdit
     setValidationErrors([])
     setEditError(null)
     setIsEditing(true)
   }
 
   const handleCancelEdit = () => {
-    setIsEditing(false)
-    setValidationErrors([])
-    setEditError(null)
+    void guardedClose(() => {
+      setIsEditing(false)
+      setValidationErrors([])
+      setEditError(null)
+    })
   }
 
   const handleGenerateResetCode = async () => {
@@ -160,8 +173,8 @@ export function ResidentDetail() {
   }
 
   const handleClose = useCallback(() => {
-    navigate('/warga')
-  }, [navigate])
+    void guardedClose(() => navigate('/warga'))
+  }, [guardedClose, navigate])
 
   const fetchResident = useCallback(async () => {
     const pair = getSessionPair()
@@ -782,6 +795,7 @@ export function ResidentDetail() {
           </ModalFooter>
         </form>
       )}
+      {confirmModal}
     </Modal>
   )
 }

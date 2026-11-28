@@ -24,6 +24,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { useAuth } from '@/app/AuthContext'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   getSessionPair,
   apiListFundLocations,
@@ -114,6 +115,101 @@ export function FundLocationList() {
   const [formError, setFormError] = useState<string | null>(null)
   const [formSubmitting, setFormSubmitting] = useState(false)
   const loadErrorRef = useRef(false)
+
+  const defaultCreateForm = {
+    name: '',
+    category: 'rekening' as FundLocationCategory,
+    bank_name: '',
+    account_number: '',
+    account_holder: '',
+  }
+  const defaultTransferForm = {
+    from_location_id: '',
+    to_location_id: '',
+    amount: '',
+    notes: '',
+  }
+  const defaultOpeningForm = {
+    location_id: '',
+    amount: '',
+    notes: '',
+  }
+  const editingLocationInitialRef = useRef<{
+    name: string
+    bank_name: string
+    account_number: string
+    account_holder: string
+  } | null>(null)
+
+  const createGuard = useUnsavedChangesGuard({
+    active: showCreateModal,
+    isDirty: showCreateModal && isSnapshotDirty(createForm, defaultCreateForm),
+    isSaving: formSubmitting,
+  })
+  const editGuard = useUnsavedChangesGuard({
+    active: Boolean(editingLocation),
+    isDirty: Boolean(editingLocation) && isSnapshotDirty(
+      {
+        name: editingLocation?.name || '',
+        bank_name: editingLocation?.bank_name || '',
+        account_number: editingLocation?.account_number || '',
+        account_holder: editingLocation?.account_holder || '',
+      },
+      editingLocationInitialRef.current,
+    ),
+    isSaving: formSubmitting,
+  })
+  const transferGuard = useUnsavedChangesGuard({
+    active: showTransferModal,
+    isDirty: showTransferModal && isSnapshotDirty(transferForm, defaultTransferForm),
+    isSaving: formSubmitting,
+  })
+  const openingGuard = useUnsavedChangesGuard({
+    active: showOpeningBalanceModal,
+    isDirty: showOpeningBalanceModal && isSnapshotDirty(openingBalanceForm, defaultOpeningForm),
+    isSaving: formSubmitting,
+  })
+  const reversalGuard = useUnsavedChangesGuard({
+    active: Boolean(reversingTransfer),
+    isDirty: Boolean(reversingTransfer) && reversalReason.trim().length > 0,
+    isSaving: formSubmitting,
+  })
+
+  const closeCreateModal = () => {
+    void createGuard.guardedClose(() => {
+      setShowCreateModal(false)
+      setCreateForm(defaultCreateForm)
+      setFormError(null)
+    })
+  }
+  const closeEditModal = () => {
+    void editGuard.guardedClose(() => {
+      setEditingLocation(null)
+      editingLocationInitialRef.current = null
+      setFormError(null)
+    })
+  }
+  const closeTransferModal = () => {
+    void transferGuard.guardedClose(() => {
+      setShowTransferModal(false)
+      setTransferForm(defaultTransferForm)
+      setFormError(null)
+    })
+  }
+  const closeOpeningModal = () => {
+    void openingGuard.guardedClose(() => {
+      setShowOpeningBalanceModal(false)
+      setOpeningBalanceForm(defaultOpeningForm)
+      setFormError(null)
+    })
+  }
+  const closeReversalModal = () => {
+    void reversalGuard.guardedClose(() => {
+      setReversingTransfer(null)
+      setReversalReason('')
+      setFormError(null)
+    })
+  }
 
   const loadData = useCallback(async () => {
     const token = getSessionPair()?.accessToken
@@ -219,8 +315,10 @@ export function FundLocationList() {
         account_number: createForm.account_number.trim() || undefined,
         account_holder: createForm.account_holder.trim() || undefined,
       })
-      setShowCreateModal(false)
-      setCreateForm({ name: '', category: 'rekening', bank_name: '', account_number: '', account_holder: '' })
+      createGuard.exitAfterSave(() => {
+        setShowCreateModal(false)
+        setCreateForm({ name: '', category: 'rekening', bank_name: '', account_number: '', account_holder: '' })
+      })
       setCategoryFilter('all')
       setLocations((prev) => [...prev, created])
 
@@ -251,7 +349,10 @@ export function FundLocationList() {
         account_number: editingLocation.account_number?.trim() || undefined,
         account_holder: editingLocation.account_holder?.trim() || undefined,
       })
-      setEditingLocation(null)
+      editGuard.exitAfterSave(() => {
+        setEditingLocation(null)
+        editingLocationInitialRef.current = null
+      })
       await loadData()
     } catch (err: any) {
       setFormError(err?.message || 'Gagal mengubah lokasi dana')
@@ -332,8 +433,10 @@ export function FundLocationList() {
         notes: transferForm.notes.trim() || undefined,
       })
       setTransferSuccess(`Transfer dana sebesar Rp ${formatRibuan(amt)} berhasil diproses.`)
-      setShowTransferModal(false)
-      setTransferForm({ from_location_id: '', to_location_id: '', amount: '', notes: '' })
+      transferGuard.exitAfterSave(() => {
+        setShowTransferModal(false)
+        setTransferForm({ from_location_id: '', to_location_id: '', amount: '', notes: '' })
+      })
       await loadData()
     } catch (err: any) {
       setFormError(err?.message || 'Gagal melakukan pemindahan dana')
@@ -360,8 +463,10 @@ export function FundLocationList() {
       await apiReverseFundTransfer(token, reversingTransfer.id, {
         reason: reversalReason.trim(),
       })
-      setReversingTransfer(null)
-      setReversalReason('')
+      reversalGuard.exitAfterSave(() => {
+        setReversingTransfer(null)
+        setReversalReason('')
+      })
       await loadData()
     } catch (err: any) {
       setFormError(err?.message || 'Gagal membatalkan transfer dana')
@@ -399,8 +504,10 @@ export function FundLocationList() {
         amount: String(amt),
         notes: openingBalanceForm.notes.trim() || undefined,
       })
-      setShowOpeningBalanceModal(false)
-      setOpeningBalanceForm({ location_id: '', amount: '', notes: '' })
+      openingGuard.exitAfterSave(() => {
+        setShowOpeningBalanceModal(false)
+        setOpeningBalanceForm({ location_id: '', amount: '', notes: '' })
+      })
       await loadData()
     } catch (err: any) {
       setFormError(err?.message || 'Gagal mengalokasikan saldo awal')
@@ -772,7 +879,16 @@ export function FundLocationList() {
                                 <button
                                   type="button"
                                   className="sf-btn-ghost"
-                                  onClick={() => { setFormError(null); setEditingLocation(loc); }}
+                                  onClick={() => {
+                                    setFormError(null)
+                                    editingLocationInitialRef.current = {
+                                      name: loc.name || '',
+                                      bank_name: loc.bank_name || '',
+                                      account_number: loc.account_number || '',
+                                      account_holder: loc.account_holder || '',
+                                    }
+                                    setEditingLocation({ ...loc })
+                                  }}
                                   title="Edit"
                                   style={{ padding: '4px 8px', fontSize: 12 }}
                                 >
@@ -867,8 +983,8 @@ export function FundLocationList() {
 
       {/* Create Location Modal */}
       {showCreateModal && (
-        <Modal open onClose={() => setShowCreateModal(false)} width={480}>
-          <ModalHeader title="Tambah Lokasi Dana" onClose={() => setShowCreateModal(false)} />
+        <Modal open onClose={closeCreateModal} width={480}>
+          <ModalHeader title="Tambah Lokasi Dana" onClose={closeCreateModal} />
           <form onSubmit={handleCreateLocation}>
             <ModalBody>
               {formError && (
@@ -945,7 +1061,7 @@ export function FundLocationList() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <button type="button" className="sf-btn-ghost" onClick={() => setShowCreateModal(false)}>Batal</button>
+              <button type="button" className="sf-btn-ghost" onClick={closeCreateModal} disabled={formSubmitting}>Batal</button>
               <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
@@ -956,8 +1072,8 @@ export function FundLocationList() {
 
       {/* Edit Location Modal */}
       {editingLocation && (
-        <Modal open onClose={() => setEditingLocation(null)} width={480}>
-          <ModalHeader title="Edit Lokasi Dana" onClose={() => setEditingLocation(null)} />
+        <Modal open onClose={closeEditModal} width={480}>
+          <ModalHeader title="Edit Lokasi Dana" onClose={closeEditModal} />
           <form onSubmit={handleUpdateLocation}>
             <ModalBody>
               {formError && (
@@ -1015,7 +1131,7 @@ export function FundLocationList() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <button type="button" className="sf-btn-ghost" onClick={() => setEditingLocation(null)}>Batal</button>
+              <button type="button" className="sf-btn-ghost" onClick={closeEditModal} disabled={formSubmitting}>Batal</button>
               <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
@@ -1026,8 +1142,8 @@ export function FundLocationList() {
 
       {/* Transfer Modal */}
       {showTransferModal && (
-        <Modal open onClose={() => setShowTransferModal(false)} width={480}>
-          <ModalHeader title="Transfer Dana Antar-Lokasi" onClose={() => setShowTransferModal(false)} />
+        <Modal open onClose={closeTransferModal} width={480}>
+          <ModalHeader title="Transfer Dana Antar-Lokasi" onClose={closeTransferModal} />
           <form onSubmit={handleCreateTransfer}>
             <ModalBody>
               {formError && (
@@ -1099,7 +1215,7 @@ export function FundLocationList() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <button type="button" className="sf-btn-ghost" onClick={() => setShowTransferModal(false)}>Batal</button>
+              <button type="button" className="sf-btn-ghost" onClick={closeTransferModal} disabled={formSubmitting}>Batal</button>
               <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Kirim Transfer'}
               </button>
@@ -1110,8 +1226,8 @@ export function FundLocationList() {
 
       {/* Opening Balance Modal */}
       {showOpeningBalanceModal && (
-        <Modal open onClose={() => setShowOpeningBalanceModal(false)} width={480}>
-          <ModalHeader title="Alokasi Saldo Awal Kas Historis" onClose={() => setShowOpeningBalanceModal(false)} />
+        <Modal open onClose={closeOpeningModal} width={480}>
+          <ModalHeader title="Alokasi Saldo Awal Kas Historis" onClose={closeOpeningModal} />
           <form onSubmit={handleSetOpeningBalance}>
             <ModalBody>
               <div style={{ padding: 10, background: 'rgba(56, 132, 255, 0.1)', borderRadius: 6, fontSize: 12, color: 'var(--sf-text)', marginBottom: 12 }}>
@@ -1172,7 +1288,7 @@ export function FundLocationList() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <button type="button" className="sf-btn-ghost" onClick={() => setShowOpeningBalanceModal(false)}>Batal</button>
+              <button type="button" className="sf-btn-ghost" onClick={closeOpeningModal} disabled={formSubmitting}>Batal</button>
               <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Simpan Alokasi'}
               </button>
@@ -1238,8 +1354,8 @@ export function FundLocationList() {
 
       {/* Reverse Transfer Confirmation Modal */}
       {reversingTransfer && (
-        <Modal open onClose={() => setReversingTransfer(null)} width={460}>
-          <ModalHeader title="Batalkan Transfer Dana (Reversal)" onClose={() => setReversingTransfer(null)} />
+        <Modal open onClose={closeReversalModal} width={460}>
+          <ModalHeader title="Batalkan Transfer Dana (Reversal)" onClose={closeReversalModal} />
           <form onSubmit={handleReverseTransfer}>
             <ModalBody>
               <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--sf-text)' }}>
@@ -1265,7 +1381,7 @@ export function FundLocationList() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <button type="button" className="sf-btn-ghost" onClick={() => setReversingTransfer(null)}>Batal</button>
+              <button type="button" className="sf-btn-ghost" onClick={closeReversalModal} disabled={formSubmitting}>Batal</button>
               <button type="submit" className="sf-btn-danger" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Konfirmasi Reversal'}
               </button>
@@ -1273,6 +1389,11 @@ export function FundLocationList() {
           </form>
         </Modal>
       )}
+      {createGuard.confirmModal}
+      {editGuard.confirmModal}
+      {transferGuard.confirmModal}
+      {openingGuard.confirmModal}
+      {reversalGuard.confirmModal}
     </div>
   )
 }

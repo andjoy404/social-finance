@@ -368,7 +368,7 @@ void main() {
           find.text('Apakah Anda yakin ingin membatalkan?'),
           findsOneWidget,
         );
-        expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+        expect(find.text('Tetap di Halaman'), findsOneWidget);
         expect(find.text('Ya, Batalkan'), findsOneWidget);
 
         // Choose "Tidak, Tetap di Halaman"
@@ -482,7 +482,9 @@ void main() {
         expect(find.byType(KasMasukScreen), findsNothing);
 
         // --- Kas Keluar -> Kas Masuk ---
-        // Navigate back to Kas Masuk via GoRouter
+        // Make Kas Keluar dirty before navigating back to Kas Masuk
+        await tester.enterText(_nominalField(), '30000');
+        await tester.pump();
         final kelContext = tester.element(find.byType(KasKeluarScreen));
         GoRouter.of(kelContext).go('/home/kas/masuk');
         await tester.pumpAndSettle();
@@ -528,6 +530,8 @@ void main() {
         await tester.pumpAndSettle();
 
         await _openKasMasukForm(tester);
+        await tester.enterText(_nominalField(), '15000');
+        await tester.pump();
 
         final berandaTab = find.byKey(const Key('nav-item-beranda'));
         await tester.ensureVisible(berandaTab);

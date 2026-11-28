@@ -513,6 +513,9 @@ void main() {
       await tester.tap(find.text('Catat Kas Masuk'));
       await tester.pumpAndSettle();
 
+      await tester.enterText(_nominalField(), '5000');
+      await tester.pump();
+
       final backBtn = find.byType(BackButton);
       expect(backBtn, findsOneWidget);
       await tester.tap(backBtn);
@@ -537,6 +540,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Catat Kas Masuk'));
       await tester.pumpAndSettle();
+
+      await tester.enterText(_nominalField(), '5000');
+      await tester.pump();
 
       final batalBtn = find.text('Batal');
       await tester.scrollUntilVisible(
@@ -567,6 +573,9 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Catat Kas Masuk'));
         await tester.pumpAndSettle();
+
+        await tester.enterText(_nominalField(), '5000');
+        await tester.pump();
 
         final scaffolds = tester.stateList<ScaffoldState>(
           find.byType(Scaffold),

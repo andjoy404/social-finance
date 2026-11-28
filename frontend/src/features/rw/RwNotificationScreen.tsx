@@ -53,6 +53,7 @@ import {
   type ApiRWTemplatePreviewResponse,
 } from './rw-api'
 import { renderNotificationBody } from './url-utils'
+import { isSnapshotDirty, useAntdModalGuard } from '@/hooks/useUnsavedChangesGuard'
 
 const { Text } = Typography
 
@@ -136,6 +137,49 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
   const [tmplImageChanged, setTmplImageChanged] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const tmplInitialRef = useRef({
+    tmplName: '',
+    tmplEventType: 'manual_push',
+    tmplTitle: '',
+    tmplBody: '',
+    tmplImageUrl: '',
+  })
+
+  const manualPushGuard = useAntdModalGuard({
+    open: showManualPush,
+    isDirty: showManualPush && isSnapshotDirty(
+      { pushTitle, pushBody, pushTemplateId, pushImageUrl },
+      { pushTitle: '', pushBody: '', pushTemplateId: '', pushImageUrl: '' },
+    ),
+    isSaving: manualPushLoading || pushUploadingImage,
+    onClose: () => {
+      setShowManualPush(false)
+      setPushTitle('')
+      setPushBody('')
+      setPushTemplateId('')
+      setPushImageUrl('')
+    },
+  })
+
+  const templateGuard = useAntdModalGuard({
+    open: showTemplateModal,
+    isDirty: showTemplateModal && isSnapshotDirty(
+      { tmplName, tmplEventType, tmplTitle, tmplBody, tmplImageUrl },
+      tmplInitialRef.current,
+    ),
+    isSaving: templateModalLoading || uploadingImage,
+    onClose: () => {
+      setShowTemplateModal(false)
+      setEditingTemplateId(null)
+    },
+  })
+
+  const sendTemplateGuard = useAntdModalGuard({
+    open: Boolean(sendTemplate),
+    isDirty: Boolean(sendTemplate) && sendTemplateTarget !== 'all_pengurus',
+    isSaving: sendingTemplate,
+    onClose: () => setSendTemplate(null),
+  })
 
   const canRead = canReadRwNotifications(user, rwId)
   const canManage = canManageRwNotifications(user, rwId)
@@ -203,6 +247,13 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
   const openCreateTemplateModal = () => {
     setTemplateModalMode('create')
     setEditingTemplateId(null)
+    tmplInitialRef.current = {
+      tmplName: '',
+      tmplEventType: 'manual_push',
+      tmplTitle: '',
+      tmplBody: '',
+      tmplImageUrl: '',
+    }
     setTmplName('')
     setTmplEventType('manual_push')
     setTmplTitle('')
@@ -215,6 +266,13 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
   const openEditTemplateModal = (tmpl: ApiRWNotificationTemplate) => {
     setTemplateModalMode('edit')
     setEditingTemplateId(tmpl.id)
+    tmplInitialRef.current = {
+      tmplName: tmpl.name,
+      tmplEventType: tmpl.event_type,
+      tmplTitle: tmpl.title,
+      tmplBody: tmpl.body,
+      tmplImageUrl: tmpl.image_url || '',
+    }
     setTmplName(tmpl.name)
     setTmplEventType(tmpl.event_type)
     setTmplTitle(tmpl.title)
@@ -311,11 +369,13 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
         ...(pushImageUrl.trim() ? { image_url: pushImageUrl.trim() } : {}),
       })
       message.success('Notifikasi manual terkirim')
-      setShowManualPush(false)
-      setPushTitle('')
-      setPushBody('')
-      setPushTemplateId('')
-      setPushImageUrl('')
+      manualPushGuard.exitAfterSave(() => {
+        setShowManualPush(false)
+        setPushTitle('')
+        setPushBody('')
+        setPushTemplateId('')
+        setPushImageUrl('')
+      })
       loadNotifications()
       loadMyNotifications()
     } catch (err: any) {
@@ -360,14 +420,16 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
           ? 'Template berhasil dibuat'
           : 'Template berhasil diperbarui',
       )
-      setShowTemplateModal(false)
-      setEditingTemplateId(null)
-      setTmplName('')
-      setTmplEventType('manual_push')
-      setTmplTitle('')
-      setTmplBody('')
-      setTmplImageUrl('')
-      setTmplImageChanged(false)
+      templateGuard.exitAfterSave(() => {
+        setShowTemplateModal(false)
+        setEditingTemplateId(null)
+        setTmplName('')
+        setTmplEventType('manual_push')
+        setTmplTitle('')
+        setTmplBody('')
+        setTmplImageUrl('')
+        setTmplImageChanged(false)
+      })
       loadTemplates()
     } catch (err: any) {
       message.error(err?.message ?? 'Gagal menyimpan template')
@@ -437,7 +499,7 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
         target: sendTemplateTarget,
       })
       message.success(`Notifikasi berhasil dikirim (${res.sent_count} penerima)`)
-      setSendTemplate(null)
+      sendTemplateGuard.exitAfterSave(() => setSendTemplate(null))
       loadNotifications()
       loadMyNotifications()
     } catch (err: any) {
@@ -971,9 +1033,10 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
           onOk={() => handleManualPush()}
           okText="Kirim"
           cancelText="Batal"
-          onCancel={() => {
-            if (!manualPushLoading && !pushUploadingImage) setShowManualPush(false)
-          }}
+          onCancel={manualPushGuard.onCancel}
+          keyboard={manualPushGuard.keyboard}
+          maskClosable={manualPushGuard.maskClosable}
+          closable={manualPushGuard.closable}
           confirmLoading={manualPushLoading}
           okButtonProps={{ disabled: pushUploadingImage }}
           width={560}
@@ -1099,11 +1162,10 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
           onOk={() => handleSaveTemplate()}
           okText={templateModalMode === 'create' ? 'Simpan Template' : 'Simpan Perubahan'}
           cancelText="Batal"
-          onCancel={() => {
-            if (!templateModalLoading && !uploadingImage) {
-              setShowTemplateModal(false)
-            }
-          }}
+          onCancel={templateGuard.onCancel}
+          keyboard={templateGuard.keyboard}
+          maskClosable={templateGuard.maskClosable}
+          closable={templateGuard.closable}
           confirmLoading={templateModalLoading}
           okButtonProps={{ disabled: uploadingImage }}
           width={560}
@@ -1390,9 +1452,10 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
           onOk={handleExecuteSendTemplate}
           okText={sendingTemplate ? 'Mengirim...' : 'Kirim Sekarang'}
           cancelText="Batal"
-          onCancel={() => {
-            if (!sendingTemplate) setSendTemplate(null)
-          }}
+          onCancel={sendTemplateGuard.onCancel}
+          keyboard={sendTemplateGuard.keyboard}
+          maskClosable={sendTemplateGuard.maskClosable}
+          closable={sendTemplateGuard.closable}
           confirmLoading={sendingTemplate}
           width={540}
         >
@@ -1551,6 +1614,9 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
           </div>
         </Modal>
       )}
+      {manualPushGuard.confirmModal}
+      {templateGuard.confirmModal}
+      {sendTemplateGuard.confirmModal}
     </div>
   )
 }

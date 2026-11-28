@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -324,14 +325,36 @@ class _SecurityGuestBookScreenState
     final notesCtrl = TextEditingController();
     XFile? capturedPhoto;
     bool isProcessingCamera = false;
+    final snapshot = FormSnapshot({
+      'name': '',
+      'phone': '',
+      'purpose': '',
+      'destination': '',
+      'plate': '',
+      'notes': '',
+      'photo': null,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'name': nameCtrl.text,
+      'phone': phoneCtrl.text,
+      'purpose': purposeCtrl.text,
+      'destination': destinationCtrl.text,
+      'plate': plateCtrl.text,
+      'notes': notesCtrl.text,
+      'photo': capturedPhoto?.path,
+    });
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return StatefulBuilder(
-          builder: (ctx, setDialogState) => AlertDialog(
-            title: const Text('Catat Tamu Masuk'),
+          builder: (ctx, setDialogState) => GuardedFormModalScope(
+            isDirty: isDirty,
+            isSaving: () => isProcessingCamera,
+            popResult: false,
+            child: AlertDialog(
+              title: const Text('Catat Tamu Masuk'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -549,7 +572,14 @@ class _SecurityGuestBookScreenState
                   foregroundColor: Colors.white,
                   elevation: 0,
                 ),
-                onPressed: () => Navigator.of(ctx).pop(false),
+                onPressed: isProcessingCamera
+                    ? null
+                    : () => FormNavigationGuard.requestModalClose(
+                        ctx,
+                        isDirty: isDirty(),
+                        isSaving: isProcessingCamera,
+                        result: false,
+                      ),
                 child: const Text('Batal'),
               ),
               ElevatedButton(
@@ -559,6 +589,7 @@ class _SecurityGuestBookScreenState
                 child: const Text('Simpan Tamu'),
               ),
             ],
+            ),
           ),
         );
       },

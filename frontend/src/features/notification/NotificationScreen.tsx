@@ -64,6 +64,7 @@ import {
 import { apiResetNotificationTemplate } from '@/app/api'
 import { SystemEventSelect } from './SystemEventSelect'
 import { TriggerCategoryBadge } from './TriggerCategoryBadge'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = false) {
   // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
@@ -210,6 +211,62 @@ export function NotificationScreen() {
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fullImagePreviewSrc, setFullImagePreviewSrc] = useState<string | null>(null)
+
+  const createInitialRef = useRef({
+    name: '',
+    event_type: '',
+    title: '',
+    body: '',
+    image_url: '',
+  })
+  const editInitialRef = useRef({
+    name: '',
+    title: '',
+    body: '',
+    image_url: '',
+    is_active: true,
+  })
+  const scheduleInitialRef = useRef({
+    name: '',
+    event_type: '',
+    template_id: '',
+    send_days: [] as number[],
+    send_hour: 8,
+    send_minute: 0,
+    timezone: 'Asia/Jakarta',
+    is_active: true,
+    activity_id: '',
+    execution_at: '',
+  })
+
+  const createTemplateGuard = useUnsavedChangesGuard({
+    active: showCreateModal,
+    isDirty: showCreateModal && isSnapshotDirty(createForm, createInitialRef.current),
+    isSaving: formSubmitting || uploadingImage,
+  })
+  const editTemplateGuard = useUnsavedChangesGuard({
+    active: Boolean(editingTemplate),
+    isDirty: Boolean(editingTemplate) && isSnapshotDirty(editForm, editInitialRef.current),
+    isSaving: formSubmitting || uploadingImage,
+  })
+  const scheduleGuard = useUnsavedChangesGuard({
+    active: showScheduleModal,
+    isDirty: showScheduleModal && isSnapshotDirty(scheduleForm, scheduleInitialRef.current),
+    isSaving: scheduleFormSubmitting,
+  })
+
+  const closeCreateModal = () => {
+    void createTemplateGuard.guardedClose(() => setShowCreateModal(false))
+  }
+  const closeEditModal = () => {
+    void editTemplateGuard.guardedClose(() => setEditingTemplate(null))
+  }
+  const closeScheduleModal = () => {
+    void scheduleGuard.guardedClose(() => {
+      setShowScheduleModal(false)
+      setEditingSchedule(null)
+    })
+  }
 
   // Paket detail modal state
   const [paketDetailReportId, setPaketDetailReportId] = useState<string | null>(null)
@@ -424,19 +481,21 @@ const knownEventNames: Record<string, string> = {
       } else {
         await apiCreateNotificationSchedule(token, body)
       }
-      setShowScheduleModal(false)
-      setEditingSchedule(null)
-      setScheduleForm({
-        name: '',
-        event_type: '',
-        template_id: '',
-        send_days: [],
-        send_hour: 8,
-        send_minute: 0,
-        timezone: 'Asia/Jakarta',
-        is_active: true,
-        activity_id: '',
-        execution_at: '',
+      scheduleGuard.exitAfterSave(() => {
+        setShowScheduleModal(false)
+        setEditingSchedule(null)
+        setScheduleForm({
+          name: '',
+          event_type: '',
+          template_id: '',
+          send_days: [],
+          send_hour: 8,
+          send_minute: 0,
+          timezone: 'Asia/Jakarta',
+          is_active: true,
+          activity_id: '',
+          execution_at: '',
+        })
       })
       await loadSchedules()
       setSuccessMsg(`Jadwal ${editingSchedule ? 'diperbarui' : 'dibuat'} berhasil`)
@@ -553,13 +612,15 @@ const knownEventNames: Record<string, string> = {
     setFormError(null)
     const ev = presetEventType || customizableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
     const found = systemTypes.find((t) => t.event_type === ev)
-    setCreateForm({
+    const init = {
       name: found ? `Template ${found.name}` : '',
       event_type: ev,
       title: found?.default_title || '',
       body: found?.default_body || '',
       image_url: '',
-    })
+    }
+    createInitialRef.current = init
+    setCreateForm(init)
     setShowCreateModal(true)
   }
 
@@ -587,18 +648,20 @@ const knownEventNames: Record<string, string> = {
   const handleOpenScheduleCreate = () => {
     setEditingSchedule(null)
     const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
-    setScheduleForm({
+    const init = {
       name: '',
       event_type: defaultEv,
       template_id: '',
-      send_days: [],
+      send_days: [] as number[],
       send_hour: 8,
       send_minute: 0,
       timezone: 'Asia/Jakarta',
       is_active: true,
       activity_id: '',
       execution_at: '',
-    })
+    }
+    scheduleInitialRef.current = init
+    setScheduleForm(init)
     setShowScheduleModal(true)
   }
 
@@ -633,7 +696,7 @@ const knownEventNames: Record<string, string> = {
         image_url: createForm.image_url ? createForm.image_url.trim() : undefined,
       })
       setTemplates((prev) => [created, ...prev])
-      setShowCreateModal(false)
+      createTemplateGuard.exitAfterSave(() => setShowCreateModal(false))
       setSuccessMsg(`Template "${created.name}" berhasil dibuat`)
     } catch (err: any) {
       setFormError(err?.message || 'Gagal membuat template notifikasi')
@@ -646,13 +709,15 @@ const knownEventNames: Record<string, string> = {
   const handleOpenEdit = (t: ApiNotificationTemplate) => {
     setFormError(null)
     setEditingTemplate(t)
-    setEditForm({
+    const init = {
       name: t.name,
       title: t.title,
       body: t.body,
       image_url: t.image_url || '',
       is_active: t.is_active,
-    })
+    }
+    editInitialRef.current = init
+    setEditForm(init)
   }
 
   // Handle Edit Submit
@@ -686,7 +751,7 @@ const knownEventNames: Record<string, string> = {
         is_active: editForm.is_active,
       })
       setTemplates((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
-      setEditingTemplate(null)
+      editTemplateGuard.exitAfterSave(() => setEditingTemplate(null))
       setSuccessMsg(`Template "${updated.name}" berhasil diperbarui`)
     } catch (err: any) {
       setFormError(err?.message || 'Gagal memperbarui template notifikasi')
@@ -1314,18 +1379,20 @@ const knownEventNames: Record<string, string> = {
                     onClick={() => {
                       setEditingSchedule(null)
                       const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
-                      setScheduleForm({
+                      const init = {
                         name: '',
                         event_type: defaultEv,
                         template_id: '',
-                        send_days: [],
+                        send_days: [] as number[],
                         send_hour: 8,
                         send_minute: 0,
                         timezone: 'Asia/Jakarta',
                         is_active: true,
                         activity_id: '',
                         execution_at: '',
-                      })
+                      }
+                      scheduleInitialRef.current = init
+                      setScheduleForm(init)
                       setShowScheduleModal(true)
                     }}
                   >
@@ -1486,7 +1553,7 @@ const knownEventNames: Record<string, string> = {
                                   style={{ padding: '4px 8px', fontSize: 12 }}
                                   onClick={() => {
                                     setEditingSchedule(s)
-                                    setScheduleForm({
+                                    const init = {
                                       name: s.name,
                                       event_type: s.event_type,
                                       template_id: s.template_id ?? '',
@@ -1497,7 +1564,9 @@ const knownEventNames: Record<string, string> = {
                                       is_active: s.is_active,
                                       activity_id: s.activity_id ?? '',
                                       execution_at: toLocalDateTimeInput(s.execution_at),
-                                    })
+                                    }
+                                    scheduleInitialRef.current = init
+                                    setScheduleForm(init)
                                     setShowScheduleModal(true)
                                   }}
                                   title="Edit jadwal"
@@ -1782,8 +1851,8 @@ const knownEventNames: Record<string, string> = {
 
       {/* MODAL: Tambah Template */}
       {showCreateModal && (
-        <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)}>
-          <ModalHeader title="Tambah Template Notifikasi" onClose={() => setShowCreateModal(false)} />
+        <Modal open={showCreateModal} onClose={closeCreateModal}>
+          <ModalHeader title="Tambah Template Notifikasi" onClose={closeCreateModal} />
           <form onSubmit={handleCreateSubmit}>
             <ModalBody>
               {formError && (
@@ -1964,7 +2033,7 @@ const knownEventNames: Record<string, string> = {
                 type="button"
                 className="sf-btn-primary"
                 style={{ background: '#ef4444', borderColor: '#ef4444' }}
-                onClick={() => setShowCreateModal(false)}
+                onClick={closeCreateModal}
                 disabled={formSubmitting}
               >
                 Batal
@@ -1983,8 +2052,8 @@ const knownEventNames: Record<string, string> = {
 
       {/* MODAL: Edit Template */}
       {editingTemplate && (
-        <Modal open={!!editingTemplate} onClose={() => setEditingTemplate(null)}>
-          <ModalHeader title={`Ubah Template: ${editingTemplate.name}`} onClose={() => setEditingTemplate(null)} />
+        <Modal open={!!editingTemplate} onClose={closeEditModal}>
+          <ModalHeader title={`Ubah Template: ${editingTemplate.name}`} onClose={closeEditModal} />
           <form onSubmit={handleEditSubmit}>
             <ModalBody>
               {formError && (
@@ -2127,7 +2196,7 @@ const knownEventNames: Record<string, string> = {
                 type="button"
                 className="sf-btn-primary"
                 style={{ background: '#ef4444', borderColor: '#ef4444' }}
-                onClick={() => setEditingTemplate(null)}
+                onClick={closeEditModal}
                 disabled={formSubmitting}
               >
                 Batal
@@ -2514,10 +2583,10 @@ const knownEventNames: Record<string, string> = {
 
       {/* MODAL: Tambah/Edit Jadwal */}
       {showScheduleModal && (
-        <Modal open={showScheduleModal} onClose={() => setShowScheduleModal(false)}>
+        <Modal open={showScheduleModal} onClose={closeScheduleModal}>
           <ModalHeader
             title={editingSchedule ? `Edit Jadwal: ${editingSchedule.name}` : 'Buat Jadwal Baru'}
-            onClose={() => setShowScheduleModal(false)}
+            onClose={closeScheduleModal}
           />
           <form onSubmit={handleSaveSchedule}>
             <ModalBody>
@@ -2735,7 +2804,7 @@ const knownEventNames: Record<string, string> = {
                 type="button"
                 className="sf-btn-primary"
                 style={{ background: '#ef4444', borderColor: '#ef4444' }}
-                onClick={() => setShowScheduleModal(false)}
+                onClick={closeScheduleModal}
                 disabled={scheduleFormSubmitting}
               >
                 Batal
@@ -2775,6 +2844,9 @@ const knownEventNames: Record<string, string> = {
         canDecide={canAccessNotificationAdmin(user) || isKetuaRTUser(user)}
         currentUserId={user?.id}
       />
+      {createTemplateGuard.confirmModal}
+      {editTemplateGuard.confirmModal}
+      {scheduleGuard.confirmModal}
     </div>
   )
 }

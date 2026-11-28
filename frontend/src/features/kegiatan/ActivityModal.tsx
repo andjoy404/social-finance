@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   CommunityActivity,
   BannerStyleConfig,
@@ -7,7 +7,7 @@ import {
   getSessionPair,
 } from '@/app/api'
 import { BannerStyleEditor, computeNeonGradient } from '@/components/BannerStyleEditor'
-import { CancelConfirmModal } from '@/components/CancelConfirmModal'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 interface ActivityModalProps {
   activity?: CommunityActivity | null
@@ -17,17 +17,7 @@ interface ActivityModalProps {
 
 export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalProps) {
   const isEditing = !!activity
-  const [title, setTitle] = useState(activity?.title || '')
-  const [description, setDescription] = useState(activity?.description || '')
-  const [startsAt, setStartsAt] = useState(
-    activity?.starts_at ? new Date(activity.starts_at).toISOString().slice(0, 16) : ''
-  )
-  const [endsAt, setEndsAt] = useState(
-    activity?.ends_at ? new Date(activity.ends_at).toISOString().slice(0, 16) : ''
-  )
-  const [location, setLocation] = useState(activity?.location || '')
-  const [organizer, setOrganizer] = useState(activity?.organizer || '')
-  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(
+  const initialStyleConfig = useRef<BannerStyleConfig>(
     activity?.style_config || {
       version: 1,
       background_type: activity?.poster_url ? 'image' : 'color',
@@ -38,12 +28,23 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
         : null,
       show_detail: true,
     }
+  ).current
+
+  const [title, setTitle] = useState(activity?.title || '')
+  const [description, setDescription] = useState(activity?.description || '')
+  const [startsAt, setStartsAt] = useState(
+    activity?.starts_at ? new Date(activity.starts_at).toISOString().slice(0, 16) : ''
   )
+  const [endsAt, setEndsAt] = useState(
+    activity?.ends_at ? new Date(activity.ends_at).toISOString().slice(0, 16) : ''
+  )
+  const [location, setLocation] = useState(activity?.location || '')
+  const [organizer, setOrganizer] = useState(activity?.organizer || '')
+  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(initialStyleConfig)
   const [showOnBanner, setShowOnBanner] = useState(activity?.show_on_banner ?? true)
   const [publishNow, setPublishNow] = useState(activity?.publication_status === 'published')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
 
   const initialSnapshot = useRef({
     title: activity?.title || '',
@@ -54,27 +55,44 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
     organizer: activity?.organizer || '',
     showOnBanner: activity?.show_on_banner ?? true,
     publishNow: activity?.publication_status === 'published',
-    styleConfigStr: JSON.stringify(activity?.style_config || null),
+    styleConfig: initialStyleConfig,
   }).current
 
-  const isDirty =
-    title !== initialSnapshot.title ||
-    description !== initialSnapshot.description ||
-    startsAt !== initialSnapshot.startsAt ||
-    endsAt !== initialSnapshot.endsAt ||
-    location !== initialSnapshot.location ||
-    organizer !== initialSnapshot.organizer ||
-    showOnBanner !== initialSnapshot.showOnBanner ||
-    publishNow !== initialSnapshot.publishNow ||
-    JSON.stringify(styleConfig || null) !== initialSnapshot.styleConfigStr
+  const isDirty = isSnapshotDirty(
+    {
+      title,
+      description,
+      startsAt,
+      endsAt,
+      location,
+      organizer,
+      showOnBanner,
+      publishNow,
+      styleConfig,
+    },
+    initialSnapshot,
+  )
 
-  const handleRequestClose = () => {
-    if (isDirty) {
-      setShowCancelConfirm(true)
-    } else {
-      onClose()
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: saving,
+    active: true,
+  })
+
+  const handleRequestClose = useCallback(() => {
+    void guardedClose(onClose)
+  }, [guardedClose, onClose])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleRequestClose()
+      }
     }
-  }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleRequestClose])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,7 +132,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
         await apiCreateActivity(session.accessToken, payload)
       }
 
-      onSuccess()
+      exitAfterSave(onSuccess)
     } catch (err: any) {
       setError(err?.message || 'Gagal menyimpan kegiatan')
     } finally {
@@ -161,7 +179,9 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
           <button
             type="button"
             onClick={handleRequestClose}
-            style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
+            disabled={saving}
+            aria-label="Tutup"
+            style={{ background: 'none', border: 'none', fontSize: 20, cursor: saving ? 'not-allowed' : 'pointer', color: 'var(--sf-text-muted)' }}
           >
             ×
           </button>
@@ -372,14 +392,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
         </form>
       </div>
 
-      <CancelConfirmModal
-        open={showCancelConfirm}
-        onStay={() => setShowCancelConfirm(false)}
-        onConfirmCancel={() => {
-          setShowCancelConfirm(false)
-          onClose()
-        }}
-      />
+      {confirmModal}
     </div>
   )
 }

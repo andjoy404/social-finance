@@ -322,7 +322,7 @@ void main() {
       // Verify: dialog with both buttons
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
-      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Tetap di Halaman'), findsOneWidget);
       expect(find.text('Ya, Batalkan'), findsOneWidget);
     });
 
@@ -391,6 +391,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasMasukForm(tester);
+      await tester.enterText(_nominalField(), '15000');
+      await tester.pump();
 
       // Tap AppBar back
       await tester.tap(find.byIcon(Icons.arrow_back));
@@ -464,6 +466,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasMasukForm(tester);
+      await tester.enterText(_nominalField(), '15000');
+      await tester.pump();
 
       // Hardware back
       await tester.binding.handlePopRoute();
@@ -488,6 +492,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasMasukForm(tester);
+      await tester.enterText(_nominalField(), '15000');
+      await tester.pump();
 
       // First: open dialog and dismiss with "Tidak"
       final batalBtn = await _batalBtn(tester);
@@ -550,6 +556,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasMasukForm(tester);
+      await tester.enterText(_nominalField(), '15000');
+      await tester.pump();
 
       // Double back: first triggers dialog
       await tester.binding.handlePopRoute();
@@ -609,6 +617,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasKeluarForm(tester);
+      await tester.enterText(_nominalField(), '25000');
+      await tester.pump();
 
       // AppBar back
       await tester.tap(find.byIcon(Icons.arrow_back));
@@ -626,6 +636,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasKeluarForm(tester);
+      await tester.enterText(_nominalField(), '25000');
+      await tester.pump();
 
       // Hardware back
       await tester.binding.handlePopRoute();
@@ -649,6 +661,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await _openKasKeluarForm(tester);
+      await tester.enterText(_nominalField(), '25000');
+      await tester.pump();
 
       // First: Batal → Tidak
       final batalBtn = await _batalBtn(tester);

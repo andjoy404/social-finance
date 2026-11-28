@@ -13,6 +13,7 @@ import {
   ApiError,
 } from '@/app/api'
 import { ImportObligationWarningsPopup } from './ImportObligationWarningsPopup'
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   FileExcelOutlined,
   DownloadOutlined,
@@ -86,16 +87,25 @@ export function WargaImportModal({
     }
   }
 
+  const importGuard = useUnsavedChangesGuard({
+    active: open && step !== 'success',
+    isDirty: open && step !== 'success' && (selectedFile !== null || previewResult !== null),
+    isSaving: loading,
+  })
+
   const handleClose = () => {
-    if (loading) return
-    resetState()
-    onClose()
+    void importGuard.guardedClose(() => {
+      resetState()
+      onClose()
+    })
   }
 
   const handleFinish = () => {
-    resetState()
-    onClose()
-    onSuccess?.()
+    importGuard.exitAfterSave(() => {
+      resetState()
+      onClose()
+      onSuccess?.()
+    })
   }
 
   const handleDownloadTemplate = async () => {
@@ -759,6 +769,7 @@ export function WargaImportModal({
           </button>
         )}
       </ModalFooter>
+      {importGuard.confirmModal}
     </Modal>
     </>
   )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiUpdateProfile,
@@ -10,6 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { formatPhoneDisplay } from '@/styles/format'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   UserOutlined,
   PhoneOutlined,
@@ -48,13 +49,18 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
 
   // Active tab: 'profile' | 'password'
   const [activeTab, setActiveTab] = useState<'profile' | 'password'>('profile')
+  const profileInitialRef = useRef({ fullName: '', phone: '', email: '' })
 
   useEffect(() => {
     if (user && open) {
-      setFullName(user.name || '')
+      const initName = user.name || ''
       const formatted = user.phone ? formatPhoneDisplay(user.phone) : ''
-      setPhone(formatted === '-' ? '' : formatted)
-      setEmail(user.email || '')
+      const initPhone = formatted === '-' ? '' : formatted
+      const initEmail = user.email || ''
+      profileInitialRef.current = { fullName: initName, phone: initPhone, email: initEmail }
+      setFullName(initName)
+      setPhone(initPhone)
+      setEmail(initEmail)
       setProfileSuccess(null)
       setProfileError(null)
       setCurrentPassword('')
@@ -64,6 +70,42 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
       setPasswordError(null)
     }
   }, [user, open])
+
+  const profileDirty = isSnapshotDirty({ fullName, phone, email }, profileInitialRef.current)
+  const passwordDirty = Boolean(currentPassword || newPassword || confirmPassword)
+  const isDirty = open && (profileDirty || passwordDirty)
+  const isSaving = profileSaving || passwordSaving
+
+  const { guardedClose, confirmAction, confirmModal } = useUnsavedChangesGuard({
+    active: open && Boolean(user),
+    isDirty,
+    isSaving,
+  })
+
+  const handleClose = () => {
+    void guardedClose(onClose)
+  }
+
+  const handleTabSwitch = (nextTab: 'profile' | 'password') => {
+    if (nextTab === activeTab) return
+    const activeTabDirty = activeTab === 'profile' ? profileDirty : passwordDirty
+    if (!activeTabDirty && !isSaving) {
+      setActiveTab(nextTab)
+      return
+    }
+    void confirmAction(() => {
+      if (activeTab === 'profile') {
+        setFullName(profileInitialRef.current.fullName)
+        setPhone(profileInitialRef.current.phone)
+        setEmail(profileInitialRef.current.email)
+      } else {
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+      }
+      setActiveTab(nextTab)
+    })
+  }
 
   // Refresh the canonical profile from the server whenever the modal is opened,
   // so changes made by an administrator on another device/session (e.g. a
@@ -101,6 +143,11 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
         email: email.trim() || undefined,
       })
       await refreshUser?.()
+      profileInitialRef.current = {
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+      }
       setProfileSuccess('Profil berhasil diperbarui.')
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -170,11 +217,11 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
     : null
 
   return (
-    <Modal open={open} onClose={onClose} width={540}>
+    <Modal open={open} onClose={handleClose} width={540}>
       <ModalHeader
         title="Profil Pengguna"
         subtitle="Kelola informasi akun dan keamanan Anda"
-        onClose={onClose}
+        onClose={handleClose}
       />
       <ModalBody>
         {/* User Card Summary */}
@@ -259,7 +306,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
         >
           <button
             type="button"
-            onClick={() => setActiveTab('profile')}
+            onClick={() => handleTabSwitch('profile')}
             style={{
               padding: '8px 16px',
               background: 'none',
@@ -279,7 +326,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('password')}
+            onClick={() => handleTabSwitch('password')}
             style={{
               padding: '8px 16px',
               background: 'none',
@@ -479,10 +526,11 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
         )}
       </ModalBody>
       <ModalFooter>
-        <button type="button" className="sf-btn-ghost" onClick={onClose}>
+        <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={isSaving}>
           Tutup
         </button>
       </ModalFooter>
+      {confirmModal}
     </Modal>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiCreateRT,
@@ -16,6 +16,7 @@ import {
 } from '@/app/api'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   ApartmentOutlined,
   NumberOutlined,
@@ -201,14 +202,25 @@ export function RtCreate({
   const navigate = useNavigate()
 
   const open = openProp ?? true
-  const handleClose = onCloseProp ?? (() => navigate('/rt'))
+  const rawClose = onCloseProp ?? (() => navigate('/rt'))
   const handleSave = onSavedProp ?? (() => {})
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [form, setForm] = useState<RtFormState>(emptyForm)
+  const initialFormRef = useRef<RtFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [rwList, setRwList] = useState<ApiRW[]>([])
+
+  const isDirty = isSnapshotDirty(form, initialFormRef.current)
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    active: open,
+    isDirty,
+    isSaving: loading,
+  })
+  const handleClose = () => {
+    void guardedClose(rawClose)
+  }
 
   useEffect(() => {
     const pair = getSessionPair()
@@ -218,11 +230,14 @@ export function RtCreate({
         if (Array.isArray(res?.data)) {
           setRwList(res.data)
           if (res.data.length === 1) {
-            setForm((prev) =>
-              prev.rw_id
-                ? prev
-                : { ...prev, rw_id: res.data[0].id, rw: String(res.data[0].rw_number) },
-            )
+            setForm((prev) => {
+              if (prev.rw_id) return prev
+              const next = { ...prev, rw_id: res.data[0].id, rw: String(res.data[0].rw_number) }
+              if (!isSnapshotDirty(prev, initialFormRef.current)) {
+                initialFormRef.current = next
+              }
+              return next
+            })
           }
         }
       })
@@ -274,12 +289,14 @@ export function RtCreate({
       }
 
       await apiCreateRT(pair.accessToken, body)
-      handleSave()
-      handleClose()
+      exitAfterSave(() => {
+        handleSave()
+        rawClose()
+      })
     } catch (err) {
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
+        exitAfterSave(rawClose)
       } else if (err instanceof ApiError) {
         setError(new ApiError(err.code, err.message || 'Gagal membuat RT.'))
       } else {
@@ -328,6 +345,7 @@ export function RtCreate({
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }
@@ -341,13 +359,10 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
 
   const id = propId ?? routeId
 
-  if (!user) return null
-  if (!id) {
-    navigate('/rt', { replace: true })
-    return null
-  }
-
-  const handleClose = propOnClose ?? (() => navigate('/rt/' + id))
+  const rawClose = useCallback(
+    () => (propOnClose ? propOnClose() : navigate('/rt/' + (id ?? ''))),
+    [propOnClose, navigate, id],
+  )
   const onCloseSuccess = propOnSaved ?? (() => {})
 
   const [loadingData, setLoadingData] = useState(true)
@@ -357,12 +372,24 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
   const [error, setError] = useState<ApiError | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [form, setForm] = useState<RtFormState>(emptyForm)
+  const initialFormRef = useRef<RtFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [rwList, setRwList] = useState<ApiRW[]>([])
 
+  const isDirty = !loadingData && !notFound && isSnapshotDirty(form, initialFormRef.current)
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    active: Boolean(user && id),
+    isDirty,
+    isSaving: saving || togglingActive,
+  })
+  const handleClose = useCallback(() => {
+    void guardedClose(rawClose)
+  }, [guardedClose, rawClose])
+
   const fetchRt = useCallback(async () => {
+    if (!user || !id) return
     const pair = getSessionPair()
-    if (!pair?.accessToken) { handleClose(); return }
+    if (!pair?.accessToken) { rawClose(); return }
 
     setLoadingData(true)
     setError(null)
@@ -377,18 +404,20 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
       setRwList(loadedRws)
       const matchedRwId = data.rw_id || loadedRws.find((r) => r.rw_number === data.rw)?.id || ''
       setIsActive(data.is_active)
-      setForm({
+      const loadedForm: RtFormState = {
         name: data.name,
         rw_id: matchedRwId,
         rw: String(data.rw),
         rt: data.rt,
         address: data.address ?? '',
         head_name: data.head_name ?? '',
-      })
+      }
+      initialFormRef.current = loadedForm
+      setForm(loadedForm)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
+        rawClose()
       } else if (err instanceof ApiError && err.code === 'not_found') {
         setNotFound(true)
       } else {
@@ -397,9 +426,15 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     } finally {
       setLoadingData(false)
     }
-  }, [id, handleClose])
+  }, [user, id, rawClose])
 
   useEffect(() => { void fetchRt() }, [fetchRt])
+
+  if (!user) return null
+  if (!id) {
+    navigate('/rt', { replace: true })
+    return null
+  }
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -433,8 +468,10 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
         const updated = await apiReactivateRT(pair.accessToken, id)
         setIsActive(updated.is_active)
       }
-      onCloseSuccess()
-      handleClose()
+      exitAfterSave(() => {
+        onCloseSuccess()
+        rawClose()
+      })
     } catch (err) {
       if (err instanceof ApiError) {
         setError(new ApiError(err.code, err.message || 'Gagal mengubah status RT.'))
@@ -455,7 +492,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     setSaving(true)
     try {
       const pair = getSessionPair()
-      if (!pair?.accessToken) { handleClose(); return }
+      if (!pair?.accessToken) { rawClose(); return }
 
       const body: ApiUpdateRTBody = {
         name: form.name.trim(),
@@ -467,12 +504,14 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
       }
 
       await apiUpdateRT(pair.accessToken, id, body)
-      onCloseSuccess()
-      handleClose()
+      exitAfterSave(() => {
+        onCloseSuccess()
+        rawClose()
+      })
     } catch (err) {
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
+        exitAfterSave(rawClose)
       } else if (err instanceof ApiError) {
         setError(new ApiError(err.code, err.message || 'Gagal memperbarui RT.'))
       } else {
@@ -554,6 +593,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
           </ModalFooter>
         </form>
       )}
+      {confirmModal}
     </Modal>
   )
 }

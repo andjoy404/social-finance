@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
@@ -9,6 +9,7 @@ import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLo
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 import { EXPENSE_CATEGORIES } from './kasTypes'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -44,12 +45,7 @@ const emptyForm: FormState = {
 export function KasExpense() {
   const { user } = useAuth()
   const navigate = useNavigate()
-
-  if (!user) return null
-
-  const canWrite = hasKasWriteAccess(user)
-
-  const handleClose = () => navigate('/kas')
+  const canWrite = Boolean(user && hasKasWriteAccess(user))
 
   // Category state
   interface Category {
@@ -58,8 +54,30 @@ export function KasExpense() {
     type: string
   }
   const [categories, setCategories] = useState<Category[]>([])
+  const [form, setForm] = useState<FormState>(() => ({ ...emptyForm, tanggal: getJakartaDateString() }))
+  const initialSnapshotRef = useRef({ form, proofFile: null as File | null })
+  const [saving, setSaving] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
+
+  // Bukti bayar (opsional, tidak dikirim ke backend karena contract API transaksi tidak mendukung file)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
+  const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
+
+  const isDirty = isSnapshotDirty({ form, proofFile }, initialSnapshotRef.current)
+  const { guardedClose, confirmAction, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    active: canWrite,
+    isDirty,
+    isSaving: saving,
+  })
+
+  const rawClose = () => navigate('/kas')
+  const handleClose = () => {
+    void guardedClose(rawClose)
+  }
 
   useEffect(() => {
+    if (!canWrite) return
     const fetchCategories = async () => {
       try {
         const token = getSessionPair()?.accessToken ?? ''
@@ -75,15 +93,27 @@ export function KasExpense() {
       }
     }
     fetchCategories()
-  }, [])
+  }, [canWrite])
+
+  useEffect(() => {
+    if (!canWrite) return
+    const token = getSessionPair()?.accessToken
+    if (token) {
+      apiListFundLocations(token, { is_active: true })
+        .then(setFundLocations)
+        .catch(() => {})
+    }
+  }, [canWrite])
+
+  if (!user) return null
 
   if (!canWrite) {
     return (
-      <Modal open onClose={handleClose} width={560}>
+      <Modal open onClose={rawClose} width={560}>
         <ModalHeader
           title="Akses Ditolak"
           subtitle="Halaman ini hanya untuk pengurus yang berwenang"
-          onClose={handleClose}
+          onClose={rawClose}
         />
         <ModalBody>
           <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
@@ -91,29 +121,11 @@ export function KasExpense() {
           </div>
         </ModalBody>
         <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>Kembali</button>
+          <button type="button" className="sf-btn-ghost" onClick={rawClose}>Kembali</button>
         </ModalFooter>
       </Modal>
     )
   }
-
-  const [form, setForm] = useState<FormState>({ ...emptyForm })
-  const [saving, setSaving] = useState(false)
-  const [validationErrors, setValidationErrors] = useState<string[]>([])
-
-  // Bukti bayar (opsional, tidak dikirim ke backend karena contract API transaksi tidak mendukung file)
-  const [proofFile, setProofFile] = useState<File | null>(null)
-  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
-  const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
-
-  useEffect(() => {
-    const token = getSessionPair()?.accessToken
-    if (token) {
-      apiListFundLocations(token, { is_active: true })
-        .then(setFundLocations)
-        .catch(() => {})
-    }
-  }, [])
 
   const handleChange = (field: string, value: string) => {
     if (field === 'locationId') {
@@ -135,10 +147,11 @@ export function KasExpense() {
   }
 
   const handleJenisChange = (jenis: 'masuk' | 'keluar') => {
-    setForm((prev) => ({ ...prev, jenis }))
     if (jenis === 'masuk') {
-      navigate('/kas/baru')
+      void confirmAction(() => navigate('/kas/baru'))
+      return
     }
+    setForm((prev) => ({ ...prev, jenis }))
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,7 +254,7 @@ export function KasExpense() {
         location_id: form.locationId || undefined,
         expense_category: selectedCategory || undefined,
       })
-      navigate('/kas')
+      exitAfterSave(() => navigate('/kas'))
     } catch (err: any) {
       setValidationErrors([err?.message ?? 'Gagal menyimpan transaksi'])
     } finally {
@@ -560,6 +573,7 @@ export function KasExpense() {
             type="button"
             className="sf-btn"
             onClick={handleClose}
+            disabled={saving}
             style={{
               background: 'rgba(242, 73, 92, 0.16)',
               border: '1px solid rgba(242, 73, 92, 0.6)',
@@ -594,6 +608,7 @@ export function KasExpense() {
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -49,9 +48,37 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
   List<String> _validationErrors = [];
   bool _notFound = false;
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  String get _routePath => '/home/warga/edit/household/${widget.householdId}';
+
+  Map<String, Object?> _currentValues() => {
+    'houseNumber': _houseNumberCtrl.text,
+    'headName': _headNameCtrl.text,
+    'nik': _nikCtrl.text,
+    'phone': _phoneCtrl.text,
+    'email': _emailCtrl.text,
+    'password': _passwordCtrl.text,
+    'address': _addressCtrl.text,
+    'occupancyStatus': _occupancyStatus,
+    'isActive': _isActive,
+    'startDate': _startDate,
+    'endDate': _endDate,
+  };
+
+  bool get _isDirty =>
+      !_loading && !_notFound && _snapshot.isDirty(_currentValues());
+
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isDirty,
+      isSaving: () => _saving,
+    );
     _nikCtrl.addListener(() {
       if (_nikCtrl.text.length > 16) {
         _nikCtrl.text = _nikCtrl.text.substring(0, 16);
@@ -65,6 +92,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _houseNumberCtrl.dispose();
     _headNameCtrl.dispose();
     _nikCtrl.dispose();
@@ -121,6 +149,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         _isActive = resident.isActive;
         _startDate = hh?.startDate ?? resident.startDate;
         _endDate = hh?.endDate ?? resident.endDate;
+        _snapshot.reset(_currentValues());
         _loading = false;
       });
     } on FormatException catch (_) {
@@ -225,19 +254,12 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        // Successful save — allow the subsequent pop through the route guard.
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/home/warga');
-          }
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Successful save — exit via official guard path without dialog.
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -293,7 +315,11 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await KasFormNavigationGuard.requestFormCancel(context);
+        await FormNavigationGuard.requestFormCancel(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Ubah Warga')),
@@ -785,7 +811,11 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     child: ElevatedButton(
       onPressed: _saving
           ? null
-          : () => KasFormNavigationGuard.requestFormCancel(context),
+          : () => FormNavigationGuard.requestFormCancel(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/warga',
+            ),
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,

@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/features/monitoring/data/monitoring_models.dart';
@@ -335,14 +336,36 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
     final notesCtrl = TextEditingController();
     XFile? capturedPhoto;
     bool isProcessingCamera = false;
+    final snapshot = FormSnapshot({
+      'name': '',
+      'phone': '',
+      'purpose': '',
+      'destination': '',
+      'plate': '',
+      'notes': '',
+      'photo': null,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'name': nameCtrl.text,
+      'phone': phoneCtrl.text,
+      'purpose': purposeCtrl.text,
+      'destination': destinationCtrl.text,
+      'plate': plateCtrl.text,
+      'notes': notesCtrl.text,
+      'photo': capturedPhoto?.path,
+    });
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return StatefulBuilder(
-          builder: (ctx, setDialogState) => AlertDialog(
-            title: const Text('Catat Tamu Masuk'),
+          builder: (ctx, setDialogState) => GuardedFormModalScope(
+            isDirty: isDirty,
+            isSaving: () => isProcessingCamera,
+            popResult: false,
+            child: AlertDialog(
+              title: const Text('Catat Tamu Masuk'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -560,7 +583,14 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
                   foregroundColor: Colors.white,
                   elevation: 0,
                 ),
-                onPressed: () => Navigator.of(ctx).pop(false),
+                onPressed: isProcessingCamera
+                    ? null
+                    : () => FormNavigationGuard.requestModalClose(
+                        ctx,
+                        isDirty: isDirty(),
+                        isSaving: isProcessingCamera,
+                        result: false,
+                      ),
                 child: const Text('Batal'),
               ),
               ElevatedButton(
@@ -570,6 +600,7 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
                 child: const Text('Simpan Tamu'),
               ),
             ],
+            ),
           ),
         );
       },
@@ -1305,35 +1336,47 @@ class _PosKioskScreenState extends ConsumerState<PosKioskScreen>
 
   /// Prompt the user to edit the note for a monitoring-household.
   Future<void> _showSampahNoteDialog(MonitoringHousehold item) async {
-    final controller = TextEditingController(text: item.note ?? '');
+    final initialNote = item.note ?? '';
+    final controller = TextEditingController(text: initialNote);
+    bool isDirty() => controller.text != initialNote;
     final save = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Catatan Rumah ${item.houseNumber}'),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          maxLength: 2000,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            hintText: 'Contoh: rumah dikunjungi, sampah belum diangkut…',
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: Text('Catatan Rumah ${item.houseNumber}'),
+          content: TextField(
+            controller: controller,
+            maxLines: 4,
+            maxLength: 2000,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'Contoh: rumah dikunjungi, sampah belum diangkut…',
             ),
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Batal'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Simpan'),
-          ),
-        ],
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
       ),
     );
     if (save != true) return;

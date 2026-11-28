@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
@@ -28,7 +29,15 @@ class SecurityWasteTruckScreen extends ConsumerStatefulWidget {
 }
 
 class _SecurityWasteTruckScreenState
-    extends ConsumerState<SecurityWasteTruckScreen> {
+    extends ConsumerState<SecurityWasteTruckScreen>
+    with SingleTickerProviderStateMixin {
+  static const String _routePath = '/home/notifikasi/waste-truck';
+
+  late final TabController _tabController;
+  final TextEditingController _customMessageCtrl = TextEditingController();
+  int _lastConfirmedTabIndex = 0;
+  bool _revertingTab = false;
+
   WasteTruckTemplate? _template;
   bool _isLoadingTemplate = true;
   String? _templateError;
@@ -38,10 +47,60 @@ class _SecurityWasteTruckScreenState
   String? _sendError;
   String _customMessage = '';
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'photoPath': _photo?.path,
+    'customMessage': _customMessageCtrl.text,
+  };
+
+  bool get _isDirty => _snapshot.isDirty(_currentValues());
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChanged);
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isDirty,
+      isSaving: () => _isSending,
+    );
     _loadTemplate();
+  }
+
+  @override
+  void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+    _customMessageCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onTabChanged() async {
+    if (_revertingTab || _tabController.indexIsChanging) return;
+    final targetIndex = _tabController.index;
+    if (targetIndex == _lastConfirmedTabIndex) return;
+    if (_lastConfirmedTabIndex == 0 && (_isDirty || _isSending)) {
+      _revertingTab = true;
+      _tabController.index = _lastConfirmedTabIndex;
+      _revertingTab = false;
+      final allow = await FormNavigationGuard.confirmTabChange(
+        context,
+        isDirty: _isDirty,
+        isSaving: _isSending,
+      );
+      if (!mounted || !allow) return;
+      _revertingTab = true;
+      _lastConfirmedTabIndex = targetIndex;
+      _tabController.animateTo(targetIndex);
+      _revertingTab = false;
+      return;
+    }
+    _lastConfirmedTabIndex = targetIndex;
   }
 
   Future<void> _loadTemplate() async {
@@ -194,7 +253,9 @@ class _SecurityWasteTruckScreenState
       setState(() {
         _photo = null;
         _customMessage = '';
+        _customMessageCtrl.clear();
       });
+      _snapshot.reset(_currentValues());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -219,26 +280,25 @@ class _SecurityWasteTruckScreenState
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          centerTitle: false,
-          title: const MenuAppBarTitle(title: 'Notifikasi'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Template'),
-              Tab(text: 'Riwayat'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            _buildBody(theme, isDark),
-            const SecurityWasteTruckHistoryScreen(),
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        centerTitle: false,
+        title: const MenuAppBarTitle(title: 'Notifikasi'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Template'),
+            Tab(text: 'Riwayat'),
           ],
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildBody(theme, isDark),
+          const SecurityWasteTruckHistoryScreen(),
+        ],
       ),
     );
   }
@@ -386,6 +446,7 @@ class _SecurityWasteTruckScreenState
           const SizedBox(height: 8),
           AppCard(
             child: TextField(
+              controller: _customMessageCtrl,
               maxLines: 3,
               decoration: InputDecoration(
                 hintText: 'Tambahkan pesan tambahan jika diperlukan...',

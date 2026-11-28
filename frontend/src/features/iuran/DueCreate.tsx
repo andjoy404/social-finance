@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiCreateDue,
@@ -14,6 +14,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType, type DueType, formatRupiah, PAYMENT_RULE_OPTIONS, type PaymentRuleType } from './iuranTypes'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 /* ── Form shape ─────────────────────────────────────────────────────── */
 
@@ -395,7 +396,7 @@ export function DueCreate({
   const navigate = useNavigate()
 
   const open = openProp ?? true
-  const handleClose = onCloseProp ?? (() => navigate('/iuran'))
+  const rawClose = onCloseProp ?? (() => navigate('/iuran'))
   const handleSave = onSavedProp ?? (() => {})
 
   const [loading, setLoading] = useState(false)
@@ -404,6 +405,17 @@ export function DueCreate({
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [period, setPeriod] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const initialSnapshotRef = useRef({ form: emptyForm, period: '', dueDate: '' })
+  const canCreate = !user || hasFinanceCreateAccess(user)
+  const isDirty = isSnapshotDirty({ form, period, dueDate }, initialSnapshotRef.current)
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    active: open && canCreate,
+    isDirty,
+    isSaving: loading,
+  })
+  const handleClose = () => {
+    void guardedClose(rawClose)
+  }
   const handlePeriodChange = (value: string) => setPeriod(value)
   const handleDueDateChange = (value: string) => setDueDate(value)
 
@@ -490,12 +502,14 @@ export function DueCreate({
       if (form.due_type !== 'multi_month') {
         await apiGenerateBills(pair.accessToken, { due_id: due.id, period: effectivePeriod, due_date: effectiveDueDate }, crypto.randomUUID())
       }
-      handleSave()
-      handleClose()
+      exitAfterSave(() => {
+        handleSave()
+        rawClose()
+      })
     } catch (err) {
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
+        exitAfterSave(rawClose)
       } else if (err instanceof ApiError) {
         setError(new ApiError(err.code, err.message || 'Gagal membuat iuran.'))
       } else {
@@ -509,14 +523,14 @@ export function DueCreate({
   // Authorization gate
   if (user && !hasFinanceCreateAccess(user)) {
     return (
-      <Modal open={open} onClose={handleClose}>
+      <Modal open={open} onClose={rawClose}>
         <ModalHeader
           title="Akses Ditolak"
           subtitle="Anda tidak memiliki izin untuk menambah iuran."
-          onClose={handleClose}
+          onClose={rawClose}
         />
         <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+          <button type="button" className="sf-btn-ghost" onClick={rawClose}>
             Tutup
           </button>
         </ModalFooter>
@@ -564,6 +578,7 @@ export function DueCreate({
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }

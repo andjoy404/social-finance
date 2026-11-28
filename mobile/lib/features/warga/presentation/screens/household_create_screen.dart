@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -46,9 +45,34 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
   String? _error;
   List<String> _validationErrors = [];
 
+  static const String _routePath = '/home/warga/baru';
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'houseNumber': _houseNumberCtrl.text,
+    'headName': _headNameCtrl.text,
+    'nik': _nikCtrl.text,
+    'phone': _phoneCtrl.text,
+    'email': _emailCtrl.text,
+    'password': _passwordCtrl.text,
+    'address': _addressCtrl.text,
+    'occupancyStatus': _occupancyStatus,
+    'startDate': _startDate,
+    'endDate': _endDate,
+    'isActive': _isActive,
+    'selectedRtId': _selectedRtId,
+  };
+
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => _saving,
+    );
     _nikCtrl.addListener(() {
       if (_nikCtrl.text.length > 16) {
         _nikCtrl.text = _nikCtrl.text.substring(0, 16);
@@ -61,6 +85,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _houseNumberCtrl.dispose();
     _headNameCtrl.dispose();
     _nikCtrl.dispose();
@@ -181,19 +206,12 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        // Successful save — allow the subsequent pop through the route guard.
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/home/warga');
-          }
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Successful save — exit via official guard path without dialog.
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -205,9 +223,6 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     }
   }
 
-  /// Show confirmation dialog before canceling the form.
-  /// Used by AppBar back, Android system back, and the Batal button.
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -217,7 +232,11 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await KasFormNavigationGuard.requestFormCancel(context);
+        await FormNavigationGuard.requestFormCancel(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Tambah Warga')),
@@ -746,7 +765,11 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     child: ElevatedButton(
       onPressed: _saving
           ? null
-          : () => KasFormNavigationGuard.requestFormCancel(context),
+          : () => FormNavigationGuard.requestFormCancel(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/warga',
+            ),
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,

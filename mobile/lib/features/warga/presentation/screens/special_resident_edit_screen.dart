@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -44,9 +44,33 @@ class _SpecialResidentEditScreenState
   List<String> _validationErrors = [];
   bool _notFound = false;
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  String get _routePath => '/home/warga/edit/petugas/${widget.residentId}';
+
+  Map<String, Object?> _currentValues() => {
+    'fullName': _fullNameCtrl.text,
+    'nik': _nikCtrl.text,
+    'phone': _phoneCtrl.text,
+    'email': _emailCtrl.text,
+    'password': _passwordCtrl.text,
+    'jabatan': _jabatan,
+    'isActive': _isActive,
+  };
+
+  bool get _isDirty =>
+      !_loading && !_notFound && _snapshot.isDirty(_currentValues());
+
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isDirty,
+      isSaving: () => _saving,
+    );
     _nikCtrl.addListener(() {
       if (_nikCtrl.text.length > 16) {
         _nikCtrl.text = _nikCtrl.text.substring(0, 16);
@@ -60,6 +84,7 @@ class _SpecialResidentEditScreenState
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _fullNameCtrl.dispose();
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
@@ -93,6 +118,7 @@ class _SpecialResidentEditScreenState
         _hasJabatan = resident.jabatan != null && resident.jabatan!.isNotEmpty;
         _jabatan = _hasJabatan ? (resident.jabatan ?? '') : '';
         _isActive = mapped.isActive;
+        _snapshot.reset(_currentValues());
         _loading = false;
       });
     } on FormatException catch (e) {
@@ -211,7 +237,11 @@ class _SpecialResidentEditScreenState
             backgroundColor: AppColors.success,
           ),
         );
-        context.pop();
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/warga',
+        );
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -223,57 +253,14 @@ class _SpecialResidentEditScreenState
     }
   }
 
-  /// Show confirmation dialog before canceling the form.
+  /// Show confirmation dialog before canceling the form if dirty.
   /// Used by AppBar back, Android system back, and the Batal button.
   Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8B5CF6),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Ya, Batalkan'),
-              ),
-            ),
-          ),
-        ],
-      ),
+    await FormNavigationGuard.requestFormCancel(
+      context,
+      routePath: _routePath,
+      fallbackRoute: '/home/warga',
     );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
-    }
   }
 
   @override

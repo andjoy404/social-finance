@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -1394,14 +1395,19 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({'nominal': nominalCtrl.text});
+    bool isDirty() => snapshot.isDirty({'nominal': nominalCtrl.text});
 
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Ubah Saldo Awal KAS RW'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: const Text('Ubah Saldo Awal KAS RW'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1441,7 +1447,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -1478,6 +1490,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       : const Text('Simpan'),
                 ),
               ],
+            ),
             );
           },
         );
@@ -1529,6 +1542,25 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
 
     if (!context.mounted) return;
 
+    final txSnapshot = FormSnapshot({
+      'amount': '',
+      'desc': '',
+      'proof': null,
+      'locationId': selectedLocationId,
+      'expenseCategory': selectedExpenseCategory,
+      'sourceRtId': selectedSourceRtId,
+      'paymentMethod': paymentMethod,
+    });
+    bool isTxDirty() => txSnapshot.isDirty({
+      'amount': amountCtrl.text,
+      'desc': descCtrl.text,
+      'proof': proofFile?.path,
+      'locationId': selectedLocationId,
+      'expenseCategory': selectedExpenseCategory,
+      'sourceRtId': selectedSourceRtId,
+      'paymentMethod': paymentMethod,
+    });
+
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) {
@@ -1537,8 +1569,11 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             final selectedLoc = locations.where((l) => l.id == selectedLocationId).firstOrNull;
             final locBal = selectedLoc != null ? (double.tryParse(selectedLoc.currentBalance) ?? 0) : 0;
 
-            return AlertDialog(
-              title: Text(isIncome ? 'Catat KAS Masuk RW' : 'Catat KAS Keluar RW'),
+            return GuardedFormModalScope(
+              isDirty: isTxDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: Text(isIncome ? 'Catat KAS Masuk RW' : 'Catat KAS Keluar RW'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1784,7 +1819,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                 AppButton.danger(
                   text: 'Batal',
                   size: AppButtonSize.medium,
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isTxDirty(),
+                          isSaving: saving,
+                        ),
                 ),
                 AppButton.primary(
                   text: 'Simpan',
@@ -1874,6 +1915,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                   },
                 ),
               ],
+            ),
             );
           },
         );

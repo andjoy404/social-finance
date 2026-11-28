@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
@@ -8,6 +8,7 @@ import { hasKasWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -38,34 +39,10 @@ const emptyForm: FormState = {
 export function KasIncome() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const canWrite = Boolean(user && hasKasWriteAccess(user))
 
-  if (!user) return null
-
-  const canWrite = hasKasWriteAccess(user)
-
-  const handleClose = () => navigate('/kas')
-
-  if (!canWrite) {
-    return (
-      <Modal open onClose={handleClose} width={560}>
-        <ModalHeader
-          title="Akses Ditolak"
-          subtitle="Halaman ini hanya untuk pengurus yang berwenang"
-          onClose={handleClose}
-        />
-        <ModalBody>
-          <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
-            Anda tidak memiliki izin untuk menambah transaksi kas masuk.
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>Kembali</button>
-        </ModalFooter>
-      </Modal>
-    )
-  }
-
-  const [form, setForm] = useState<FormState>({ ...emptyForm })
+  const [form, setForm] = useState<FormState>(() => ({ ...emptyForm, tanggal: getJakartaDateString() }))
+  const initialSnapshotRef = useRef({ form, proofFile: null as File | null })
   const [saving, setSaving] = useState(false)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
@@ -74,14 +51,49 @@ export function KasIncome() {
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
   const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
 
+  const isDirty = isSnapshotDirty({ form, proofFile }, initialSnapshotRef.current)
+  const { guardedClose, confirmAction, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    active: canWrite,
+    isDirty,
+    isSaving: saving,
+  })
+
+  const rawClose = () => navigate('/kas')
+  const handleClose = () => {
+    void guardedClose(rawClose)
+  }
+
   useEffect(() => {
+    if (!canWrite) return
     const token = getSessionPair()?.accessToken
     if (token) {
       apiListFundLocations(token, { is_active: true })
         .then(setFundLocations)
         .catch(() => {})
     }
-  }, [])
+  }, [canWrite])
+
+  if (!user) return null
+
+  if (!canWrite) {
+    return (
+      <Modal open onClose={rawClose} width={560}>
+        <ModalHeader
+          title="Akses Ditolak"
+          subtitle="Halaman ini hanya untuk pengurus yang berwenang"
+          onClose={rawClose}
+        />
+        <ModalBody>
+          <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
+            Anda tidak memiliki izin untuk menambah transaksi kas masuk.
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={rawClose}>Kembali</button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
   const handleChange = (field: string, value: string) => {
     if (field === 'locationId') {
@@ -103,10 +115,11 @@ export function KasIncome() {
   }
 
   const handleJenisChange = (jenis: 'masuk' | 'keluar') => {
-    setForm((prev) => ({ ...prev, jenis }))
     if (jenis === 'keluar') {
-      navigate('/kas/baru/keluar')
+      void confirmAction(() => navigate('/kas/baru/keluar'))
+      return
     }
+    setForm((prev) => ({ ...prev, jenis }))
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,7 +209,7 @@ export function KasIncome() {
         location_id: form.locationId || undefined,
       })
 
-      navigate('/kas')
+      exitAfterSave(() => navigate('/kas'))
     } catch (err: any) {
       setValidationErrors([err?.message ?? 'Gagal menyimpan transaksi'])
     } finally {
@@ -491,6 +504,7 @@ export function KasIncome() {
             type="button"
             className="sf-btn"
             onClick={handleClose}
+            disabled={saving}
             style={{
               background: 'rgba(242, 73, 92, 0.16)',
               border: '1px solid rgba(242, 73, 92, 0.6)',
@@ -525,6 +539,7 @@ export function KasIncome() {
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }

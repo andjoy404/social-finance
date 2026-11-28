@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -172,11 +173,18 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
 
     String selectedTargetId = candidateSchedules.first.id;
     final reasonCtrl = TextEditingController();
+    final swapSnap = FormSnapshot({'targetId': selectedTargetId, 'reason': ''});
+    bool isSwapDirty() =>
+        swapSnap.isDirty({'targetId': selectedTargetId, 'reason': reasonCtrl.text});
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Ajukan Tukar Shift'),
+        builder: (ctx, setDialogState) => GuardedFormModalScope(
+          isDirty: isSwapDirty,
+          isSaving: () => false,
+          popResult: false,
+          child: AlertDialog(
+            title: const Text('Ajukan Tukar Shift'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -230,7 +238,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                 foregroundColor: Colors.white,
                 elevation: 0,
               ),
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isSwapDirty(),
+                isSaving: false,
+                result: false,
+              ),
               child: const Text('Batal'),
             ),
             ElevatedButton(
@@ -238,6 +251,7 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
               child: const Text('Ajukan'),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -301,12 +315,19 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
       requestedStatus = 'sudah_absen_pulang';
     }
     final reasonCtrl = TextEditingController();
+    final occSnap = FormSnapshot({'status': requestedStatus, 'reason': ''});
+    bool isOccDirty() =>
+        occSnap.isDirty({'status': requestedStatus, 'reason': reasonCtrl.text});
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Ajukan Koreksi Absensi'),
-          content: SingleChildScrollView(
+        builder: (ctx, setDialogState) => GuardedFormModalScope(
+          isDirty: isOccDirty,
+          isSaving: () => false,
+          popResult: false,
+          child: AlertDialog(
+            title: const Text('Ajukan Koreksi Absensi'),
+            content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,7 +380,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                 foregroundColor: Colors.white,
                 elevation: 0,
               ),
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isOccDirty(),
+                isSaving: false,
+                result: false,
+              ),
               child: const Text('Batal'),
             ),
             ElevatedButton(
@@ -367,6 +393,7 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
               child: const Text('Kirim Koreksi'),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -406,12 +433,19 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
   Future<void> _openCorrectionDialog(AttendanceRecord record) async {
     String requestedStatus = 'hadir';
     final reasonCtrl = TextEditingController();
+    final corrSnap = FormSnapshot({'status': requestedStatus, 'reason': ''});
+    bool isCorrDirty() =>
+        corrSnap.isDirty({'status': requestedStatus, 'reason': reasonCtrl.text});
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Ajukan Koreksi Absensi'),
-          content: Column(
+        builder: (ctx, setDialogState) => GuardedFormModalScope(
+          isDirty: isCorrDirty,
+          isSaving: () => false,
+          popResult: false,
+          child: AlertDialog(
+            title: const Text('Ajukan Koreksi Absensi'),
+            content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -462,7 +496,12 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                 foregroundColor: Colors.white,
                 elevation: 0,
               ),
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isCorrDirty(),
+                isSaving: false,
+                result: false,
+              ),
               child: const Text('Batal'),
             ),
             ElevatedButton(
@@ -470,6 +509,7 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
               child: const Text('Kirim Koreksi'),
             ),
           ],
+          ),
         ),
       ),
     );

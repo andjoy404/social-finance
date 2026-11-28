@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 
 import '../../data/security_models.dart';
@@ -122,28 +123,37 @@ class CorrectionDetailScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) {
         final controller = TextEditingController();
-        return AlertDialog(
-          title: Text(approve ? 'Setujui Koreksi' : 'Tolak Koreksi'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(labelText: 'Catatan keputusan'),
-            maxLines: 3,
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-                elevation: 0,
+        bool isDirty() => controller.text.isNotEmpty;
+        return GuardedFormModalScope(
+          isDirty: isDirty,
+          isSaving: () => false,
+          child: AlertDialog(
+            title: Text(approve ? 'Setujui Koreksi' : 'Tolak Koreksi'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(labelText: 'Catatan keputusan'),
+              maxLines: 3,
+            ),
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                onPressed: () => FormNavigationGuard.requestModalClose(
+                  ctx,
+                  isDirty: isDirty(),
+                  isSaving: false,
+                ),
+                child: const Text('Batal'),
               ),
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Konfirmasi'),
-            ),
-          ],
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('Konfirmasi'),
+              ),
+            ],
+          ),
         );
       },
     );

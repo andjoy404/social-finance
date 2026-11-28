@@ -21,6 +21,7 @@ import { RwNotificationScreen } from './RwNotificationScreen'
 import { LeftOutlined, DashboardOutlined, WalletOutlined, BankOutlined, BellOutlined } from '@ant-design/icons'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
+import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext'
 import { Select } from 'antd'
 
 type RwViewTab = 'dashboard' | 'kas' | 'lokasi-dana' | 'notification'
@@ -29,6 +30,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const { user } = useAuth()
   const params = useParams()
   const navigate = useNavigate()
+  const unsavedGuard = useUnsavedChangesContext()
   // Primary: URL param from useParams(). Fallback: prop (for tests/rendering).
   const urlRwId = params.rwId || rwId || ''
   const [selectedRwId, setSelectedRwId] = useState<string>('')
@@ -210,19 +212,35 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   }, [user, rwMemberships, urlRwId, navigate])
 
   const handleRwChange = (rwIdValue: string) => {
+    if (rwIdValue === selectedRwId) return
     const membership = rwMemberships.find((m) => m.rw_id === rwIdValue)
     if (!membership) return
-    setSelectedRwId(rwIdValue)
-    setSelectedRwName(membership.rw_name || null)
-    setError(null)
-    navigate(`/rw-view/${rwIdValue}/${activeTab}`, { replace: true })
+    const apply = () => {
+      setSelectedRwId(rwIdValue)
+      setSelectedRwName(membership.rw_name || null)
+      setError(null)
+      navigate(`/rw-view/${rwIdValue}/${activeTab}`, { replace: true })
+    }
+    if (unsavedGuard) {
+      void unsavedGuard.confirmNavigation(apply)
+      return
+    }
+    apply()
   }
 
   const handleTabChange = (tab: RwViewTab) => {
-    setActiveTab(tab)
-    if (selectedRwId) {
-      navigate(`/rw-view/${selectedRwId}/${tab}`, { replace: true })
+    if (tab === activeTab) return
+    const apply = () => {
+      setActiveTab(tab)
+      if (selectedRwId) {
+        navigate(`/rw-view/${selectedRwId}/${tab}`, { replace: true })
+      }
     }
+    if (unsavedGuard) {
+      void unsavedGuard.confirmNavigation(apply)
+      return
+    }
+    apply()
   }
 
   if (loading) {
@@ -314,7 +332,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
             Konteks RW:
           </span>
           <Select
-            defaultValue={selectedRwId}
+            value={selectedRwId}
             onChange={handleRwChange}
             style={{ width: 260 }}
             dropdownMatchSelectWidth={false}

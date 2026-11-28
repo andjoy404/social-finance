@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 
 import '../../data/security_models.dart';
@@ -88,34 +89,43 @@ class _SecurityQrScannerScreenState
 
   Future<void> _openManualTokenDialog() async {
     final ctrl = TextEditingController();
+    bool isDirty() => ctrl.text.isNotEmpty;
     final submitted = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Input Kode QR Pos'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'Token QR dari Perangkat Pos',
-            hintText: 'Tempel kode QR dinamis...',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        child: AlertDialog(
+          title: const Text('Input Kode QR Pos'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Token QR dari Perangkat Pos',
+              hintText: 'Tempel kode QR dinamis...',
+              border: OutlineInputBorder(),
             ),
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Batal'),
+            autofocus: true,
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Kirim Absensi'),
-          ),
-        ],
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+              ),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+              child: const Text('Kirim Absensi'),
+            ),
+          ],
+        ),
       ),
     );
     if (submitted != null && submitted.isNotEmpty) {

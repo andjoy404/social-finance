@@ -28,6 +28,7 @@ import {
 } from './securityApi'
 import { SecurityImage, SecurityPhotoLightbox, LightboxPhoto } from './SecurityImage'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 interface DraftItem {
   id: string
@@ -91,6 +92,48 @@ export function PaketPage() {
   const [createProgress, setCreateProgress] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
+
+  const createDirty = activeTab === 'create' && (
+    selectedWarga !== null ||
+    wargaQuery.trim().length > 0 ||
+    draftItems.length > 1 ||
+    draftItems.some((it) => it.description.trim().length > 0 || it.file !== null)
+  )
+  const createGuard = useUnsavedChangesGuard({
+    active: activeTab === 'create',
+    isDirty: createDirty,
+    isSaving: createSubmitting,
+  })
+  const pickupGuard = useUnsavedChangesGuard({
+    active: Boolean(statusTargetItem),
+    isDirty: Boolean(statusTargetItem) && proofFile !== null,
+    isSaving: statusSubmitting,
+  })
+
+  const switchTab = (next: 'list' | 'create') => {
+    if (next === activeTab) return
+    if (activeTab === 'create') {
+      void createGuard.confirmAction(() => {
+        draftItems.forEach((it) => it.previewUrl && URL.revokeObjectURL(it.previewUrl))
+        setDraftItems([{ id: 'item-0', description: '', file: null, previewUrl: null }])
+        setSelectedWarga(null)
+        setWargaQuery('')
+        setActiveTab(next)
+      })
+      return
+    }
+    setActiveTab(next)
+  }
+
+  const closePickupModal = () => {
+    void pickupGuard.guardedClose(() => {
+      if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl)
+      setProofFile(null)
+      setProofPreviewUrl(null)
+      setStatusTargetItem(null)
+      setStatusError(null)
+    })
+  }
 
   // Lightbox
   const [lightboxPhotos, setLightboxPhotos] = useState<LightboxPhoto[]>([])
@@ -252,12 +295,14 @@ export function PaketPage() {
       })
 
       // Clean up
-      draftItems.forEach((it) => it.previewUrl && URL.revokeObjectURL(it.previewUrl))
-      setDraftItems([{ id: 'item-0', description: '', file: null, previewUrl: null }])
-      setSelectedWarga(null)
-      setWargaQuery('')
-      setCreateSuccess('Penerimaan paket berhasil dicatat!')
-      setActiveTab('list')
+      createGuard.exitAfterSave(() => {
+        draftItems.forEach((it) => it.previewUrl && URL.revokeObjectURL(it.previewUrl))
+        setDraftItems([{ id: 'item-0', description: '', file: null, previewUrl: null }])
+        setSelectedWarga(null)
+        setWargaQuery('')
+        setCreateSuccess('Penerimaan paket berhasil dicatat!')
+        setActiveTab('list')
+      })
       loadReports(1, pageSize)
     } catch (err: any) {
       setCreateError(err?.message || 'Gagal menyimpan penerimaan paket')
@@ -292,10 +337,12 @@ export function PaketPage() {
       )
 
       setSelectedReport(updatedReport)
-      if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl)
-      setProofFile(null)
-      setProofPreviewUrl(null)
-      setStatusTargetItem(null)
+      pickupGuard.exitAfterSave(() => {
+        if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl)
+        setProofFile(null)
+        setProofPreviewUrl(null)
+        setStatusTargetItem(null)
+      })
       loadReports(page, pageSize)
     } catch (err: any) {
       setStatusError(err?.message || 'Gagal memperbarui status penyerahan paket')
@@ -393,7 +440,7 @@ export function PaketPage() {
       }}>
         <button
           type="button"
-          onClick={() => setActiveTab('list')}
+          onClick={() => switchTab('list')}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -416,7 +463,7 @@ export function PaketPage() {
         {canCreate && (
           <button
             type="button"
-            onClick={() => setActiveTab('create')}
+            onClick={() => switchTab('create')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -915,12 +962,7 @@ export function PaketPage() {
               <button
                 type="button"
                 className="sf-btn-secondary"
-                onClick={() => {
-                  draftItems.forEach((it) => it.previewUrl && URL.revokeObjectURL(it.previewUrl))
-                  setDraftItems([{ id: 'item-0', description: '', file: null, previewUrl: null }])
-                  setSelectedWarga(null)
-                  setActiveTab('list')
-                }}
+                onClick={() => switchTab('list')}
                 disabled={createSubmitting}
               >
                 Batal
@@ -1201,10 +1243,10 @@ export function PaketPage() {
       {/* ── MODAL: SERAH TERIMA DENGAN FOTO BUKTI ────────────────────────── */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {statusTargetItem && (
-        <Modal open={!!statusTargetItem} onClose={() => setStatusTargetItem(null)}>
+        <Modal open={!!statusTargetItem} onClose={closePickupModal}>
           <ModalHeader
             title="Konfirmasi Penyerahan Paket"
-            onClose={() => setStatusTargetItem(null)}
+            onClose={closePickupModal}
           />
           <form onSubmit={handleConfirmPickup}>
             <ModalBody>
@@ -1282,7 +1324,7 @@ export function PaketPage() {
               <button
                 type="button"
                 className="sf-btn-secondary"
-                onClick={() => setStatusTargetItem(null)}
+                onClick={closePickupModal}
                 disabled={statusSubmitting}
               >
                 Batal
@@ -1298,6 +1340,8 @@ export function PaketPage() {
           </form>
         </Modal>
       )}
+      {createGuard.confirmModal}
+      {pickupGuard.confirmModal}
 
       {/* ── LIGHTBOX ──────────────────────────────────────────────────────── */}
       <SecurityPhotoLightbox

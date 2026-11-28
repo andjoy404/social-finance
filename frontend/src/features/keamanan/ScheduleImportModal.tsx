@@ -29,6 +29,7 @@ import {
   type ScheduleExcelRow,
   type ScheduleImportPreviewResponse,
 } from './securityApi'
+import { useAntdModalGuard } from '@/hooks/useUnsavedChangesGuard'
 
 const { Text, Paragraph } = Typography
 
@@ -59,10 +60,18 @@ export function ScheduleImportModal({ open, onClose, onSuccess }: ScheduleImport
     }
   }
 
-  const handleModalClose = () => {
+  const rawModalClose = () => {
     handleReset()
     onClose()
   }
+
+  const importGuard = useAntdModalGuard({
+    open,
+    isDirty: open && (selectedFile !== null || previewData !== null),
+    isSaving: loadingPreview || committing,
+    onClose: rawModalClose,
+  })
+  const handleModalClose = importGuard.onCancel
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -124,9 +133,11 @@ export function ScheduleImportModal({ open, onClose, onSuccess }: ScheduleImport
     try {
       const res = await apiCommitSecuritySchedulesXLSX(validRows)
       message.success(res.message || 'Jadwal berhasil disimpan!')
-      handleReset()
-      onSuccess()
-      onClose()
+      importGuard.exitAfterSave(() => {
+        handleReset()
+        onSuccess()
+        onClose()
+      })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal menyimpan jadwal'
       message.error(msg)
@@ -233,6 +244,9 @@ export function ScheduleImportModal({ open, onClose, onSuccess }: ScheduleImport
         </Space>
       }
       onCancel={handleModalClose}
+      keyboard={importGuard.keyboard}
+      maskClosable={importGuard.maskClosable}
+      closable={importGuard.closable}
       width={1000}
       footer={
         !previewData ? (
@@ -447,6 +461,7 @@ export function ScheduleImportModal({ open, onClose, onSuccess }: ScheduleImport
         )}
         <p>Apakah Anda yakin ingin melanjutkan?</p>
       </Modal>
+      {importGuard.confirmModal}
     </Modal>
   )
 }

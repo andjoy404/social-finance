@@ -17,6 +17,7 @@ import { Badge } from '@/components/Badge'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { positionVariant, rtPositionLabel } from './position-badge'
 import { RtFormFields, type RtFormState } from './RtCreate'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 const positions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
@@ -72,6 +73,21 @@ export function RtDetailModal({
   const editLock = useRef(false)
   const editTabRef = useRef<HTMLButtonElement>(null)
   const jabatanTabRef = useRef<HTMLButtonElement>(null)
+  const initialRtFormRef = useRef<RtFormState>(emptyRtForm)
+
+  const rtFormDirty = open && Boolean(rt) && isSnapshotDirty(rtForm, initialRtFormRef.current)
+  const jabatanFormDirty = open && Boolean(rt) && (selectedJabatan !== '' || selectedMember !== null)
+  const isDirty = rtFormDirty || jabatanFormDirty
+  const isSaving = editSaving || modalSaving
+
+  const { guardedClose, confirmAction, confirmModal } = useUnsavedChangesGuard({
+    active: open && Boolean(rt),
+    isDirty,
+    isSaving,
+  })
+  const handleClose = useCallback(() => {
+    void guardedClose(onClose)
+  }, [guardedClose, onClose])
 
   const loadRws = useCallback(async (currentRt: ApiRT) => {
     const session = getSessionPair()
@@ -86,10 +102,16 @@ export function RtDetailModal({
       const options = resp.data ?? []
       setRwList(options)
       setRwLoaded(true)
-      setRtForm((prev) => ({
-        ...prev,
-        rw_id: prev.rw_id || currentRt.rw_id || options.find((rw) => rw.rw_number === currentRt.rw)?.id || '',
-      }))
+      setRtForm((prev) => {
+        const next = {
+          ...prev,
+          rw_id: prev.rw_id || currentRt.rw_id || options.find((rw) => rw.rw_number === currentRt.rw)?.id || '',
+        }
+        if (!isSnapshotDirty(prev, initialRtFormRef.current)) {
+          initialRtFormRef.current = next
+        }
+        return next
+      })
     } catch (err) {
       setRwLoaded(false)
       setEditError(err instanceof Error ? err.message : 'Gagal memuat daftar RW.')
@@ -121,7 +143,9 @@ export function RtDetailModal({
       setActiveTab('jabatan')
       setRwList([])
       setRwLoaded(false)
-      setRtForm(toRtForm(rt, []))
+      const initForm = toRtForm(rt, [])
+      initialRtFormRef.current = initForm
+      setRtForm(initForm)
       setEditValidationErrors([])
       setEditError(null)
       setEditSuccess(null)
@@ -196,7 +220,9 @@ export function RtDetailModal({
         head_name: rtForm.head_name.trim() || null,
       }
       const updatedRt = await apiUpdateRT(session.accessToken, rt.id, body)
-      setRtForm(toRtForm(updatedRt, rwList))
+      const nextForm = toRtForm(updatedRt, rwList)
+      initialRtFormRef.current = nextForm
+      setRtForm(nextForm)
       setEditSuccess('Informasi RT berhasil diperbarui.')
       onUpdated?.(updatedRt)
     } catch (err) {
@@ -223,15 +249,34 @@ export function RtDetailModal({
     )
   })
 
+  const switchTab = (nextTab: 'ubah' | 'jabatan') => {
+    if (nextTab === activeTab) return
+    const currentDirty = activeTab === 'ubah' ? rtFormDirty : jabatanFormDirty
+    if (!currentDirty && !isSaving) {
+      setActiveTab(nextTab)
+      if (nextTab === 'ubah' && rt && !rwLoaded && !editLoading) void loadRws(rt)
+      return
+    }
+    void confirmAction(() => {
+      if (activeTab === 'ubah') {
+        setRtForm(initialRtFormRef.current)
+      } else {
+        setSelectedJabatan('')
+        setSelectedMember(null)
+      }
+      setActiveTab(nextTab)
+      if (nextTab === 'ubah' && rt && !rwLoaded && !editLoading) void loadRws(rt)
+    })
+  }
+
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault()
       const nextTab = activeTab === 'ubah' ? 'jabatan' : 'ubah'
-      setActiveTab(nextTab)
+      switchTab(nextTab)
       if (nextTab === 'ubah') {
         jabatanTabRef.current?.blur()
         editTabRef.current?.focus()
-        if (rt && !rwLoaded && !editLoading) void loadRws(rt)
       } else {
         jabatanTabRef.current?.focus()
       }
@@ -302,8 +347,8 @@ export function RtDetailModal({
 
   return (
     <>
-      <Modal open={open} onClose={onClose} width={640}>
-        <ModalHeader title={`Detail RT ${rt.rt}`} subtitle={rt.name} onClose={onClose} />
+      <Modal open={open} onClose={handleClose} width={640}>
+        <ModalHeader title={`Detail RT ${rt.rt}`} subtitle={rt.name} onClose={handleClose} />
         <div role="tablist" aria-label="Pengaturan RT" style={{ display: 'flex', justifyContent: 'center', gap: 6, margin: '0 20px', padding: '10px 0 12px', borderBottom: '1px solid var(--sf-border)' }}>
           <button
             ref={editTabRef}
@@ -314,10 +359,7 @@ export function RtDetailModal({
             tabIndex={activeTab === 'ubah' ? 0 : -1}
             className={`sf-btn ${activeTab === 'ubah' ? 'sf-btn-primary' : 'sf-btn-ghost'}`}
             style={{ minWidth: 88, padding: '4px 12px', fontSize: 11 }}
-            onClick={() => {
-              setActiveTab('ubah')
-              if (!rwLoaded && !editLoading) void loadRws(rt)
-            }}
+            onClick={() => switchTab('ubah')}
             onKeyDown={handleTabKeyDown}
           >
             UBAH
@@ -331,7 +373,7 @@ export function RtDetailModal({
             tabIndex={activeTab === 'jabatan' ? 0 : -1}
             className={`sf-btn ${activeTab === 'jabatan' ? 'sf-btn-primary' : 'sf-btn-ghost'}`}
             style={{ minWidth: 88, padding: '4px 12px', fontSize: 11 }}
-            onClick={() => setActiveTab('jabatan')}
+            onClick={() => switchTab('jabatan')}
             onKeyDown={handleTabKeyDown}
           >
             JABATAN
@@ -383,7 +425,7 @@ export function RtDetailModal({
             </ModalBody>
             </div>
             <ModalFooter>
-              <button type="button" className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
+              <button type="button" className="sf-btn sf-btn-ghost" onClick={handleClose} disabled={editSaving}>Tutup</button>
               <button type="submit" className="sf-btn sf-btn-primary" disabled={editSaving}>
                 {editSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
@@ -578,10 +620,11 @@ export function RtDetailModal({
         </ModalBody>
         </div>
         <ModalFooter>
-          <button className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
+          <button className="sf-btn sf-btn-ghost" onClick={handleClose} disabled={modalSaving}>Tutup</button>
         </ModalFooter>
           </>
         )}
+        {confirmModal}
       </Modal>
 
       {/* Warga selector modal */}

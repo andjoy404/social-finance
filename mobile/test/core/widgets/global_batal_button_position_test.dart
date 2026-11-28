@@ -335,7 +335,32 @@ void main() {
         screenName: '$name (${platform.name})',
       );
 
-      // 2. Primary callback works without invoking cancel dialog
+      // 2. Make form dirty, then verify Batal callback opens standard cancel confirmation dialog & Tetap di Halaman keeps form
+      final textFields = find.byType(EditableText);
+      if (textFields.evaluate().isNotEmpty) {
+        await tester.enterText(textFields.first, '12345');
+        await tester.pump();
+      }
+      if (scrollToActionRow) {
+        await tester.scrollUntilVisible(
+          find.text('Batal'),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('Batal'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Apakah Anda yakin ingin membatalkan?'),
+        findsOneWidget,
+        reason: '$name: Tapping Batal when dirty must show cancel confirmation dialog',
+      );
+      await tester.tap(find.text('Tetap di Halaman'));
+      await tester.pumpAndSettle();
+      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
+
+      // 3. Primary callback works without invoking cancel dialog
       if (tapPrimaryAndExpectNoCancelDialog) {
         await tester.tap(find.text(primaryLabel));
         await tester.pumpAndSettle();
@@ -346,18 +371,6 @@ void main() {
               '$name: Tapping $primaryLabel must invoke primary handler, not cancel confirmation',
         );
       }
-
-      // 3. Batal callback opens cancel confirmation dialog & dismissing keeps form
-      await tester.tap(find.text('Batal'));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Apakah Anda yakin ingin membatalkan?'),
-        findsOneWidget,
-        reason: '$name: Tapping Batal must show cancel confirmation dialog',
-      );
-      await tester.tap(find.text('Tidak, Tetap di Halaman'));
-      await tester.pumpAndSettle();
-      expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
       tester.view.resetPhysicalSize();

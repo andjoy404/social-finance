@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   CheckCircleOutlined,
@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   BACKEND_STATUS_MAP,
   formatRupiah,
@@ -107,6 +108,27 @@ function IuranPaymentContent({
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [successPayment, setSuccessPayment] = useState<ApiPayment | null>(null)
+
+  const initialSnapshotRef = useRef({
+    monthCount: isMultiMonth ? 0 : 1,
+    nominal: isMultiMonth ? '0' : (remaining > 0 ? String(remaining) : ''),
+    payDate,
+    catatan: '',
+    method: '' as 'CASH' | 'TRANSFER' | '',
+    proofFile: null as File | null,
+  })
+  const isDirty = isSnapshotDirty(
+    { monthCount, nominal, payDate, catatan, method, proofFile },
+    initialSnapshotRef.current,
+  )
+  const { guardedClose, confirmModal } = useUnsavedChangesGuard({
+    active: !successPayment,
+    isDirty,
+    isSaving: submitting,
+  })
+  const guardedHandleClose = () => {
+    void guardedClose(handleClose)
+  }
 
   useEffect(() => {
     if (isMultiMonth) {
@@ -321,11 +343,11 @@ function IuranPaymentContent({
   }
 
   return (
-    <Modal open onClose={handleClose} width={520}>
+    <Modal open onClose={guardedHandleClose} width={520}>
       <ModalHeader
         title="Pembayaran Iuran"
         subtitle={`Tagihan ${bill.householdName}`}
-        onClose={handleClose}
+        onClose={guardedHandleClose}
       />
       <form
         onSubmit={handleSubmit}
@@ -753,7 +775,7 @@ function IuranPaymentContent({
           <button
             type="button"
             className="sf-btn-ghost"
-            onClick={handleClose}
+            onClick={guardedHandleClose}
             disabled={submitting}
           >
             Batal
@@ -771,6 +793,7 @@ function IuranPaymentContent({
           </button>
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }

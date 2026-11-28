@@ -13,6 +13,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { renderNotificationBody } from './notificationUrl'
 import { NotificationImage } from './NotificationImage'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import './SecurityWasteTruckScreen.css'
 import {
   apiGetWasteTruckTemplate,
@@ -61,6 +62,12 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
   const [previewEntry, setPreviewEntry] = useState<ApiWasteTruckDispatch | null>(null)
 
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const formGuard = useUnsavedChangesGuard({
+    active: activeTab === 'template' && canDispatch,
+    isDirty: photo !== null || messageText.trim().length > 0,
+    isSaving: sending,
+  })
 
   useEffect(() => {
     let active = true
@@ -121,6 +128,18 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
   }, [activeTab, loadHistory, entriesPage])
 
   const handleTabChange = (key: string) => {
+    if (key === activeTab) return
+    if (activeTab === 'template') {
+      void formGuard.confirmAction(() => {
+        setPhoto(null)
+        setMessageText('')
+        setActiveTab(key)
+        if (key === 'history') {
+          void loadHistory(1)
+        }
+      })
+      return
+    }
     setActiveTab(key)
     if (key === 'history') {
       void loadHistory(1)
@@ -474,6 +493,7 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
           </ModalFooter>
         </Modal>
       )}
+      {formGuard.confirmModal}
     </div>
   )
 }

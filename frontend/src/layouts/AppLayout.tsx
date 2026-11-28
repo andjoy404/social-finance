@@ -8,15 +8,21 @@ import { ResidentAvatar } from '@/components/ResidentAvatar'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Dropdown } from 'antd'
 import logoImg from '@/assets/logo.png'
+import { useUnsavedChangesContext } from '@/contexts/UnsavedChangesContext'
 import { ProfileModal } from '@/features/profile/ProfileModal'
 
 export function AppLayout() {
   const { user, logout } = useAuth()
+  const unsavedGuard = useUnsavedChangesContext()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   if (!user) return null
 
   const handleLogout = () => {
+    if (unsavedGuard) {
+      void unsavedGuard.confirmNavigation(() => logout())
+      return
+    }
     logout()
   }
 
@@ -35,6 +41,7 @@ export function AppLayout() {
 
   const handleMenuClick = (e: { key: string }) => {
     if (e.key === 'profile') {
+      if (unsavedGuard?.isAnySaving()) return
       setIsProfileOpen(true)
     } else if (e.key === 'logout') {
       handleLogout()

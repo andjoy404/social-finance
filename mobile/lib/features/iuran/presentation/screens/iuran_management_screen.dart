@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -732,6 +733,19 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   late bool _isActive;
   bool _loading = false;
   String? _errorMessage;
+  late final FormSnapshot _snapshot;
+
+  Map<String, Object?> _currentValues() => {
+    'name': _nameController.text,
+    'amount': _amountController.text,
+    'validUntil': _validUntilController.text,
+    'periodType': _periodType,
+    'paymentRule': _paymentRule,
+    'isVoluntary': _isVoluntary,
+    'isActive': _isActive,
+  };
+
+  bool get _isDirty => _snapshot.isDirty(_currentValues());
 
   @override
   void initState() {
@@ -746,6 +760,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
     _isActive = widget.due.isActive;
+    _snapshot = FormSnapshot(_currentValues());
   }
 
   @override
@@ -898,8 +913,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return AlertDialog(
-      title: const Text('Ubah Iuran'),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading,
+      popResult: false,
+      child: AlertDialog(
+        title: const Text('Ubah Iuran'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -1164,57 +1183,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
               child: OutlinedButton(
                 onPressed: _loading
                     ? null
-                    : () async {
-                        if (!context.mounted) return;
-                        final confirmed = await showDialog<bool>(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (dialogContext) => AlertDialog(
-                            title: const Text('Apakah Anda yakin ingin membatalkan?'),
-                            content: const Text('Perubahan yang belum disimpan akan hilang.'),
-                            actions: [
-                              Align(
-                                alignment: Alignment.center,
-                                child: SizedBox(
-                                  height: 48,
-                                  child: ElevatedButton(
-                                    onPressed: () => Navigator.of(dialogContext).pop(false),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF8B5CF6),
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppRadius.base),
-                                      ),
-                                    ),
-                                    child: const Text('Tidak, Tetap di Halaman'),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.center,
-                                child: SizedBox(
-                                  height: 48,
-                                  child: ElevatedButton(
-                                    onPressed: () => Navigator.of(dialogContext).pop(true),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFEF4444),
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppRadius.base),
-                                      ),
-                                    ),
-                                    child: const Text('Ya, Batalkan'),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                        if (confirmed == true && context.mounted) {
-                          Navigator.of(context).pop(false);
-                        }
-                      },
+                    : () => FormNavigationGuard.requestModalClose(
+                        context,
+                        isDirty: _isDirty,
+                        isSaving: _loading,
+                        result: false,
+                      ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.danger,
                   side: const BorderSide(color: AppColors.danger),
@@ -1240,6 +1214,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           ],
         ),
       ],
+      ),
     );
   }
 }

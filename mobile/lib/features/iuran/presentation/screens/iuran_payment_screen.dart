@@ -3,10 +3,9 @@ import 'package:flutter/services.dart';
 
 import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -56,12 +55,39 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   int _selectedMonthCount = 1;
   bool _multiBillsLoaded = false;
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  String get _routePath => '/home/iuran/pembayaran/${widget.billId}';
+
+  Map<String, Object?> _currentValues() => {
+    'tanggal': _tanggalCtrl.text,
+    'nominal': _nominalCtrl.text,
+    'catatan': _catatanCtrl.text,
+    'method': _selectedMethod,
+    'proofBytes': _proofBytes,
+    'proofFileName': _proofFileName,
+    'selectedMonthCount': _selectedMonthCount,
+  };
+
+  void _syncPrefillSnapshot(bool wasDirty) {
+    if (!wasDirty) {
+      _snapshot.reset(_currentValues());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _proofBytes = widget.initialProofBytes;
     _proofFileName = widget.initialProofFileName;
     _tanggalCtrl.text = DateTime.now().toLocal().toString().split(' ')[0];
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => _saving,
+    );
   }
 
   @override
@@ -78,6 +104,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _tanggalCtrl.dispose();
     _nominalCtrl.dispose();
     _catatanCtrl.dispose();
@@ -109,6 +136,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       payable.sort((a, b) => a.period.compareTo(b.period));
 
       if (mounted) {
+        final wasDirty = _snapshot.isDirty(_currentValues());
         setState(() {
           _multiBills = payable;
           _selectedMonthCount = 0;
@@ -116,6 +144,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           _multiBillsLoaded = true;
           _nominalCtrl.text = RupiahInputFormatter.formatForInput(0);
         });
+        _syncPrefillSnapshot(wasDirty);
       }
     } catch (e) {
       if (mounted) {
@@ -292,15 +321,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             ),
           );
           if (Navigator.canPop(context)) {
-            // Multi-bill payment successful — allow the pop through the route guard.
-            final routePath = GoRouterState.of(context).uri.path;
-            KasFormNavigationGuard.allowExitFor(routePath);
-            try {
-              context.pop();
-            } catch (_) {
-              KasFormNavigationGuard.revokeExitFor(routePath);
-              rethrow;
-            }
+            // Multi-bill payment successful — exit via official guard path.
+            FormNavigationGuard.exitAfterSave(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/iuran',
+            );
           }
         }
         return;
@@ -352,15 +378,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             ),
           ),
         );
-        // Single-bill payment successful — allow the pop through the route guard.
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          context.pop();
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Single-bill payment successful — exit via official guard path.
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/iuran',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -482,10 +505,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         if (b.isRegularDues &&
             _nominalCtrl.text.isEmpty &&
             b.paymentCapacity > 0) {
+          final wasDirty = _snapshot.isDirty(_currentValues());
           _nominalPrefilled = true;
           _nominalCtrl.text = RupiahInputFormatter.formatForInput(
             b.paymentCapacity,
           );
+          _syncPrefillSnapshot(wasDirty);
         }
       }
       if (next is AsyncData<IuranBill?> && next.value != null) {
@@ -531,17 +556,21 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             : currentBill.nominal;
         final formattedFull = RupiahInputFormatter.formatForInput(targetAmount);
         if (_nominalCtrl.text != formattedFull) {
+          final wasDirty = _snapshot.isDirty(_currentValues());
           _nominalPrefilled = true;
           _nominalCtrl.text = formattedFull;
+          _syncPrefillSnapshot(wasDirty);
         }
       } else if (!_nominalPrefilled &&
           _nominalCtrl.text.isEmpty &&
           isRegularDues &&
           currentBill.paymentCapacity > 0) {
+        final wasDirty = _snapshot.isDirty(_currentValues());
         _nominalPrefilled = true;
         _nominalCtrl.text = RupiahInputFormatter.formatForInput(
           currentBill.paymentCapacity,
         );
+        _syncPrefillSnapshot(wasDirty);
       }
     }
 
@@ -549,9 +578,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        if (!_saving) {
-          await KasFormNavigationGuard.requestFormCancel(context);
-        }
+        await FormNavigationGuard.requestFormCancel(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/iuran',
+        );
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Pembayaran Iuran')),
@@ -693,7 +724,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       title: 'Tagihan Tidak Ditemukan',
                       description: 'Detail tagihan tidak tersedia.',
                       actionText: 'Kembali',
-                      onAction: () => context.pop(),
+                      onAction: () => FormNavigationGuard.requestFormCancel(
+                        context,
+                        routePath: _routePath,
+                        fallbackRoute: '/home/iuran',
+                      ),
                     ),
                   ),
                 ),
@@ -1361,7 +1396,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       key: const Key('btn_cancel'),
       onPressed: _saving
           ? null
-          : () => KasFormNavigationGuard.requestFormCancel(context),
+          : () => FormNavigationGuard.requestFormCancel(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/iuran',
+            ),
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,

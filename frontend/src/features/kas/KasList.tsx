@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
@@ -12,10 +12,12 @@ import {
   ArrowUpOutlined,
 } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
+import { Modal } from '@/components/Modal'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { useAuth } from '@/app/AuthContext'
 import { hasKasWriteAccess } from '@/app/wargaAuth'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   getSessionPair,
   type ApiTransaction,
@@ -106,8 +108,22 @@ export function KasList() {
   const [showEditOpening, setShowEditOpening] = useState(false)
   const [openingBalanceInput, setOpeningBalanceInput] = useState('')
   const [openingBalanceReason, setOpeningBalanceReason] = useState('')
+  const openingInitialRef = useRef({ openingBalanceInput: '', openingBalanceReason: '' })
   const [savingOpening, setSavingOpening] = useState(false)
   const [openingError, setOpeningError] = useState<string | null>(null)
+
+  const openingDirty = showEditOpening && isSnapshotDirty(
+    { openingBalanceInput, openingBalanceReason },
+    openingInitialRef.current,
+  )
+  const openingGuard = useUnsavedChangesGuard({
+    active: showEditOpening,
+    isDirty: openingDirty,
+    isSaving: savingOpening,
+  })
+  const handleCloseOpening = useCallback(() => {
+    void openingGuard.guardedClose(() => setShowEditOpening(false))
+  }, [openingGuard])
 
   // Edit manual transaction modal state
   const [editingTx, setEditingTx] = useState<ApiTransaction | null>(null)
@@ -118,8 +134,29 @@ export function KasList() {
   const [editMethod, setEditMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   const [editDate, setEditDate] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const editTxInitialRef = useRef({
+    editCategoryId: '',
+    editAmount: '',
+    editType: 'income' as 'income' | 'expense',
+    editMethod: 'CASH' as 'CASH' | 'TRANSFER',
+    editDate: '',
+    editDescription: '',
+  })
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+
+  const editTxDirty = Boolean(editingTx) && isSnapshotDirty(
+    { editCategoryId, editAmount, editType, editMethod, editDate, editDescription },
+    editTxInitialRef.current,
+  )
+  const editTxGuard = useUnsavedChangesGuard({
+    active: Boolean(editingTx),
+    isDirty: editTxDirty,
+    isSaving: savingEdit,
+  })
+  const handleCloseEditTx = useCallback(() => {
+    void editTxGuard.guardedClose(() => setEditingTx(null))
+  }, [editTxGuard])
 
   const [page, setPage] = useState<number>(1)
   const pageSize = 20
@@ -184,14 +221,29 @@ export function KasList() {
   // Set initial values when opening edit modal
   useEffect(() => {
     if (editingTx) {
-      setEditCategoryId(editingTx.category_id || '')
+      const initCategoryId = editingTx.category_id || ''
       const rawNum = Math.round(Number(editingTx.amount) || 0)
-      setEditAmount(rawNum > 0 ? String(rawNum) : '')
-      setEditType(editingTx.type)
-      setEditMethod((editingTx.payment_method?.toUpperCase() === 'TRANSFER') ? 'TRANSFER' : 'CASH')
+      const initAmount = rawNum > 0 ? String(rawNum) : ''
+      const initType = editingTx.type
+      const initMethod: 'CASH' | 'TRANSFER' = (editingTx.payment_method?.toUpperCase() === 'TRANSFER') ? 'TRANSFER' : 'CASH'
       const d = (editingTx.occurred_at || editingTx.created_at || '').split('T')[0]
-      setEditDate(d || new Date().toISOString().split('T')[0])
-      setEditDescription(editingTx.description || '')
+      const initDate = d || new Date().toISOString().split('T')[0]
+      const initDescription = editingTx.description || ''
+
+      editTxInitialRef.current = {
+        editCategoryId: initCategoryId,
+        editAmount: initAmount,
+        editType: initType,
+        editMethod: initMethod,
+        editDate: initDate,
+        editDescription: initDescription,
+      }
+      setEditCategoryId(initCategoryId)
+      setEditAmount(initAmount)
+      setEditType(initType)
+      setEditMethod(initMethod)
+      setEditDate(initDate)
+      setEditDescription(initDescription)
       setEditError(null)
 
       const token = getSessionPair()?.accessToken
@@ -220,7 +272,7 @@ export function KasList() {
     setOpeningError(null)
     try {
       await apiUpdateOpeningBalance(token, targetPeriod, openingBalanceInput.trim(), openingBalanceReason.trim() || undefined)
-      setShowEditOpening(false)
+      openingGuard.exitAfterSave(() => setShowEditOpening(false))
       loadData()
     } catch (err: any) {
       setOpeningError(err?.message || 'Gagal mengubah saldo awal')
@@ -246,7 +298,7 @@ export function KasList() {
         occurred_at: editDate,
         description: editDescription.trim(),
       })
-      setEditingTx(null)
+      editTxGuard.exitAfterSave(() => setEditingTx(null))
       loadData()
     } catch (err: any) {
       setEditError(err?.message || 'Gagal mengubah transaksi')
@@ -414,8 +466,13 @@ export function KasList() {
                 type="button"
                 className="sf-btn sf-btn-ghost"
                 onClick={() => {
+                  const initReason = 'Koreksi saldo awal'
+                  openingInitialRef.current = {
+                    openingBalanceInput: summary.openingBalance,
+                    openingBalanceReason: initReason,
+                  }
                   setOpeningBalanceInput(summary.openingBalance)
-                  setOpeningBalanceReason('Koreksi saldo awal')
+                  setOpeningBalanceReason(initReason)
                   setOpeningError(null)
                   setShowEditOpening(true)
                 }}
@@ -996,152 +1053,139 @@ export function KasList() {
 
       {/* Modal Ubah Saldo Awal */}
       {showEditOpening && (
-        <div className="sf-modal-overlay" onClick={() => setShowEditOpening(false)}>
-          <div
-            className="sf-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 440, width: '92%' }}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="sf-modal-header">
-              <div className="sf-modal-header-copy">
-                <div className="sf-modal-title">Ubah Saldo Awal</div>
-                <div className="sf-modal-subtitle">
-                  Periode {displayPeriodLabel}
-                </div>
+        <Modal open onClose={handleCloseOpening} width={440}>
+          <div className="sf-modal-header">
+            <div className="sf-modal-header-copy">
+              <div className="sf-modal-title">Ubah Saldo Awal</div>
+              <div className="sf-modal-subtitle">
+                Periode {displayPeriodLabel}
               </div>
-              <button
-                type="button"
-                className="sf-modal-close"
-                onClick={() => setShowEditOpening(false)}
-                aria-label="Tutup"
-              >
-                ×
-              </button>
+            </div>
+            <button
+              type="button"
+              className="sf-modal-close"
+              onClick={handleCloseOpening}
+              disabled={savingOpening}
+              aria-label="Tutup"
+            >
+              ×
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveOpeningBalance}>
+            <div className="sf-modal-body" style={{ padding: 20 }}>
+              {openingError && (
+                <div className="sf-error-banner" style={{ marginBottom: 14 }}>
+                  {openingError}
+                </div>
+              )}
+
+              <div className="sf-form-field">
+                <label className="sf-form-label" htmlFor="input-opening-balance">
+                  Nominal Saldo Awal (Rp) <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                </label>
+                <input
+                  id="input-opening-balance"
+                  type="number"
+                  step="any"
+                  className="sf-form-input"
+                  value={openingBalanceInput}
+                  onChange={(e) => setOpeningBalanceInput(e.target.value)}
+                  required
+                  placeholder="Contoh: 15000000"
+                  autoFocus
+                />
+                <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4, display: 'block' }}>
+                  Nilai saldo awal yang menjadi basis perhitungan neraca berjalan periode ini.
+                </span>
+              </div>
+
+              <div className="sf-form-field" style={{ marginTop: 14 }}>
+                <label className="sf-form-label" htmlFor="input-opening-reason">
+                  Alasan Perubahan
+                </label>
+                <input
+                  id="input-opening-reason"
+                  type="text"
+                  className="sf-form-input"
+                  value={openingBalanceReason}
+                  onChange={(e) => setOpeningBalanceReason(e.target.value)}
+                  placeholder="Contoh: Koreksi pembukuan awal tahun"
+                />
+              </div>
             </div>
 
-            <form onSubmit={handleSaveOpeningBalance}>
-              <div className="sf-modal-body" style={{ padding: 20 }}>
-                {openingError && (
-                  <div className="sf-error-banner" style={{ marginBottom: 14 }}>
-                    {openingError}
-                  </div>
-                )}
-
-                <div className="sf-form-field">
-                  <label className="sf-form-label" htmlFor="input-opening-balance">
-                    Nominal Saldo Awal (Rp) <span style={{ color: 'var(--sf-danger)' }}>*</span>
-                  </label>
-                  <input
-                    id="input-opening-balance"
-                    type="number"
-                    step="any"
-                    className="sf-form-input"
-                    value={openingBalanceInput}
-                    onChange={(e) => setOpeningBalanceInput(e.target.value)}
-                    required
-                    placeholder="Contoh: 15000000"
-                    autoFocus
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4, display: 'block' }}>
-                    Nilai saldo awal yang menjadi basis perhitungan neraca berjalan periode ini.
-                  </span>
-                </div>
-
-                <div className="sf-form-field" style={{ marginTop: 14 }}>
-                  <label className="sf-form-label" htmlFor="input-opening-reason">
-                    Alasan Perubahan
-                  </label>
-                  <input
-                    id="input-opening-reason"
-                    type="text"
-                    className="sf-form-input"
-                    value={openingBalanceReason}
-                    onChange={(e) => setOpeningBalanceReason(e.target.value)}
-                    placeholder="Contoh: Koreksi pembukuan awal tahun"
-                  />
-                </div>
-              </div>
-
-              <div
-                className="sf-modal-footer"
+            <div
+              className="sf-modal-footer"
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+                padding: '12px 20px',
+              }}
+            >
+              <button
+                type="button"
+                className="sf-btn"
+                onClick={handleCloseOpening}
+                disabled={savingOpening}
                 style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  gap: 10,
-                  padding: '12px 20px',
+                  background: 'transparent',
+                  border: '1px solid var(--sf-border)',
+                  color: 'var(--sf-text-muted)',
+                  padding: '7px 16px',
+                  borderRadius: 'var(--sf-radius-md)',
+                  fontSize: 13,
+                  fontWeight: 500,
                 }}
               >
-                <button
-                  type="button"
-                  className="sf-btn"
-                  onClick={() => setShowEditOpening(false)}
-                  disabled={savingOpening}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--sf-border)',
-                    color: 'var(--sf-text-muted)',
-                    padding: '7px 16px',
-                    borderRadius: 'var(--sf-radius-md)',
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="sf-btn"
-                  disabled={savingOpening}
-                  style={{
-                    background: 'rgba(87, 148, 242, 0.16)',
-                    border: '1px solid rgba(87, 148, 242, 0.6)',
-                    color: 'var(--sf-info)',
-                    boxShadow: '0 0 12px rgba(87, 148, 242, 0.15)',
-                    fontWeight: 600,
-                    padding: '7px 18px',
-                    borderRadius: 'var(--sf-radius-md)',
-                    fontSize: 13,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  {savingOpening ? 'Menyimpan...' : 'Simpan Saldo Awal'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="sf-btn"
+                disabled={savingOpening}
+                style={{
+                  background: 'rgba(87, 148, 242, 0.16)',
+                  border: '1px solid rgba(87, 148, 242, 0.6)',
+                  color: 'var(--sf-info)',
+                  boxShadow: '0 0 12px rgba(87, 148, 242, 0.15)',
+                  fontWeight: 600,
+                  padding: '7px 18px',
+                  borderRadius: 'var(--sf-radius-md)',
+                  fontSize: 13,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {savingOpening ? 'Menyimpan...' : 'Simpan Saldo Awal'}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Modal Ubah Transaksi Manual */}
       {editingTx && (
-        <div className="sf-modal-overlay" onClick={() => setEditingTx(null)}>
-          <div
-            className="sf-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 520, width: '92%' }}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="sf-modal-header">
-              <div className="sf-modal-header-copy">
-                <div className="sf-modal-title">Ubah Transaksi Kas</div>
-                <div className="sf-modal-subtitle">
-                  Perbarui rincian transaksi manual
-                </div>
+        <Modal open onClose={handleCloseEditTx} width={520}>
+          <div className="sf-modal-header">
+            <div className="sf-modal-header-copy">
+              <div className="sf-modal-title">Ubah Transaksi Kas</div>
+              <div className="sf-modal-subtitle">
+                Perbarui rincian transaksi manual
               </div>
-              <button
-                type="button"
-                className="sf-modal-close"
-                onClick={() => setEditingTx(null)}
-                aria-label="Tutup"
-              >
-                ×
-              </button>
             </div>
+            <button
+              type="button"
+              className="sf-modal-close"
+              onClick={handleCloseEditTx}
+              disabled={savingEdit}
+              aria-label="Tutup"
+            >
+              ×
+            </button>
+          </div>
 
-            <form onSubmit={handleSaveEdit}>
+          <form onSubmit={handleSaveEdit}>
               <div className="sf-modal-body" style={{ padding: 20 }}>
                 {editError && (
                   <div className="sf-error-banner" style={{ marginBottom: 14 }}>
@@ -1336,7 +1380,7 @@ export function KasList() {
                 <button
                   type="button"
                   className="sf-btn"
-                  onClick={() => setEditingTx(null)}
+                  onClick={handleCloseEditTx}
                   disabled={savingEdit}
                   style={{
                     background: 'transparent',
@@ -1370,9 +1414,10 @@ export function KasList() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
+      {openingGuard.confirmModal}
+      {editTxGuard.confirmModal}
       {/* Modal Laporan KAS */}
       {reportModalOpen && (
         <div className="sf-modal-overlay" onClick={() => setReportModalOpen(false)}>

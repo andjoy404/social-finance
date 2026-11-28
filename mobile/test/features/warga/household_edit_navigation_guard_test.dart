@@ -73,10 +73,14 @@ void main() {
   });
 
   group('HouseholdEditScreen — Batal button triggers guard dialog', () {
-    testWidgets('Batal button shows confirmation dialog', (tester) async {
+    testWidgets('Batal button shows confirmation dialog when dirty', (tester) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildApp(navigatorKey));
       await tester.pumpAndSettle();
+
+      // Edit a field to make form dirty
+      await tester.enterText(find.byType(TextFormField).first, 'Alamat Baru');
+      await tester.pump();
 
       // Scroll to bottom to find Batal button
       await _scrollToBottom(tester);
@@ -94,13 +98,17 @@ void main() {
         find.text('Apakah Anda yakin ingin membatalkan?'),
         findsOneWidget,
       );
-      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Ya, Batalkan'), findsOneWidget);
     });
 
-    testWidgets('Batal → "Tidak" keeps form', (tester) async {
+    testWidgets('Batal → "Tetap di Halaman" keeps form', (tester) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildApp(navigatorKey));
       await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, 'Alamat Baru');
+      await tester.pump();
 
       // Scroll to bottom
       await _scrollToBottom(tester);
@@ -115,25 +123,31 @@ void main() {
         findsOneWidget,
       );
 
-      // Tap "Tidak, Tetap di Halaman"
-      await tester.tap(find.text('Tidak, Tetap di Halaman'));
+      // Tap "Tetap di Halaman"
+      await tester.tap(find.text('Tetap di Halaman'));
       await tester.pumpAndSettle();
 
-      // Dialog dismissed, form still visible
+      // Dialog dismissed, form still visible with input preserved
       expect(
         find.text('Apakah Anda yakin ingin membatalkan?'),
         findsNothing,
       );
+      await tester.dragFrom(const Offset(400, 300), const Offset(0, 1200));
+      await tester.pumpAndSettle();
+      expect(find.text('Alamat Baru'), findsOneWidget);
     });
   });
 
   group('HouseholdEditScreen — PopScope / back navigation', () {
-    testWidgets('PopScope intercepts back navigation — triggers dialog', (
+    testWidgets('PopScope intercepts back navigation when dirty — triggers dialog', (
       tester,
     ) async {
       final navigatorKey = _createNavigatorKey();
       await tester.pumpWidget(_buildApp(navigatorKey));
       await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, 'Alamat Baru');
+      await tester.pump();
 
       // Simulate system back via handlePopRoute
       await tester.binding.handlePopRoute();
@@ -144,7 +158,7 @@ void main() {
         find.text('Apakah Anda yakin ingin membatalkan?'),
         findsOneWidget,
       );
-      expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
+      expect(find.text('Tetap di Halaman'), findsOneWidget);
     });
   });
 }

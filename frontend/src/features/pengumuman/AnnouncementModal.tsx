@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   CommunityAnnouncement,
   BannerTemplate,
@@ -8,7 +8,7 @@ import {
   getSessionPair,
 } from '@/app/api'
 import { BannerStyleEditor, computeNeonGradient } from '@/components/BannerStyleEditor'
-import { CancelConfirmModal } from '@/components/CancelConfirmModal'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 interface AnnouncementModalProps {
   announcement?: CommunityAnnouncement | null
@@ -26,16 +26,7 @@ export function AnnouncementModal({
   onSuccess,
 }: AnnouncementModalProps) {
   const isEditing = !!announcement
-  const [selectedTemplateId, setSelectedTemplateId] = useState(
-    announcement?.template_id || initialTemplate?.id || ''
-  )
-  const [title, setTitle] = useState(
-    announcement?.title || initialTemplate?.title_template || ''
-  )
-  const [body, setBody] = useState(
-    announcement?.body || initialTemplate?.body_template || ''
-  )
-  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(
+  const initialStyleConfig = useRef<BannerStyleConfig>(
     announcement?.style_config || {
       version: 1,
       background_type: announcement?.image_url ? 'image' : 'color',
@@ -46,7 +37,18 @@ export function AnnouncementModal({
         : null,
       show_detail: true,
     }
+  ).current
+
+  const [selectedTemplateId, setSelectedTemplateId] = useState(
+    announcement?.template_id || initialTemplate?.id || ''
   )
+  const [title, setTitle] = useState(
+    announcement?.title || initialTemplate?.title_template || ''
+  )
+  const [body, setBody] = useState(
+    announcement?.body || initialTemplate?.body_template || ''
+  )
+  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(initialStyleConfig)
   const [deepLink, setDeepLink] = useState(announcement?.deep_link || '')
   const [priority, setPriority] = useState(announcement?.priority ?? initialTemplate?.default_priority ?? 10)
   const [displayOrder, setDisplayOrder] = useState(announcement?.display_order ?? 0)
@@ -59,7 +61,6 @@ export function AnnouncementModal({
   const [publishNow, setPublishNow] = useState(announcement?.status === 'active')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
 
   const initialSnapshot = useRef({
     selectedTemplateId: announcement?.template_id || initialTemplate?.id || '',
@@ -71,28 +72,45 @@ export function AnnouncementModal({
     scheduledStart: announcement?.scheduled_start ? new Date(announcement.scheduled_start).toISOString().slice(0, 16) : '',
     scheduledEnd: announcement?.scheduled_end ? new Date(announcement.scheduled_end).toISOString().slice(0, 16) : '',
     publishNow: announcement?.status === 'active',
-    styleConfigStr: JSON.stringify(announcement?.style_config || null),
+    styleConfig: initialStyleConfig,
   }).current
 
-  const isDirty =
-    selectedTemplateId !== initialSnapshot.selectedTemplateId ||
-    title !== initialSnapshot.title ||
-    body !== initialSnapshot.body ||
-    deepLink !== initialSnapshot.deepLink ||
-    priority !== initialSnapshot.priority ||
-    displayOrder !== initialSnapshot.displayOrder ||
-    scheduledStart !== initialSnapshot.scheduledStart ||
-    scheduledEnd !== initialSnapshot.scheduledEnd ||
-    publishNow !== initialSnapshot.publishNow ||
-    JSON.stringify(styleConfig || null) !== initialSnapshot.styleConfigStr
+  const isDirty = isSnapshotDirty(
+    {
+      selectedTemplateId,
+      title,
+      body,
+      deepLink,
+      priority,
+      displayOrder,
+      scheduledStart,
+      scheduledEnd,
+      publishNow,
+      styleConfig,
+    },
+    initialSnapshot,
+  )
 
-  const handleRequestClose = () => {
-    if (isDirty) {
-      setShowCancelConfirm(true)
-    } else {
-      onClose()
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: saving,
+    active: true,
+  })
+
+  const handleRequestClose = useCallback(() => {
+    void guardedClose(onClose)
+  }, [guardedClose, onClose])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleRequestClose()
+      }
     }
-  }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleRequestClose])
 
   const handleTemplateChange = (tmplId: string) => {
     setSelectedTemplateId(tmplId)
@@ -170,7 +188,7 @@ export function AnnouncementModal({
         await apiCreateAnnouncement(session.accessToken, payload)
       }
 
-      onSuccess()
+      exitAfterSave(onSuccess)
     } catch (err: any) {
       setError(err?.message || 'Gagal menyimpan pengumuman')
     } finally {
@@ -217,7 +235,9 @@ export function AnnouncementModal({
           <button
             type="button"
             onClick={handleRequestClose}
-            style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
+            disabled={saving}
+            aria-label="Tutup"
+            style={{ background: 'none', border: 'none', fontSize: 20, cursor: saving ? 'not-allowed' : 'pointer', color: 'var(--sf-text-muted)' }}
           >
             ×
           </button>
@@ -505,14 +525,7 @@ export function AnnouncementModal({
         </form>
       </div>
 
-      <CancelConfirmModal
-        open={showCancelConfirm}
-        onStay={() => setShowCancelConfirm(false)}
-        onConfirmCancel={() => {
-          setShowCancelConfirm(false)
-          onClose()
-        }}
-      />
+      {confirmModal}
     </div>
   )
 }

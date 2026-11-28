@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -56,51 +56,46 @@ class _AnnouncementFormScreenState
   bool _isUploadingImage = false;
   String? _error;
 
-  // Initial snapshot for dirty state checking
-  String _initTitle = '';
-  String _initBody = '';
-  String _initDeepLink = '';
-  String _initPriority = '10';
-  String _initDisplayOrder = '0';
-  DateTime? _initScheduledStart;
-  DateTime? _initScheduledEnd;
-  String? _initImageUrl;
-  String? _initTemplateId;
-  String? _initStyleConfigJson;
+  // Snapshot & guard registration
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
 
   bool get _isEditing =>
       widget.announcementId != null && widget.announcementId!.isNotEmpty;
 
-  bool get _isDirty {
-    if (_titleCtrl.text != _initTitle) return true;
-    if (_bodyCtrl.text != _initBody) return true;
-    if (_deepLinkCtrl.text != _initDeepLink) return true;
-    if (_priorityCtrl.text != _initPriority) return true;
-    if (_displayOrderCtrl.text != _initDisplayOrder) return true;
-    if (_scheduledStart != _initScheduledStart) return true;
-    if (_scheduledEnd != _initScheduledEnd) return true;
-    if (_imageUrl != _initImageUrl) return true;
-    if (_selectedTemplateId != _initTemplateId) return true;
-    if ((_styleConfig?.toJson().toString()) != _initStyleConfigJson) return true;
-    return false;
-  }
+  String get _routePath => _isEditing
+      ? '/home/pengumuman/${widget.announcementId}/edit'
+      : '/home/pengumuman/create';
+
+  Map<String, Object?> _currentValues() => {
+    'title': _titleCtrl.text,
+    'body': _bodyCtrl.text,
+    'deepLink': _deepLinkCtrl.text,
+    'priority': _priorityCtrl.text,
+    'displayOrder': _displayOrderCtrl.text,
+    'scheduledStart': _scheduledStart,
+    'scheduledEnd': _scheduledEnd,
+    'imageUrl': _imageUrl,
+    'selectedTemplateId': _selectedTemplateId,
+    'styleConfig': _styleConfig?.toJson(),
+    'publishNow': _publishNow,
+  };
+
+  bool get _isDirty => !_isLoading && _snapshot.isDirty(_currentValues());
 
   void _initSnapshot() {
-    _initTitle = _titleCtrl.text;
-    _initBody = _bodyCtrl.text;
-    _initDeepLink = _deepLinkCtrl.text;
-    _initPriority = _priorityCtrl.text;
-    _initDisplayOrder = _displayOrderCtrl.text;
-    _initScheduledStart = _scheduledStart;
-    _initScheduledEnd = _scheduledEnd;
-    _initImageUrl = _imageUrl;
-    _initTemplateId = _selectedTemplateId;
-    _initStyleConfigJson = _styleConfig?.toJson().toString();
+    _snapshot.reset(_currentValues());
   }
 
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isDirty,
+      isSaving: () => _isSaving || _isUploadingImage,
+    );
     if (Platform.environment.containsKey('FLUTTER_TEST')) {
       _initSnapshot();
       return;
@@ -167,69 +162,20 @@ class _AnnouncementFormScreenState
     }
   }
 
-  Future<bool> _confirmCancel() async {
-    if (!_isDirty) return true;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B7280),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Tetap di Halaman'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.danger,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Ya, Batalkan'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-    return confirmed == true;
-  }
-
   Future<void> _handlePop() async {
-    if (_isSaving) return;
-    final canPop = await _confirmCancel();
-    if (canPop && mounted) {
-      Navigator.of(context).pop(false);
-    }
+    await FormNavigationGuard.requestFormCancel(
+      context,
+      routePath: _routePath,
+      isDirtyOverride: () => _isDirty,
+      isSavingOverride: () => _isSaving || _isUploadingImage,
+      fallbackRoute: '/home/pengumuman',
+      result: false,
+    );
   }
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _titleCtrl.dispose();
     _bodyCtrl.dispose();
     _deepLinkCtrl.dispose();
@@ -378,12 +324,22 @@ class _AnnouncementFormScreenState
       if (_isEditing) {
         await repo.updateAnnouncement(widget.announcementId!, payload);
         if (!mounted) return;
-        context.pop(true);
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/pengumuman',
+          result: true,
+        );
       } else {
         payload['publish_now'] = _publishNow;
         await repo.createAnnouncement(payload);
         if (!mounted) return;
-        context.pop(true);
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/pengumuman',
+          result: true,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -431,7 +387,7 @@ class _AnnouncementFormScreenState
     );
 
     return PopScope(
-      canPop: !_isDirty && !_isSaving,
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         await _handlePop();

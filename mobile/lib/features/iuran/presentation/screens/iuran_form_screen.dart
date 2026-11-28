@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -39,6 +38,22 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   String? _error;
   List<String> _validationErrors = [];
 
+  static const String _routePath = '/home/iuran/form';
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
+  Map<String, Object?> _currentValues() => {
+    'name': _nameCtrl.text,
+    'amount': _amountCtrl.text,
+    'period': _periodCtrl.text,
+    'dueDate': _dueDateCtrl.text,
+    'validUntil': _validUntilCtrl.text,
+    'periodType': _periodType,
+    'paymentRule': _paymentRule,
+    'dueType': _dueType,
+    'selectedYear': _selectedYear,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -46,10 +61,17 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     final now = DateTime.now();
     _periodCtrl.text = _formatPeriod(now, _periodType);
     _dueDateCtrl.text = _formatDate(now);
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _snapshot.isDirty(_currentValues()),
+      isSaving: () => _saving,
+    );
   }
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _nameCtrl.dispose();
     _amountCtrl.dispose();
     _periodCtrl.dispose();
@@ -623,15 +645,12 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        // Successful save — allow the subsequent pop through the route guard.
-        final routePath = GoRouterState.of(context).uri.path;
-        KasFormNavigationGuard.allowExitFor(routePath);
-        try {
-          context.pop();
-        } catch (_) {
-          KasFormNavigationGuard.revokeExitFor(routePath);
-          rethrow;
-        }
+        // Successful save — exit via official guard path without dialog.
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/iuran',
+        );
       }
     } catch (e) {
       final error = ref.read(iuranRepositoryProvider).mapDioError(e);
@@ -766,7 +785,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     child: ElevatedButton(
       onPressed: _saving
           ? null
-          : () => KasFormNavigationGuard.requestFormCancel(context),
+          : () => FormNavigationGuard.requestFormCancel(
+              context,
+              routePath: _routePath,
+              fallbackRoute: '/home/iuran',
+            ),
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.danger,
         foregroundColor: Colors.white,
@@ -797,7 +820,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await KasFormNavigationGuard.requestFormCancel(context);
+        await FormNavigationGuard.requestFormCancel(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/iuran',
+        );
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Tambah Iuran')),

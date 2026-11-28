@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -1116,14 +1117,31 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
     String category = 'rekening';
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'name': '',
+      'bank': '',
+      'no': '',
+      'holder': '',
+      'category': category,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'name': nameCtrl.text,
+      'bank': bankCtrl.text,
+      'no': noCtrl.text,
+      'holder': holderCtrl.text,
+      'category': category,
+    });
 
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Tambah Lokasi Dana RW'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: const Text('Tambah Lokasi Dana RW'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1207,7 +1225,13 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -1273,6 +1297,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                       : const Text('Simpan'),
                 ),
               ],
+            ),
             );
           },
         );
@@ -1290,14 +1315,29 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
     final holderCtrl = TextEditingController(text: loc.accountHolder ?? '');
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'name': nameCtrl.text,
+      'bank': bankCtrl.text,
+      'no': noCtrl.text,
+      'holder': holderCtrl.text,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'name': nameCtrl.text,
+      'bank': bankCtrl.text,
+      'no': noCtrl.text,
+      'holder': holderCtrl.text,
+    });
 
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
-            return AlertDialog(
-              title: Text('Edit ${loc.name}'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: Text('Edit ${loc.name}'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1357,7 +1397,13 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -1412,6 +1458,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                       : const Text('Simpan'),
                 ),
               ],
+            ),
             );
           },
         );
@@ -1517,6 +1564,18 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
     final notesCtrl = TextEditingController();
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'fromId': fromId,
+      'toId': toId,
+      'amount': '',
+      'notes': '',
+    });
+    bool isDirty() => snapshot.isDirty({
+      'fromId': fromId,
+      'toId': toId,
+      'amount': amountCtrl.text,
+      'notes': notesCtrl.text,
+    });
 
     await showDialog<void>(
       context: context,
@@ -1528,8 +1587,11 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                 ? (double.tryParse(fromLoc.currentBalance) ?? 0)
                 : 0;
 
-            return AlertDialog(
-              title: const Text('Transfer Antar-Lokasi RW'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: const Text('Transfer Antar-Lokasi RW'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1619,7 +1681,13 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -1705,6 +1773,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                       : const Text('Transfer'),
                 ),
               ],
+            ),
             );
           },
         );
@@ -1835,70 +1904,94 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                                     onPressed: () async {
                                       final reasonCtrl =
                                           TextEditingController();
+                                      final revSnap = FormSnapshot({
+                                        'reason': '',
+                                      });
+                                      bool revDirty() => revSnap.isDirty({
+                                        'reason': reasonCtrl.text,
+                                      });
                                       final confirm = await showDialog<bool>(
                                         context: context,
-                                        builder: (cCtx) => AlertDialog(
-                                          title: const Text(
-                                            'Batalkan Transfer (Reversal)?',
-                                          ),
-                                          content: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Transfer sebesar ${RupiahFormatter.format(amt.toInt())} dari '
-                                                '${t.fromLocationName ?? 'Asal'} ke ${t.toLocationName ?? 'Tujuan'} '
-                                                'akan dikembalikan (reversal).',
-                                                style: const TextStyle(
-                                                  fontSize: 13,
+                                        builder: (cCtx) =>
+                                            GuardedFormModalScope(
+                                              isDirty: revDirty,
+                                              isSaving: () => false,
+                                              popResult: false,
+                                              child: AlertDialog(
+                                                title: const Text(
+                                                  'Batalkan Transfer (Reversal)?',
                                                 ),
-                                              ),
-                                              const SizedBox(height: 12),
-                                              TextField(
-                                                controller: reasonCtrl,
-                                                decoration: const InputDecoration(
-                                                  labelText:
-                                                      'Alasan Pembatalan / Reversal *',
-                                                  hintText:
-                                                      'Contoh: Salah pilih lokasi tujuan...',
-                                                  isDense: true,
-                                                  border: OutlineInputBorder(),
+                                                content: Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      'Transfer sebesar ${RupiahFormatter.format(amt.toInt())} dari '
+                                                      '${t.fromLocationName ?? 'Asal'} ke ${t.toLocationName ?? 'Tujuan'} '
+                                                      'akan dikembalikan (reversal).',
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 12),
+                                                    TextField(
+                                                      controller: reasonCtrl,
+                                                      decoration: const InputDecoration(
+                                                        labelText:
+                                                            'Alasan Pembatalan / Reversal *',
+                                                        hintText:
+                                                            'Contoh: Salah pilih lokasi tujuan...',
+                                                        isDense: true,
+                                                        border:
+                                                            OutlineInputBorder(),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
+                                                actions: [
+                                                  ElevatedButton(
+                                                    style:
+                                                        ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              AppColors.danger,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                          elevation: 0,
+                                                        ),
+                                                    onPressed: () =>
+                                                        FormNavigationGuard.requestModalClose(
+                                                          cCtx,
+                                                          isDirty: revDirty(),
+                                                          isSaving: false,
+                                                          result: false,
+                                                        ),
+                                                    child: const Text('Batal'),
+                                                  ),
+                                                  ElevatedButton(
+                                                    onPressed: () {
+                                                      if (reasonCtrl.text
+                                                          .trim()
+                                                          .isEmpty) {
+                                                        return;
+                                                      }
+                                                      Navigator.pop(cCtx, true);
+                                                    },
+                                                    style:
+                                                        ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              AppColors.danger,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                        ),
+                                                    child: const Text(
+                                                      'Batalkan Transfer',
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
-                                          actions: [
-                                            ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: AppColors.danger,
-                                                foregroundColor: Colors.white,
-                                                elevation: 0,
-                                              ),
-                                              onPressed: () =>
-                                                  Navigator.pop(cCtx, false),
-                                              child: const Text('Batal'),
                                             ),
-                                            ElevatedButton(
-                                              onPressed: () {
-                                                if (reasonCtrl.text
-                                                    .trim()
-                                                    .isEmpty) {
-                                                  return;
-                                                }
-                                                Navigator.pop(cCtx, true);
-                                              },
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    AppColors.danger,
-                                                foregroundColor: Colors.white,
-                                              ),
-                                              child: const Text(
-                                                'Batalkan Transfer',
-                                              ),
-                                            ),
-                                          ],
-                                        ),
                                       );
 
                                       if (confirm == true && context.mounted) {
@@ -2076,6 +2169,16 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
     final notesCtrl = TextEditingController();
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'selectedLocId': selectedLocId,
+      'amount': '',
+      'notes': '',
+    });
+    bool isDirty() => snapshot.isDirty({
+      'selectedLocId': selectedLocId,
+      'amount': amountCtrl.text,
+      'notes': notesCtrl.text,
+    });
 
     showDialog<void>(
       context: context,
@@ -2085,8 +2188,11 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
             final selectedLoc = activeLocs
                 .where((l) => l.id == selectedLocId)
                 .firstOrNull;
-            return AlertDialog(
-              title: const Text('Alokasi Saldo Awal Kas Historis'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: const Text('Alokasi Saldo Awal Kas Historis'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2185,7 +2291,13 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -2262,6 +2374,7 @@ class _RwFundLocationScreenState extends ConsumerState<RwFundLocationScreen>
                       : const Text('Simpan Alokasi'),
                 ),
               ],
+            ),
             );
           },
         );

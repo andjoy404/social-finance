@@ -31,6 +31,7 @@ import {
 } from './securityApi'
 import { SecurityImage, SecurityPhotoLightbox, LightboxPhoto } from './SecurityImage'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 interface StagedPhoto {
   id: string
@@ -102,8 +103,43 @@ export function PatrolPage() {
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<PatrolTemplate | null>(null)
   const [templateForm, setTemplateForm] = useState({ name: '', location_label: '', is_active: true })
+  const templateInitialRef = useRef({ name: '', location_label: '', is_active: true })
   const [templateSubmitting, setTemplateSubmitting] = useState(false)
   const [templateError, setTemplateError] = useState<string | null>(null)
+
+  const createDirty = activeTab === 'create' && (stagedPhotos.length > 0 || notes.trim().length > 0)
+  const createGuard = useUnsavedChangesGuard({
+    active: activeTab === 'create',
+    isDirty: createDirty,
+    isSaving: submitting,
+  })
+  const templateGuard = useUnsavedChangesGuard({
+    active: showTemplateModal,
+    isDirty: showTemplateModal && isSnapshotDirty(templateForm, templateInitialRef.current),
+    isSaving: templateSubmitting,
+  })
+
+  const switchTab = (next: 'history' | 'create' | 'templates') => {
+    if (next === activeTab) return
+    if (activeTab === 'create') {
+      void createGuard.confirmAction(() => {
+        stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl))
+        setStagedPhotos([])
+        setNotes('')
+        setActiveTab(next)
+      })
+      return
+    }
+    setActiveTab(next)
+  }
+
+  const closeTemplateModal = () => {
+    void templateGuard.guardedClose(() => {
+      setShowTemplateModal(false)
+      setEditingTemplate(null)
+      setTemplateError(null)
+    })
+  }
 
   // Load Templates
   const loadTemplates = useCallback(async () => {
@@ -246,11 +282,13 @@ export function PatrolPage() {
       })
 
       // Clean up preview URLs
-      stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl))
-      setStagedPhotos([])
-      setNotes('')
-      setCreateSuccess('Laporan patroli berhasil dikirim!')
-      setActiveTab('history')
+      createGuard.exitAfterSave(() => {
+        stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl))
+        setStagedPhotos([])
+        setNotes('')
+        setCreateSuccess('Laporan patroli berhasil dikirim!')
+        setActiveTab('history')
+      })
       loadBundles(1, pageSize)
     } catch (err: any) {
       setCreateError(err?.message || 'Gagal mengirim laporan patroli')
@@ -310,9 +348,11 @@ export function PatrolPage() {
           location_label: templateForm.location_label.trim(),
         })
       }
-      setShowTemplateModal(false)
-      setEditingTemplate(null)
-      setTemplateForm({ name: '', location_label: '', is_active: true })
+      templateGuard.exitAfterSave(() => {
+        setShowTemplateModal(false)
+        setEditingTemplate(null)
+        setTemplateForm({ name: '', location_label: '', is_active: true })
+      })
       loadTemplates()
     } catch (err: any) {
       setTemplateError(err?.message || 'Gagal menyimpan template')
@@ -401,7 +441,7 @@ export function PatrolPage() {
       }}>
         <button
           type="button"
-          onClick={() => setActiveTab('history')}
+          onClick={() => switchTab('history')}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -424,7 +464,7 @@ export function PatrolPage() {
         {canCreate && (
           <button
             type="button"
-            onClick={() => setActiveTab('create')}
+            onClick={() => switchTab('create')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -448,7 +488,7 @@ export function PatrolPage() {
         {canManageTemplates && (
           <button
             type="button"
-            onClick={() => setActiveTab('templates')}
+            onClick={() => switchTab('templates')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -809,12 +849,7 @@ export function PatrolPage() {
               <button
                 type="button"
                 className="sf-btn-secondary"
-                onClick={() => {
-                  stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl))
-                  setStagedPhotos([])
-                  setNotes('')
-                  setActiveTab('history')
-                }}
+                onClick={() => switchTab('history')}
                 disabled={submitting}
               >
                 Batal
@@ -849,7 +884,9 @@ export function PatrolPage() {
                 className="sf-btn-primary"
                 onClick={() => {
                   setEditingTemplate(null)
-                  setTemplateForm({ name: '', location_label: '', is_active: true })
+                  const init = { name: '', location_label: '', is_active: true }
+                  templateInitialRef.current = init
+                  setTemplateForm(init)
                   setTemplateError(null)
                   setShowTemplateModal(true)
                 }}
@@ -900,11 +937,13 @@ export function PatrolPage() {
                             style={{ padding: '4px 10px', fontSize: '12px', marginRight: 8 }}
                             onClick={() => {
                               setEditingTemplate(tpl)
-                              setTemplateForm({
+                              const init = {
                                 name: tpl.name,
                                 location_label: tpl.location_label,
                                 is_active: tpl.is_active,
-                              })
+                              }
+                              templateInitialRef.current = init
+                              setTemplateForm(init)
                               setTemplateError(null)
                               setShowTemplateModal(true)
                             }}
@@ -1016,10 +1055,10 @@ export function PatrolPage() {
       {/* ── MODAL: TAMBAH/UBAH TEMPLATE ──────────────────────────────────── */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {showTemplateModal && (
-        <Modal open={showTemplateModal} onClose={() => setShowTemplateModal(false)}>
+        <Modal open={showTemplateModal} onClose={closeTemplateModal}>
           <ModalHeader
             title={editingTemplate ? 'Ubah Titik Patroli' : 'Tambah Titik Patroli'}
-            onClose={() => setShowTemplateModal(false)}
+            onClose={closeTemplateModal}
           />
           <form onSubmit={handleSaveTemplate}>
             <ModalBody>
@@ -1086,7 +1125,7 @@ export function PatrolPage() {
               <button
                 type="button"
                 className="sf-btn-secondary"
-                onClick={() => setShowTemplateModal(false)}
+                onClick={closeTemplateModal}
                 disabled={templateSubmitting}
               >
                 Batal
@@ -1102,6 +1141,8 @@ export function PatrolPage() {
           </form>
         </Modal>
       )}
+      {createGuard.confirmModal}
+      {templateGuard.confirmModal}
 
       {/* ── LIGHTBOX ──────────────────────────────────────────────────────── */}
       <SecurityPhotoLightbox

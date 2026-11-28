@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -1015,6 +1016,20 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   List<DueMonthSummary> _dueMonths = [];
   final Map<String, bool> _stagedMonthActive = {};
   bool _loadingMonths = false;
+  late final FormSnapshot _snapshot;
+
+  Map<String, Object?> _currentValues() => {
+    'name': _nameController.text,
+    'amount': _amountController.text,
+    'validUntil': _validUntilController.text,
+    'periodType': _periodType,
+    'paymentRule': _paymentRule,
+    'isVoluntary': _isVoluntary,
+    'isActive': _isActive,
+    'stagedMonthActive': Map<String, bool>.from(_stagedMonthActive),
+  };
+
+  bool get _isDirty => _snapshot.isDirty(_currentValues());
 
   @override
   void initState() {
@@ -1029,6 +1044,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
     _isActive = widget.due.isActive;
+    _snapshot = FormSnapshot(_currentValues());
     if (widget.due.dueType == DueType.multiMonth) {
       _loadMonths();
     }
@@ -1052,6 +1068,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           .read(iuranRepositoryProvider)
           .fetchDueMonths(widget.due.id);
       if (mounted) {
+        final wasDirty = _isDirty;
         setState(() {
           _dueMonths = months;
           _stagedMonthActive.clear();
@@ -1059,6 +1076,9 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
             _stagedMonthActive[m.period] = m.isActive;
           }
         });
+        if (!wasDirty) {
+          _snapshot.reset(_currentValues());
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1344,8 +1364,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return AlertDialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading || _syncingBills,
+      popResult: false,
+      child: AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
       contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
       actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
@@ -1732,57 +1756,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                 child: OutlinedButton(
                   onPressed: _loading
                       ? null
-                      : () async {
-                          if (!context.mounted) return;
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            barrierDismissible: false,
-                            builder: (dialogContext) => AlertDialog(
-                              title: const Text('Apakah Anda yakin ingin membatalkan?'),
-                              content: const Text('Perubahan yang belum disimpan akan hilang.'),
-                              actions: [
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton(
-                                      onPressed: () => Navigator.of(dialogContext).pop(false),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF8B5CF6),
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(AppRadius.base),
-                                        ),
-                                      ),
-                                      child: const Text('Tidak, Tetap di Halaman'),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton(
-                                      onPressed: () => Navigator.of(dialogContext).pop(true),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFEF4444),
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(AppRadius.base),
-                                        ),
-                                      ),
-                                      child: const Text('Ya, Batalkan'),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirmed == true && context.mounted) {
-                            Navigator.of(context).pop(false);
-                          }
-                        },
+                      : () => FormNavigationGuard.requestModalClose(
+                          context,
+                          isDirty: _isDirty,
+                          isSaving: _loading || _syncingBills,
+                          result: false,
+                        ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.danger,
                     side: const BorderSide(color: AppColors.danger),
@@ -1857,6 +1836,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           ],
         ),
       ],
+      ),
     );
   }
 }

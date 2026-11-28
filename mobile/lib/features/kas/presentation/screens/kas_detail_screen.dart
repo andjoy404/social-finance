@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -455,6 +456,20 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
     bool loadingCats = true;
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'nominal': nominalCtrl.text,
+      'keterangan': keteranganCtrl.text,
+      'tanggal': tanggalCtrl.text,
+      'paymentMethod': paymentMethod,
+      'categoryId': selectedCategoryId,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'nominal': nominalCtrl.text,
+      'keterangan': keteranganCtrl.text,
+      'tanggal': tanggalCtrl.text,
+      'paymentMethod': paymentMethod,
+      'categoryId': selectedCategoryId,
+    });
 
     await showDialog<void>(
       context: context,
@@ -483,11 +498,21 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                     if (defaultCatId == null && filtered.isNotEmpty) {
                       defaultCatId = filtered.first.id;
                     }
+                    final wasDirty = isDirty();
                     setDialogState(() {
                       categories = filtered;
-                      selectedCategoryId = defaultCatId;
+                      selectedCategoryId ??= defaultCatId;
                       loadingCats = false;
                     });
+                    if (!wasDirty) {
+                      snapshot.reset({
+                        'nominal': nominalCtrl.text,
+                        'keterangan': keteranganCtrl.text,
+                        'tanggal': tanggalCtrl.text,
+                        'paymentMethod': paymentMethod,
+                        'categoryId': selectedCategoryId,
+                      });
+                    }
                   })
                   .catchError((_) {
                     setDialogState(() {
@@ -496,8 +521,11 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                   });
             }
 
-            return AlertDialog(
-              title: const Text('Ubah Transaksi Manual'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: const Text('Ubah Transaksi Manual'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -650,7 +678,13 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -713,6 +747,7 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                       : const Text('Simpan'),
                 ),
               ],
+            ),
             );
           },
         );

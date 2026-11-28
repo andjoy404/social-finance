@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/app/AuthContext'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   apiListRTs,
   ApiError as ApiErrorType,
@@ -91,7 +92,7 @@ export function SpecialResidentForm({
   const adminMode = isSuperAdmin(user?.systemRole ?? null)
   const readOnly = mode === 'detail'
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState<SpecialResidentFormValues>({
+  const initialFormDefault: SpecialResidentFormValues = {
     jabatan: (initialValues?.jabatan as JabatanValue) || 'keamanan',
     full_name: initialValues?.full_name || '',
     nik: initialValues?.nik || '',
@@ -104,7 +105,9 @@ export function SpecialResidentForm({
       (typeof sessionStorage !== 'undefined'
         ? sessionStorage.getItem('sf_active_rt_id') || ''
         : ''),
-  })
+  }
+  const [form, setForm] = useState<SpecialResidentFormValues>(initialFormDefault)
+  const initialSnapshotRef = useRef<SpecialResidentFormValues>(initialFormDefault)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -114,17 +117,21 @@ export function SpecialResidentForm({
 
   useEffect(() => {
     if (!initialValues) return
-    setForm((prev) => ({
-      ...prev,
-      jabatan: (initialValues.jabatan as JabatanValue) || prev.jabatan,
-      full_name: initialValues.full_name ?? prev.full_name,
-      nik: initialValues.nik ?? prev.nik,
-      phone: initialValues.phone ?? prev.phone,
-      email: initialValues.email ?? prev.email,
-      is_active: initialValues.is_active ?? prev.is_active,
-      rt_id: initialValues.rt_id ?? prev.rt_id,
-      password: '',
-    }))
+    setForm((prev) => {
+      const next: SpecialResidentFormValues = {
+        ...prev,
+        jabatan: (initialValues.jabatan as JabatanValue) || prev.jabatan,
+        full_name: initialValues.full_name ?? prev.full_name,
+        nik: initialValues.nik ?? prev.nik,
+        phone: initialValues.phone ?? prev.phone,
+        email: initialValues.email ?? prev.email,
+        is_active: initialValues.is_active ?? prev.is_active,
+        rt_id: initialValues.rt_id ?? prev.rt_id,
+        password: '',
+      }
+      initialSnapshotRef.current = next
+      return next
+    })
   }, [
     initialValues?.jabatan,
     initialValues?.full_name,
@@ -180,7 +187,14 @@ export function SpecialResidentForm({
     }
   }, [adminMode, mode, navigate])
 
-  const handleClose = () => navigate('/warga')
+  const isDirty = !readOnly && isSnapshotDirty(form, initialSnapshotRef.current)
+  const { guardedClose, exitAfterSave, confirmModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: saving,
+    active: !readOnly,
+  })
+
+  const handleClose = () => void guardedClose(() => navigate('/warga'))
 
   const handleAvatarChange = useCallback(
     (newPath: string | null, newThumb: string | null | undefined) => {
@@ -252,6 +266,7 @@ export function SpecialResidentForm({
         email: form.email.trim(),
         password: form.password.trim(),
       })
+      exitAfterSave(() => {})
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -510,7 +525,7 @@ export function SpecialResidentForm({
           )}
         </ModalBody>
         <ModalFooter>
-          <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose}>
+          <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose} disabled={saving}>
             {readOnly ? 'Tutup' : 'Batal'}
           </button>
           {mode === 'detail' && canEdit && residentId && (
@@ -533,6 +548,7 @@ export function SpecialResidentForm({
           )}
         </ModalFooter>
       </form>
+      {confirmModal}
     </Modal>
   )
 }

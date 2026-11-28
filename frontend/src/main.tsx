@@ -5,6 +5,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { AuthProvider } from '@/app/AuthContext'
 import { ThemeProvider, useTheme } from '@/app/ThemeProvider'
+import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext'
 import { App } from '@/app/App'
 import '@/styles/global.css'
 import '@/styles/login.css'
@@ -48,7 +49,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <ThemeProvider>
           <ThemeAwareConfigProvider>
-            <App />
+            <UnsavedChangesProvider>
+              <App />
+            </UnsavedChangesProvider>
           </ThemeAwareConfigProvider>
         </ThemeProvider>
       </AuthProvider>

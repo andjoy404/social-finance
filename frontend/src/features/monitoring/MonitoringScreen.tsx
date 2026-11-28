@@ -1,8 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Button,
   message,
 } from 'antd'
+import { Modal } from '@/components/Modal'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   FileExcelOutlined,
   FilePdfOutlined,
@@ -55,7 +57,21 @@ export function MonitoringScreen() {
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [editingHousehold, setEditingHousehold] = useState<ApiMonitoringHousehold | null>(null)
   const [noteText, setNoteText] = useState('')
+  const noteInitialRef = useRef('')
+  const [savingNote, setSavingNote] = useState(false)
   const [printedAt, setPrintedAt] = useState(() => new Date())
+
+  const noteGuard = useUnsavedChangesGuard({
+    active: noteModalOpen,
+    isDirty: noteModalOpen && isSnapshotDirty(noteText, noteInitialRef.current),
+    isSaving: savingNote,
+  })
+  const closeNoteModal = () => {
+    void noteGuard.guardedClose(() => {
+      setNoteModalOpen(false)
+      setEditingHousehold(null)
+    })
+  }
 
   const token = getSessionPair()?.accessToken ?? ''
 
@@ -89,13 +105,19 @@ export function MonitoringScreen() {
   }
 
   const handleUpdateNote = async (householdOccupancyId: string, note: string) => {
+    setSavingNote(true)
     try {
       await apiUpdateMonitoringNote(token, rtId, householdOccupancyId, note)
       message.success('Catatan diperbarui')
-      setNoteModalOpen(false)
+      noteGuard.exitAfterSave(() => {
+        setNoteModalOpen(false)
+        setEditingHousehold(null)
+      })
       await fetchHouseholds()
     } catch (err: any) {
       message.error(err?.message || 'Gagal memperbarui catatan')
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -234,7 +256,9 @@ export function MonitoringScreen() {
                     <td>{household.house_number}</td>
                     <td
                       onClick={() => {
-                        setNoteText(household.note || '')
+                        const initial = household.note || ''
+                        noteInitialRef.current = initial
+                        setNoteText(initial)
                         setEditingHousehold(household)
                         setNoteModalOpen(true)
                       }}
@@ -248,7 +272,9 @@ export function MonitoringScreen() {
                         size="small"
                         icon={<EditOutlined />}
                         onClick={() => {
-                          setNoteText(household.note || '')
+                          const initial = household.note || ''
+                          noteInitialRef.current = initial
+                          setNoteText(initial)
                           setEditingHousehold(household)
                           setNoteModalOpen(true)
                         }}
@@ -324,14 +350,7 @@ export function MonitoringScreen() {
 
       {/* Note Modal */}
       {noteModalOpen && (
-        <div className="sf-modal-overlay" onClick={() => setNoteModalOpen(false)}>
-          <div
-            className="sf-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 520, width: '92%' }}
-            role="dialog"
-            aria-modal="true"
-          >
+        <Modal open onClose={closeNoteModal} width={520}>
             <div className="sf-modal-header">
               <div className="sf-modal-header-copy">
                 <div className="sf-modal-title">Catatan Lapangan</div>
@@ -340,7 +359,8 @@ export function MonitoringScreen() {
               <button
                 type="button"
                 className="sf-modal-close"
-                onClick={() => setNoteModalOpen(false)}
+                onClick={closeNoteModal}
+                disabled={savingNote}
                 aria-label="Tutup"
               >
                 ×
@@ -352,37 +372,39 @@ export function MonitoringScreen() {
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={4}
                 placeholder="Masukkan catatan lapangan..."
+                disabled={savingNote}
                 style={{ width: '100%', padding: 10, border: '1px solid var(--sf-border)', borderRadius: 8, fontFamily: 'inherit', fontSize: 14 }}
               />
               <div className="sf-modal-footer">
                 <button
                   type="button"
                   className="sf-btn sf-btn-ghost"
-                  onClick={() => setNoteModalOpen(false)}
+                  onClick={closeNoteModal}
+                  disabled={savingNote}
                 >
                   Batal
                 </button>
                 <button
                   type="button"
                   className="sf-btn sf-btn-primary"
-                  disabled={noteText.trim() === '' || editingHousehold?.note === noteText}
+                  disabled={savingNote || noteText.trim() === '' || editingHousehold?.note === noteText}
                   onClick={() => {
                     if (!editingHousehold) return
                     if (noteText.trim() === '') return
                     if (editingHousehold.note === noteText) {
-                      setNoteModalOpen(false)
+                      noteGuard.exitAfterSave(() => setNoteModalOpen(false))
                       return
                     }
                     handleUpdateNote(editingHousehold.household_occupancy_id, noteText)
                   }}
                 >
-                  Simpan
+                  {savingNote ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
+      {noteGuard.confirmModal}
     </>
   )
 }

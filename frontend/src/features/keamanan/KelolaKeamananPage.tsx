@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
+import { isSnapshotDirty, useAntdModalGuard } from '@/hooks/useUnsavedChangesGuard'
 
 dayjs.extend(customParseFormat)
 import {
@@ -145,6 +146,18 @@ function getErrMsg(err: unknown, fallback: string): string {
   return fallback
 }
 
+function serializeAntdForm(values: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, val] of Object.entries(values)) {
+    if (dayjs.isDayjs(val)) {
+      out[key] = val.format('HH:mm')
+    } else {
+      out[key] = val ?? ''
+    }
+  }
+  return out
+}
+
 export function KelolaKeamananPage() {
   const { user } = useAuth()
   const canManage =
@@ -227,6 +240,66 @@ export function KelolaKeamananPage() {
   } | null>(null)
   const [decisionNote, setDecisionNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const shiftInitialRef = useRef<Record<string, unknown>>({})
+  const [shiftDirty, setShiftDirty] = useState(false)
+  const scheduleInitialRef = useRef<Record<string, unknown>>({})
+  const [scheduleDirty, setScheduleDirty] = useState(false)
+  const deviceInitialRef = useRef<Record<string, unknown>>({ device_name: '', location_label: '' })
+  const [deviceDirty, setDeviceDirty] = useState(false)
+  const correctionInitialRef = useRef<Record<string, unknown>>({})
+  const [correctionDirty, setCorrectionDirty] = useState(false)
+
+  const shiftModalGuard = useAntdModalGuard({
+    open: shiftModalOpen,
+    isDirty: shiftModalOpen && shiftDirty,
+    isSaving: submitting,
+    onClose: () => {
+      setShiftModalOpen(false)
+      setShiftDirty(false)
+    },
+  })
+
+  const scheduleModalGuard = useAntdModalGuard({
+    open: scheduleModalOpen,
+    isDirty: scheduleModalOpen && scheduleDirty,
+    isSaving: submitting,
+    onClose: () => {
+      setScheduleModalOpen(false)
+      setEditingSchedule(null)
+      setScheduleDirty(false)
+    },
+  })
+
+  const deviceModalGuard = useAntdModalGuard({
+    open: deviceModalOpen,
+    isDirty: deviceModalOpen && deviceDirty,
+    isSaving: submitting,
+    onClose: () => {
+      setDeviceModalOpen(false)
+      setDeviceDirty(false)
+    },
+  })
+
+  const correctionModalGuard = useAntdModalGuard({
+    open: Boolean(correctionModalRecord),
+    isDirty: Boolean(correctionModalRecord) && correctionDirty,
+    isSaving: submitting,
+    onClose: () => {
+      setCorrectionModalRecord(null)
+      setCorrectionDirty(false)
+    },
+  })
+
+  const decisionModalGuard = useAntdModalGuard({
+    open: Boolean(decisionModal),
+    isDirty: Boolean(decisionModal) && decisionNote.trim().length > 0,
+    isSaving: submitting,
+    onClose: () => {
+      setDecisionModal(null)
+      setDecisionNote('')
+    },
+  })
 
   const loadBaseLists = useCallback(async () => {
     const [off, sh] = await Promise.all([apiListSecurityOfficers(), apiListSecurityShifts(false)])
@@ -385,7 +458,7 @@ export function KelolaKeamananPage() {
 
   const handleOpenCreateShift = () => {
     setEditingShift(null)
-    shiftForm.setFieldsValue({
+    const initVals = {
       name: '',
       start_time: dayjs('20:00', 'HH:mm'),
       end_time: dayjs('06:00', 'HH:mm'),
@@ -396,7 +469,10 @@ export function KelolaKeamananPage() {
       absent_cutoff_minutes: 60,
       missing_checkout_cutoff_minutes: 120,
       is_active: true,
-    })
+    }
+    shiftInitialRef.current = serializeAntdForm(initVals)
+    setShiftDirty(false)
+    shiftForm.setFieldsValue(initVals)
     setShiftModalOpen(true)
   }
 
@@ -404,11 +480,14 @@ export function KelolaKeamananPage() {
     setEditingShift(shift)
     const startTimeStr = formatTimeHHMM(shift.start_time)
     const endTimeStr = formatTimeHHMM(shift.end_time)
-    shiftForm.setFieldsValue({
+    const initVals = {
       ...shift,
       start_time: startTimeStr ? dayjs(startTimeStr, 'HH:mm') : undefined,
       end_time: endTimeStr ? dayjs(endTimeStr, 'HH:mm') : undefined,
-    })
+    }
+    shiftInitialRef.current = serializeAntdForm(initVals)
+    setShiftDirty(false)
+    shiftForm.setFieldsValue(initVals)
     setShiftModalOpen(true)
   }
 
@@ -428,7 +507,10 @@ export function KelolaKeamananPage() {
         await apiCreateSecurityShift(payload)
         msgApi.success('Shift keamanan berhasil dibuat')
       }
-      setShiftModalOpen(false)
+      shiftModalGuard.exitAfterSave(() => {
+        setShiftModalOpen(false)
+        setShiftDirty(false)
+      })
       await loadBaseLists()
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return
@@ -459,10 +541,13 @@ export function KelolaKeamananPage() {
         })
         msgApi.success('Penugasan shift ditambahkan')
       }
-      setScheduleModalOpen(false)
-      if (scheduleDetail) setScheduleDetail(null)
-      setEditingSchedule(null)
-      scheduleForm.resetFields()
+      scheduleModalGuard.exitAfterSave(() => {
+        setScheduleModalOpen(false)
+        if (scheduleDetail) setScheduleDetail(null)
+        setEditingSchedule(null)
+        setScheduleDirty(false)
+        scheduleForm.resetFields()
+      })
       await Promise.all([loadSchedules(1), loadDashboard(), loadAttendance(1)])
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return
@@ -477,12 +562,15 @@ export function KelolaKeamananPage() {
       const rows = await apiGetSecuritySchedule(row.id)
       const selected = rows.find((item) => item.id === row.id) ?? row
       setEditingSchedule(selected)
-      scheduleForm.setFieldsValue({
+      const initVals = {
         user_id: selected.user_id,
         shift_config_id: selected.shift_config_id,
         is_active: selected.is_active !== false && selected.status === 'scheduled',
         notes: selected.notes || '',
-      })
+      }
+      scheduleInitialRef.current = serializeAntdForm(initVals)
+      setScheduleDirty(false)
+      scheduleForm.setFieldsValue(initVals)
       setScheduleModalOpen(true)
     } catch (err) {
       msgApi.error(getErrMsg(err, 'Gagal memuat detail penugasan'))
@@ -570,8 +658,11 @@ export function KelolaKeamananPage() {
         reason: vals.reason,
       })
       msgApi.success('Pengajuan koreksi absensi berhasil dibuat')
-      setCorrectionModalRecord(null)
-      correctionForm.resetFields()
+      correctionModalGuard.exitAfterSave(() => {
+        setCorrectionModalRecord(null)
+        setCorrectionDirty(false)
+        correctionForm.resetFields()
+      })
       await loadCorrections()
     } catch (err) {
       if (err && typeof err === 'object' && 'errorFields' in err) return
@@ -598,8 +689,10 @@ export function KelolaKeamananPage() {
         )
         await loadCorrections()
       }
-      setDecisionModal(null)
-      setDecisionNote('')
+      decisionModalGuard.exitAfterSave(() => {
+        setDecisionModal(null)
+        setDecisionNote('')
+      })
     } catch (err) {
       msgApi.error(getErrMsg(err, 'Gagal memproses keputusan'))
     } finally {
@@ -612,8 +705,11 @@ export function KelolaKeamananPage() {
       const vals = await deviceForm.validateFields()
       setSubmitting(true)
       const res = await apiCreateSecurityDevice(vals)
-      setDeviceModalOpen(false)
-      deviceForm.resetFields()
+      deviceModalGuard.exitAfterSave(() => {
+        setDeviceModalOpen(false)
+        setDeviceDirty(false)
+        deviceForm.resetFields()
+      })
       setProvisionResult(res)
       msgApi.success('Perangkat pos terdaftar. Salin token pairing sekarang.')
       await loadDevices()
@@ -953,12 +1049,17 @@ export function KelolaKeamananPage() {
         <Button
           size="small"
           onClick={() => {
-            setCorrectionModalRecord(row)
-            correctionForm.setFieldsValue({
+            const initVals = {
               request_type: 'status_change',
               requested_status: 'sudah_absen_pulang',
+              requested_checked_in_at: '',
+              requested_checked_out_at: '',
               reason: '',
-            })
+            }
+            correctionInitialRef.current = serializeAntdForm(initVals)
+            setCorrectionDirty(false)
+            setCorrectionModalRecord(row)
+            correctionForm.setFieldsValue(initVals)
           }}
         >
           Koreksi
@@ -1304,6 +1405,14 @@ export function KelolaKeamananPage() {
                   onClick={() => {
                     setEditingSchedule(null)
                     scheduleForm.resetFields()
+                    const initVals = {
+                      shift_config_id: undefined,
+                      user_id: undefined,
+                      is_active: true,
+                      notes: '',
+                    }
+                    scheduleInitialRef.current = serializeAntdForm(initVals)
+                    setScheduleDirty(false)
                     setScheduleModalOpen(true)
                   }}
                 >
@@ -1453,7 +1562,16 @@ export function KelolaKeamananPage() {
         {activeTab === 'devices' && (
           <Card
             extra={
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => setDeviceModalOpen(true)}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  deviceForm.resetFields()
+                  deviceInitialRef.current = { device_name: '', location_label: '' }
+                  setDeviceDirty(false)
+                  setDeviceModalOpen(true)
+                }}
+              >
                 Daftarkan Perangkat Pos
               </Button>
             }
@@ -1509,13 +1627,22 @@ export function KelolaKeamananPage() {
       <Modal
         open={shiftModalOpen}
         title={editingShift ? `Ubah Shift: ${editingShift.name}` : 'Tambah Shift Keamanan'}
-        onCancel={() => setShiftModalOpen(false)}
+        onCancel={shiftModalGuard.onCancel}
+        keyboard={shiftModalGuard.keyboard}
+        maskClosable={shiftModalGuard.maskClosable}
+        closable={shiftModalGuard.closable}
         onOk={() => void handleSaveShift()}
         confirmLoading={submitting}
         okText="Simpan"
         cancelText="Batal"
       >
-        <Form form={shiftForm} layout="vertical">
+        <Form
+          form={shiftForm}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            setShiftDirty(isSnapshotDirty(serializeAntdForm(allValues), shiftInitialRef.current))
+          }}
+        >
           <Form.Item name="name" label="Nama Shift" rules={[{ required: true, message: 'Nama shift wajib diisi' }]}>
             <Input placeholder="Contoh: Shift Malam" />
           </Form.Item>
@@ -1599,13 +1726,22 @@ export function KelolaKeamananPage() {
       <Modal
         open={scheduleModalOpen}
         title={editingSchedule ? 'Ubah Jadwal Petugas Keamanan' : 'Tambah Jadwal Petugas Keamanan'}
-        onCancel={() => { setScheduleModalOpen(false); setEditingSchedule(null) }}
+        onCancel={scheduleModalGuard.onCancel}
+        keyboard={scheduleModalGuard.keyboard}
+        maskClosable={scheduleModalGuard.maskClosable}
+        closable={scheduleModalGuard.closable}
         onOk={() => void handleCreateSchedule()}
         confirmLoading={submitting}
         okText={editingSchedule ? 'Simpan Perubahan' : 'Simpan Penugasan'}
         cancelText="Batal"
       >
-        <Form form={scheduleForm} layout="vertical">
+        <Form
+          form={scheduleForm}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            setScheduleDirty(isSnapshotDirty(serializeAntdForm(allValues), scheduleInitialRef.current))
+          }}
+        >
           <Form.Item name="shift_config_id" label="Shift" rules={[{ required: true, message: 'Pilih shift' }]}>
             <Select
               placeholder="Pilih shift"
@@ -1656,13 +1792,22 @@ export function KelolaKeamananPage() {
       <Modal
         open={deviceModalOpen}
         title="Daftarkan Perangkat Pos Keamanan"
-        onCancel={() => setDeviceModalOpen(false)}
+        onCancel={deviceModalGuard.onCancel}
+        keyboard={deviceModalGuard.keyboard}
+        maskClosable={deviceModalGuard.maskClosable}
+        closable={deviceModalGuard.closable}
         onOk={() => void handleCreateDevice()}
         confirmLoading={submitting}
         okText="Buat Token Pairing"
         cancelText="Batal"
       >
-        <Form form={deviceForm} layout="vertical">
+        <Form
+          form={deviceForm}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            setDeviceDirty(isSnapshotDirty(serializeAntdForm(allValues), deviceInitialRef.current))
+          }}
+        >
           <Form.Item
             name="device_name"
             label="Nama Perangkat"
@@ -1727,13 +1872,22 @@ export function KelolaKeamananPage() {
       <Modal
         open={Boolean(correctionModalRecord)}
         title={`Ajukan Koreksi Absensi: ${correctionModalRecord?.officer_name ?? ''}`}
-        onCancel={() => setCorrectionModalRecord(null)}
+        onCancel={correctionModalGuard.onCancel}
+        keyboard={correctionModalGuard.keyboard}
+        maskClosable={correctionModalGuard.maskClosable}
+        closable={correctionModalGuard.closable}
         onOk={() => void handleCreateCorrection()}
         confirmLoading={submitting}
         okText="Kirim Pengajuan"
         cancelText="Batal"
       >
-        <Form form={correctionForm} layout="vertical">
+        <Form
+          form={correctionForm}
+          layout="vertical"
+          onValuesChange={(_, allValues) => {
+            setCorrectionDirty(isSnapshotDirty(serializeAntdForm(allValues), correctionInitialRef.current))
+          }}
+        >
           <Form.Item name="request_type" label="Jenis Koreksi" rules={[{ required: true }]}>
             <Select
               options={[
@@ -1770,10 +1924,10 @@ export function KelolaKeamananPage() {
       <Modal
         open={Boolean(decisionModal)}
         title={decisionModal?.title ?? ''}
-        onCancel={() => {
-          setDecisionModal(null)
-          setDecisionNote('')
-        }}
+        onCancel={decisionModalGuard.onCancel}
+        keyboard={decisionModalGuard.keyboard}
+        maskClosable={decisionModalGuard.maskClosable}
+        closable={decisionModalGuard.closable}
         onOk={() => void handleSubmitDecision()}
         confirmLoading={submitting}
         okText={decisionModal?.approve ? 'Setujui' : 'Tolak'}
@@ -1801,6 +1955,11 @@ export function KelolaKeamananPage() {
         canDecide={hasPermission(user, 'security.correction')}
         currentUserId={user?.id}
       />
+      {shiftModalGuard.confirmModal}
+      {scheduleModalGuard.confirmModal}
+      {deviceModalGuard.confirmModal}
+      {correctionModalGuard.confirmModal}
+      {decisionModalGuard.confirmModal}
     </div>
   )
 }

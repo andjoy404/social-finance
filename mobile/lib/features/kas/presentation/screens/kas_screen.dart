@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -665,14 +666,25 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     final reasonCtrl = TextEditingController();
     bool saving = false;
     String? error;
+    final snapshot = FormSnapshot({
+      'nominal': nominalCtrl.text,
+      'reason': '',
+    });
+    bool isDirty() => snapshot.isDirty({
+      'nominal': nominalCtrl.text,
+      'reason': reasonCtrl.text,
+    });
 
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
-            return AlertDialog(
-              title: Text('Ubah Saldo Awal (${_formatMonthYear(_activeDate)})'),
+            return GuardedFormModalScope(
+              isDirty: isDirty,
+              isSaving: () => saving,
+              child: AlertDialog(
+                title: Text('Ubah Saldo Awal (${_formatMonthYear(_activeDate)})'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -726,7 +738,13 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  onPressed: saving
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          dialogCtx,
+                          isDirty: isDirty(),
+                          isSaving: saving,
+                        ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -782,6 +800,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                       : const Text('Simpan'),
                 ),
               ],
+            ),
             );
           },
         );

@@ -9,6 +9,7 @@ import '../utils/guest_visit_duration.dart' as guest_duration;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/app_button.dart';
@@ -173,7 +174,39 @@ class _SecurityManagementScreenState
     return idx >= 0 ? idx : 0;
   }
 
-  void _onTopTabsChanged() {
+  Future<void> _onTopTabsChanged() async {
+    if (_revertingTab) return;
+    if (!_topTabs.indexIsChanging && mounted) {
+      final targetIdx = _topTabs.index;
+      if (targetIdx != _lastTopTabIndex) {
+        final prevTab =
+            _visibleTopTabs[_lastTopTabIndex.clamp(0, _visibleTopTabs.length - 1)];
+        final leavingDirtyPatrol =
+            prevTab == _SecurityTopTab.patroli &&
+            (_isPatrolFormDirty || _submittingPatrol);
+        final leavingDirtyPaket =
+            prevTab == _SecurityTopTab.paket &&
+            (_isPaketFormDirty || _submittingPaket);
+        if (leavingDirtyPatrol || leavingDirtyPaket) {
+          _revertingTab = true;
+          _topTabs.index = _lastTopTabIndex;
+          _revertingTab = false;
+          final allow = await FormNavigationGuard.confirmTabChange(
+            context,
+            isDirty: leavingDirtyPatrol ? _isPatrolFormDirty : _isPaketFormDirty,
+            isSaving:
+                leavingDirtyPatrol ? _submittingPatrol : _submittingPaket,
+          );
+          if (!mounted || !allow) return;
+          _revertingTab = true;
+          _lastTopTabIndex = targetIdx;
+          _topTabs.animateTo(targetIdx);
+          _revertingTab = false;
+        } else {
+          _lastTopTabIndex = targetIdx;
+        }
+      }
+    }
     if (mounted) setState(() {});
     if (!_topTabs.indexIsChanging && mounted) {
       final tab = _activeTopTab;
@@ -218,6 +251,76 @@ class _SecurityManagementScreenState
   bool _refreshing = false;
   bool _targetDialogOpened = false;
 
+  FormGuardRegistration? _guardReg;
+  int _lastTopTabIndex = 0;
+  int _lastPatroliSubTabIndex = 0;
+  int _lastPaketSubTabIndex = 0;
+  bool _revertingTab = false;
+
+  String get _routePath => switch (widget.mode) {
+    SecurityManagementMode.officerPatrol ||
+    SecurityManagementMode.managePatrol =>
+      '/home/patroli',
+    SecurityManagementMode.officerPaket ||
+    SecurityManagementMode.managePaket =>
+      '/home/paket',
+    SecurityManagementMode.full => '/home/security-management',
+  };
+
+  bool get _isPatrolFormDirty =>
+      _patrolPhotos.isNotEmpty || _patrolNotesCtrl.text.isNotEmpty;
+
+  bool get _isPaketFormDirty =>
+      _selectedWarga != null ||
+      _paketDraftItems.length > 1 ||
+      _paketDraftItems.any(
+        (item) =>
+            item.courierCtrl.text.isNotEmpty ||
+            item.resiCtrl.text.isNotEmpty ||
+            item.descCtrl.text.isNotEmpty ||
+            item.photo != null,
+      );
+
+  bool get _isInlineFormDirty => switch (widget.mode) {
+    SecurityManagementMode.officerPatrol => _isPatrolFormDirty,
+    SecurityManagementMode.officerPaket => _isPaketFormDirty,
+    SecurityManagementMode.managePatrol ||
+    SecurityManagementMode.managePaket =>
+      false,
+    SecurityManagementMode.full => _isPatrolFormDirty || _isPaketFormDirty,
+  };
+
+  bool get _isInlineFormSaving => _submittingPatrol || _submittingPaket;
+
+  Future<bool> _guardSubTabChange({
+    required TabController controller,
+    required int previousIndex,
+    required bool isDirty,
+    required bool isSaving,
+    required void Function(int) onConfirmedIndex,
+  }) async {
+    final targetIndex = controller.index;
+    if (targetIndex == previousIndex) return false;
+    if (previousIndex == 0 && (isDirty || isSaving)) {
+      _revertingTab = true;
+      controller.index = previousIndex;
+      _revertingTab = false;
+      final allow = await FormNavigationGuard.confirmTabChange(
+        context,
+        isDirty: isDirty,
+        isSaving: isSaving,
+      );
+      if (!mounted || !allow) return false;
+      _revertingTab = true;
+      onConfirmedIndex(targetIndex);
+      controller.animateTo(targetIndex);
+      _revertingTab = false;
+      return true;
+    }
+    onConfirmedIndex(targetIndex);
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -227,6 +330,7 @@ class _SecurityManagementScreenState
       _paketFilterStatus = 'dititipkan';
     }
     final initialIndex = _resolveInitialTopTabIndex(_visibleTopTabs);
+    _lastTopTabIndex = initialIndex;
     _topTabs = TabController(
       length: _visibleTopTabs.length,
       vsync: this,
@@ -244,6 +348,7 @@ class _SecurityManagementScreenState
         widget.initialSubTab == 'riwayat') {
       patrolSubIndex = 1;
     }
+    _lastPatroliSubTabIndex = patrolSubIndex;
     _patroliTabs = TabController(
       length: 2,
       vsync: this,
@@ -253,10 +358,16 @@ class _SecurityManagementScreenState
     if (widget.initialSubTab == 'list' || widget.initialSubTab == 'daftar') {
       paketSubIndex = 1;
     }
+    _lastPaketSubTabIndex = paketSubIndex;
     _paketTabs = TabController(
       length: 2,
       vsync: this,
       initialIndex: paketSubIndex,
+    );
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isInlineFormDirty,
+      isSaving: () => _isInlineFormSaving,
     );
     for (final ctrl in [
       _kelolaTabs,
@@ -264,7 +375,34 @@ class _SecurityManagementScreenState
       _patroliTabs,
       _paketTabs,
     ]) {
-      ctrl.addListener(() {
+      ctrl.addListener(() async {
+        if (_revertingTab) return;
+        if (!ctrl.indexIsChanging && mounted) {
+          if (ctrl == _patroliTabs && _canPatrolWrite && !_canManageTemplates) {
+            final moved = await _guardSubTabChange(
+              controller: _patroliTabs,
+              previousIndex: _lastPatroliSubTabIndex,
+              isDirty: _isPatrolFormDirty,
+              isSaving: _submittingPatrol,
+              onConfirmedIndex: (idx) => _lastPatroliSubTabIndex = idx,
+            );
+            if (!moved || !mounted) return;
+          } else if (ctrl == _patroliTabs) {
+            _lastPatroliSubTabIndex = _patroliTabs.index;
+          }
+          if (ctrl == _paketTabs && _canPaketWrite && !_useSimplifiedPaketList) {
+            final moved = await _guardSubTabChange(
+              controller: _paketTabs,
+              previousIndex: _lastPaketSubTabIndex,
+              isDirty: _isPaketFormDirty,
+              isSaving: _submittingPaket,
+              onConfirmedIndex: (idx) => _lastPaketSubTabIndex = idx,
+            );
+            if (!moved || !mounted) return;
+          } else if (ctrl == _paketTabs) {
+            _lastPaketSubTabIndex = _paketTabs.index;
+          }
+        }
         if (mounted) setState(() {});
         if (!ctrl.indexIsChanging && mounted) {
           if (ctrl == _paketTabs) {
@@ -328,6 +466,7 @@ class _SecurityManagementScreenState
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     WidgetsBinding.instance.removeObserver(this);
     _topTabs.removeListener(_onTopTabsChanged);
     _topTabs.dispose();
@@ -588,63 +727,76 @@ class _SecurityManagementScreenState
     final nameCtrl = TextEditingController();
     final locCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final snapshot = FormSnapshot({'name': '', 'loc': ''});
+    bool isDirty() =>
+        snapshot.isDirty({'name': nameCtrl.text, 'loc': locCtrl.text});
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Tambah Titik Kontrol Gang'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Gang',
-                  hintText: 'Cth: Gang Mawar 1',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: const Text('Tambah Titik Kontrol Gang'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama Gang',
+                    hintText: 'Cth: Gang Mawar 1',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Nama gang wajib diisi'
+                      : null,
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Nama gang wajib diisi'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Label Lokasi / Patokan',
-                  hintText: 'Cth: Depan Pos Ronda / Rumah No. 12',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: locCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Label Lokasi / Patokan',
+                    hintText: 'Cth: Depan Pos Ronda / Rumah No. 12',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Label lokasi wajib diisi'
+                      : null,
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Label lokasi wajib diisi'
-                    : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
+              ],
             ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
           ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() == true) {
-                Navigator.pop(ctx, true);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() == true) {
+                  Navigator.pop(ctx, true);
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -675,61 +827,74 @@ class _SecurityManagementScreenState
     final nameCtrl = TextEditingController(text: t.name);
     final locCtrl = TextEditingController(text: t.locationLabel);
     final formKey = GlobalKey<FormState>();
+    final snapshot = FormSnapshot({'name': t.name, 'loc': t.locationLabel});
+    bool isDirty() =>
+        snapshot.isDirty({'name': nameCtrl.text, 'loc': locCtrl.text});
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Ubah Titik Kontrol Gang'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Gang',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: const Text('Ubah Titik Kontrol Gang'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama Gang',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Nama gang wajib diisi'
+                      : null,
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Nama gang wajib diisi'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Label Lokasi / Patokan',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: locCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Label Lokasi / Patokan',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Label lokasi wajib diisi'
+                      : null,
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Label lokasi wajib diisi'
-                    : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
+              ],
             ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
           ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() == true) {
-                Navigator.pop(ctx, true);
-              }
-            },
-            child: const Text('Simpan Perubahan'),
-          ),
-        ],
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() == true) {
+                  Navigator.pop(ctx, true);
+                }
+              },
+              child: const Text('Simpan Perubahan'),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -1205,101 +1370,119 @@ class _SecurityManagementScreenState
   ) async {
     final noteCtrl = TextEditingController(text: report.receiverName);
     XFile? proofPhoto;
+    final snapshot = FormSnapshot({
+      'note': report.receiverName,
+      'photo': null,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'note': noteCtrl.text,
+      'photo': proofPhoto?.path,
+    });
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Serah Terima Paket'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Penerima: ${report.receiverName} (${report.receiverHouseNumber})',
-                ),
-                if (item.description != null) ...[
-                  const SizedBox(height: 4),
+        builder: (ctx, setDialogState) => GuardedFormModalScope(
+          isDirty: isDirty,
+          isSaving: () => false,
+          popResult: false,
+          child: AlertDialog(
+            title: const Text('Serah Terima Paket'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    'Paket: ${item.description}',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    'Penerima: ${report.receiverName} (${report.receiverHouseNumber})',
                   ),
+                  if (item.description != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Paket: ${item.description}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Pengambil / Catatan',
+                      hintText: 'Cth: Warga bersangkutan / Keluarga',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Foto Bukti Pengambilan (Wajib):',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  if (proofPhoto != null)
+                    Stack(
+                      alignment: Alignment.topRight,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: kIsWeb
+                              ? Image.network(
+                                  proofPhoto!.path,
+                                  height: 140,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.file(
+                                  File(proofPhoto!.path),
+                                  height: 140,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.red),
+                          onPressed: () =>
+                              setDialogState(() => proofPhoto = null),
+                        ),
+                      ],
+                    )
+                  else
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Ambil Foto Bukti Serah Terima'),
+                      onPressed: () async {
+                        final f = await _pickImage(ImageSource.camera);
+                        if (f != null) {
+                          setDialogState(() => proofPhoto = f);
+                        }
+                      },
+                    ),
                 ],
-                const SizedBox(height: 12),
-                TextField(
-                  controller: noteCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nama Pengambil / Catatan',
-                    hintText: 'Cth: Warga bersangkutan / Keluarga',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Foto Bukti Pengambilan (Wajib):',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                const SizedBox(height: 6),
-                if (proofPhoto != null)
-                  Stack(
-                    alignment: Alignment.topRight,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: kIsWeb
-                            ? Image.network(
-                                proofPhoto!.path,
-                                height: 140,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              )
-                            : Image.file(
-                                File(proofPhoto!.path),
-                                height: 140,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () =>
-                            setDialogState(() => proofPhoto = null),
-                      ),
-                    ],
-                  )
-                else
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('Ambil Foto Bukti Serah Terima'),
-                    onPressed: () async {
-                      final f = await _pickImage(ImageSource.camera);
-                      if (f != null) {
-                        setDialogState(() => proofPhoto = f);
-                      }
-                    },
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-                elevation: 0,
               ),
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Batal'),
             ),
-            FilledButton(
-              onPressed: proofPhoto == null
-                  ? null
-                  : () => Navigator.pop(ctx, true),
-              child: const Text('Konfirmasi'),
-            ),
-          ],
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                onPressed: () => FormNavigationGuard.requestModalClose(
+                  ctx,
+                  isDirty: isDirty(),
+                  isSaving: false,
+                  result: false,
+                ),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: proofPhoto == null
+                    ? null
+                    : () => Navigator.pop(ctx, true),
+                child: const Text('Konfirmasi'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1716,44 +1899,60 @@ class _SecurityManagementScreenState
     }
     final name = TextEditingController(text: 'Gerbang Urena');
     final location = TextEditingController(text: 'Pos Keamanan Urena');
+    final snapshot = FormSnapshot({
+      'name': name.text,
+      'location': location.text,
+    });
+    bool isDirty() =>
+        snapshot.isDirty({'name': name.text, 'location': location.text});
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Tambah Perangkat Pos'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(
-                labelText: 'Nama perangkat',
-                hintText: 'Contoh: Gerbang Urena',
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: const Text('Tambah Perangkat Pos'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(
+                  labelText: 'Nama perangkat',
+                  hintText: 'Contoh: Gerbang Urena',
+                ),
               ),
+              TextField(
+                controller: location,
+                decoration: const InputDecoration(
+                  labelText: 'Lokasi pemasangan',
+                  hintText: 'Contoh: Pos Keamanan Urena',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
             ),
-            TextField(
-              controller: location,
-              decoration: const InputDecoration(
-                labelText: 'Lokasi pemasangan',
-                hintText: 'Contoh: Pos Keamanan Urena',
-              ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Simpan'),
             ),
           ],
         ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
-            ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Simpan'),
-          ),
-        ],
       ),
     );
     if (confirm != true || !mounted) {
@@ -1803,83 +2002,105 @@ class _SecurityManagementScreenState
     String selectedShift = shiftId;
     bool isActive = item?.isActive ?? true;
     final notes = TextEditingController(text: item?.notes ?? '');
+    final snapshot = FormSnapshot({
+      'user': selectedUser,
+      'shift': selectedShift,
+      'isActive': isActive,
+      'notes': notes.text,
+    });
+    bool isDirty() => snapshot.isDirty({
+      'user': selectedUser,
+      'shift': selectedShift,
+      'isActive': isActive,
+      'notes': notes.text,
+    });
     final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          title: Text(
-            item == null ? 'Tambah Jadwal Petugas' : 'Edit Jadwal Petugas',
-          ),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: selectedShift.isEmpty ? null : selectedShift,
-                    decoration: const InputDecoration(labelText: 'Shift'),
-                    items: _shifts
-                        .where((s) => s.isActive)
-                        .map(
-                          (s) => DropdownMenuItem(
-                            value: s.id,
-                            child: Text(
-                              '${s.name} (${s.startTime}–${s.endTime})',
+        builder: (ctx, setDialog) => GuardedFormModalScope(
+          isDirty: isDirty,
+          isSaving: () => false,
+          popResult: false,
+          child: AlertDialog(
+            title: Text(
+              item == null ? 'Tambah Jadwal Petugas' : 'Edit Jadwal Petugas',
+            ),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selectedShift.isEmpty ? null : selectedShift,
+                      decoration: const InputDecoration(labelText: 'Shift'),
+                      items: _shifts
+                          .where((s) => s.isActive)
+                          .map(
+                            (s) => DropdownMenuItem(
+                              value: s.id,
+                              child: Text(
+                                '${s.name} (${s.startTime}–${s.endTime})',
+                              ),
                             ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setDialog(() => selectedShift = v ?? ''),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedUser.isEmpty ? null : selectedUser,
-                    decoration: const InputDecoration(labelText: 'Petugas'),
-                    items: _officers
-                        .where((o) => o.isActive)
-                        .map(
-                          (o) => DropdownMenuItem(
-                            value: o.userId,
-                            child: Text(o.fullName),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setDialog(() => selectedUser = v ?? ''),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    title: const Text('Status Penugasan'),
-                    subtitle: Text(isActive ? 'Aktif' : 'Nonaktif'),
-                    value: isActive,
-                    onChanged: (val) => setDialog(() => isActive = val),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  TextField(
-                    controller: notes,
-                    decoration: const InputDecoration(
-                      labelText: 'Catatan (Opsional)',
+                          )
+                          .toList(),
+                      onChanged: (v) => setDialog(() => selectedShift = v ?? ''),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedUser.isEmpty ? null : selectedUser,
+                      decoration: const InputDecoration(labelText: 'Petugas'),
+                      items: _officers
+                          .where((o) => o.isActive)
+                          .map(
+                            (o) => DropdownMenuItem(
+                              value: o.userId,
+                              child: Text(o.fullName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setDialog(() => selectedUser = v ?? ''),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      title: const Text('Status Penugasan'),
+                      subtitle: Text(isActive ? 'Aktif' : 'Nonaktif'),
+                      value: isActive,
+                      onChanged: (val) => setDialog(() => isActive = val),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    TextField(
+                      controller: notes,
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan (Opsional)',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+                onPressed: () => FormNavigationGuard.requestModalClose(
+                  ctx,
+                  isDirty: isDirty(),
+                  isSaving: false,
+                  result: false,
+                ),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Simpan'),
+              ),
+            ],
           ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-                elevation: 0,
-              ),
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Simpan'),
-            ),
-          ],
         ),
       ),
     );
@@ -1974,29 +2195,41 @@ class _SecurityManagementScreenState
       return;
     }
     final note = TextEditingController();
+    final snapshot = FormSnapshot({'note': ''});
+    bool isDirty() => snapshot.isDirty({'note': note.text});
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(approve ? 'Setujui Koreksi' : 'Tolak Koreksi'),
-        content: TextField(
-          controller: note,
-          decoration: const InputDecoration(labelText: 'Catatan keputusan'),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: Text(approve ? 'Setujui Koreksi' : 'Tolak Koreksi'),
+          content: TextField(
+            controller: note,
+            decoration: const InputDecoration(labelText: 'Catatan keputusan'),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
             ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Konfirmasi'),
-          ),
-        ],
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Konfirmasi'),
+            ),
+          ],
+        ),
       ),
     );
     if (confirm != true) {
@@ -4521,6 +4754,20 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
   late bool _isActive;
   bool _isSubmitting = false;
   String? _formError;
+  late final FormSnapshot _snapshot;
+
+  Map<String, Object?> _currentValues() => {
+    'name': _nameController.text,
+    'tolerance': _toleranceController.text,
+    'startHour': _startTime.hour,
+    'startMinute': _startTime.minute,
+    'endHour': _endTime.hour,
+    'endMinute': _endTime.minute,
+    'crosses': _crosses,
+    'isActive': _isActive,
+  };
+
+  bool get _isDirty => _snapshot.isDirty(_currentValues());
 
   @override
   void initState() {
@@ -4533,6 +4780,7 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
     _endTime = widget.initialEndTime;
     _crosses = widget.item?.crossesMidnight ?? false;
     _isActive = widget.item?.isActive ?? true;
+    _snapshot = FormSnapshot(_currentValues());
   }
 
   @override
@@ -4595,8 +4843,12 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.item == null ? 'Tambah Shift' : 'Ubah Shift'),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _isSubmitting,
+      popResult: null,
+      child: AlertDialog(
+        title: Text(widget.item == null ? 'Tambah Shift' : 'Ubah Shift'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -4746,7 +4998,14 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
             foregroundColor: Colors.white,
             elevation: 0,
           ),
-          onPressed: _isSubmitting ? null : () => Navigator.pop(context, null),
+          onPressed: _isSubmitting
+              ? null
+              : () => FormNavigationGuard.requestModalClose(
+                  context,
+                  isDirty: _isDirty,
+                  isSaving: _isSubmitting,
+                  result: null,
+                ),
           child: const Text('Batal'),
         ),
         FilledButton(
@@ -4763,6 +5022,7 @@ class _ShiftFormDialogState extends State<_ShiftFormDialog> {
               : const Text('Simpan'),
         ),
       ],
+      ),
     );
   }
 }

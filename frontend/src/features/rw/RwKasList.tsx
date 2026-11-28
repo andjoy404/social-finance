@@ -10,12 +10,14 @@
  *   - Detail lokasi dana per transaksi
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined, BarChartOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
+import { Modal } from '@/components/Modal'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import { getSessionPair, apiListCategories, type ApiFinancialCategory } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
@@ -84,6 +86,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   // Saldo Awal Edit Modal state
   const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
   const [openingBalanceInput, setOpeningBalanceInput] = useState('')
+  const openingInitialRef = useRef('')
   const [openingBalanceError, setOpeningBalanceError] = useState<string | null>(null)
   const [submittingOpeningBalance, setSubmittingOpeningBalance] = useState(false)
 
@@ -111,8 +114,37 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     source_rt_id: '',
     expense_category: '',
   })
+  const txInitialRef = useRef({
+    txIncomeSubType: 'kas_masuk' as 'kas_masuk' | 'setoran_rt',
+    txForm: {
+      location_id: '',
+      amount: '',
+      description: '',
+      payment_method: 'transfer' as 'transfer' | 'cash',
+      source_rt_name: '',
+      source_rt_id: '',
+      expense_category: '',
+    },
+  })
   const [txError, setTxError] = useState<string | null>(null)
   const [submittingTx, setSubmittingTx] = useState(false)
+
+  const openingGuard = useUnsavedChangesGuard({
+    active: showOpeningBalanceModal,
+    isDirty: showOpeningBalanceModal && isSnapshotDirty(openingBalanceInput, openingInitialRef.current),
+    isSaving: submittingOpeningBalance,
+  })
+  const txGuard = useUnsavedChangesGuard({
+    active: showTxModal,
+    isDirty: showTxModal && isSnapshotDirty({ txIncomeSubType, txForm }, txInitialRef.current),
+    isSaving: submittingTx,
+  })
+  const closeOpeningModal = () => {
+    void openingGuard.guardedClose(() => setShowOpeningBalanceModal(false))
+  }
+  const closeTxModal = () => {
+    void txGuard.guardedClose(() => setShowTxModal(false))
+  }
 
   const isFullYearRange =
     !!dateRange &&
@@ -214,7 +246,9 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
 
   const openEditOpeningBalance = () => {
     const currentVal = kasReport?.opening_balance ? parseFloat(kasReport.opening_balance) : 0
-    setOpeningBalanceInput(isNaN(currentVal) ? '0' : String(currentVal))
+    const initStr = isNaN(currentVal) ? '0' : String(currentVal)
+    openingInitialRef.current = initStr
+    setOpeningBalanceInput(initStr)
     setOpeningBalanceError(null)
     setShowOpeningBalanceModal(true)
   }
@@ -234,7 +268,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     setOpeningBalanceError(null)
     try {
       await apiUpdateRWOpeningBalance(token, rwId, num.toFixed(2))
-      setShowOpeningBalanceModal(false)
+      openingGuard.exitAfterSave(() => setShowOpeningBalanceModal(false))
       await loadData()
     } catch (err: any) {
       setOpeningBalanceError(err?.message || 'Gagal mengubah saldo awal')
@@ -250,7 +284,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       setTxIncomeSubType('kas_masuk')
     }
     const initialLocId = locations.length > 0 ? locations[0].id : ''
-    setTxForm({
+    const initForm = {
       location_id: initialLocId,
       amount: '',
       description: '',
@@ -258,7 +292,9 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       source_rt_name: '',
       source_rt_id: '',
       expense_category: '',
-    })
+    }
+    txInitialRef.current = { txIncomeSubType: 'kas_masuk', txForm: initForm }
+    setTxForm(initForm)
     setShowTxModal(true)
   }
 
@@ -305,7 +341,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
         source_rt_id: txIncomeSubType === 'setoran_rt' && txForm.source_rt_id ? txForm.source_rt_id : undefined,
         expense_category: txType === 'expense' && txForm.expense_category ? txForm.expense_category : undefined,
       })
-      setShowTxModal(false)
+      txGuard.exitAfterSave(() => setShowTxModal(false))
       loadData()
     } catch (err: any) {
       setTxError(err?.message || 'Gagal menyimpan transaksi KAS RW')
@@ -806,11 +842,10 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
 
       {/* Modal: Catat Kas Masuk / Keluar */}
       {showTxModal && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 480 }}>
+        <Modal open onClose={closeTxModal} width={480}>
             <div className="sf-modal-header">
               <h3>{txType === 'income' ? 'Catat KAS Masuk RW' : 'Catat KAS Keluar RW'}</h3>
-              <button type="button" className="sf-modal-close" onClick={() => setShowTxModal(false)}>✕</button>
+              <button type="button" className="sf-modal-close" onClick={closeTxModal} disabled={submittingTx}>✕</button>
             </div>
             <form onSubmit={handleCreateTx}>
               <div className="sf-modal-body">
@@ -951,7 +986,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 )}
               </div>
               <div className="sf-modal-footer">
-                <button type="button" className="sf-btn sf-btn-outline" onClick={() => setShowTxModal(false)}>Batal</button>
+                <button type="button" className="sf-btn sf-btn-outline" onClick={closeTxModal} disabled={submittingTx}>Batal</button>
                 <button
                   type="submit"
                   className="sf-btn sf-btn-primary"
@@ -965,20 +1000,18 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal: Ubah Saldo Awal */}
       {showOpeningBalanceModal && (
-        <div className="sf-modal-overlay">
-          <div className="sf-modal" style={{ maxWidth: 440 }}>
+        <Modal open onClose={closeOpeningModal} width={440}>
             <div className="sf-modal-header">
               <h3>Ubah Saldo Awal RW</h3>
               <button
                 type="button"
                 className="sf-modal-close"
-                onClick={() => !submittingOpeningBalance && setShowOpeningBalanceModal(false)}
+                onClick={closeOpeningModal}
                 disabled={submittingOpeningBalance}
               >
                 ✕
@@ -1013,7 +1046,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 <button
                   type="button"
                   className="sf-btn sf-btn-outline"
-                  onClick={() => setShowOpeningBalanceModal(false)}
+                  onClick={closeOpeningModal}
                   disabled={submittingOpeningBalance}
                 >
                   Batal
@@ -1027,9 +1060,10 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
+      {openingGuard.confirmModal}
+      {txGuard.confirmModal}
       {/* Modal Laporan KAS RW */}
       {reportModalOpen && (
         <div className="sf-modal-overlay" onClick={() => setReportModalOpen(false)}>

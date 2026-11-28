@@ -14,9 +14,10 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useAuth } from '@/app/AuthContext'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 import {
   BACKEND_STATUS_MAP,
   formatRupiah,
@@ -177,6 +178,7 @@ export function IuranList() {
   // Edit Due modal state
   const [editDueId, setEditDueId] = useState<string | null>(null)
   const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean; is_active: boolean; valid_until: string; due_type?: string; year?: number | null } | null>(null)
+  const editDueInitialRef = useRef<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean; is_active: boolean; valid_until: string; due_type?: string; year?: number | null } | null>(null)
   const [editDueLoading, setEditDueLoading] = useState(false)
   const [dueMonths, setDueMonths] = useState<DueMonthSummary[]>([])
   const [dueMonthsLoading, setDueMonthsLoading] = useState(false)
@@ -738,18 +740,20 @@ export function IuranList() {
   // Edit Due handlers
   // ═══════════════════════════════════════════════════
   const handleOpenEdit = useCallback((due: ApiDue) => {
-    setEditDueId(due.id)
-    setEditDueForm({
+    const initialForm = {
       name: due.name,
       amount: due.amount,
       period_type: due.period_type,
-      payment_rule: due.payment_rule ?? 'full',
+      payment_rule: due.payment_rule ?? ('full' as const),
       is_voluntary: due.is_voluntary ?? false,
       is_active: due.is_active,
       valid_until: due.valid_until ?? '',
       due_type: due.due_type,
       year: due.year,
-    })
+    }
+    editDueInitialRef.current = initialForm
+    setEditDueId(due.id)
+    setEditDueForm(initialForm)
     setDueMonths([])
     setDueMonthsError(null)
     setInitialMonthStatus({})
@@ -774,9 +778,10 @@ export function IuranList() {
     }
   }, [])
 
-  const handleCloseEdit = useCallback(() => {
+  const rawCloseEdit = useCallback(() => {
     setEditDueId(null)
     setEditDueForm(null)
+    editDueInitialRef.current = null
     setEditDueLoading(false)
     setDueMonths([])
     setDueMonthsError(null)
@@ -785,6 +790,19 @@ export function IuranList() {
     setSyncBillsMessage(null)
     setShowSyncConfirm(false)
   }, [])
+
+  const isEditDueDirty = Boolean(editDueId && editDueForm) && (
+    isSnapshotDirty(editDueForm, editDueInitialRef.current) ||
+    Object.keys(pendingMonthChanges).length > 0
+  )
+  const editDueGuard = useUnsavedChangesGuard({
+    active: Boolean(editDueId && editDueForm),
+    isDirty: isEditDueDirty,
+    isSaving: editDueLoading || syncBillsLoading,
+  })
+  const handleCloseEdit = useCallback(() => {
+    void editDueGuard.guardedClose(rawCloseEdit)
+  }, [editDueGuard, rawCloseEdit])
 
   const handleSyncBills = useCallback(async () => {
     if (!editDueId || !editDueForm) return
@@ -900,7 +918,7 @@ export function IuranList() {
         // always send an empty value so backend enforces valid_until = NULL.
         valid_until: editDueForm.is_voluntary ? editDueForm.valid_until : '',
       })
-      handleCloseEdit()
+      editDueGuard.exitAfterSave(rawCloseEdit)
       void loadDues()
     } catch (err) {
       // keep modal open — error shown in duesError
@@ -908,7 +926,7 @@ export function IuranList() {
     } finally {
       setEditDueLoading(false)
     }
-  }, [editDueId, editDueForm, pendingMonthChanges, loadDues, loadData, handleCloseEdit])
+  }, [editDueId, editDueForm, pendingMonthChanges, loadDues, loadData, editDueGuard, rawCloseEdit])
 
   // ═══════════════════════════════════════════════════
   // Deactivate due handlers
@@ -1297,8 +1315,7 @@ export function IuranList() {
 
         {/* Edit Due Modal */}
         {editDueId && editDueForm && (
-          <div className="sf-modal-overlay" role="dialog" aria-modal="true">
-            <div className="sf-modal" style={{ width: 480, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+          <Modal open onClose={handleCloseEdit} width={480}>
               <ModalHeader
                 title="Ubah Iuran"
                 subtitle="Perubahan akan berlaku untuk tagihan baru yang dibuat setelah ini."
@@ -1487,9 +1504,9 @@ export function IuranList() {
                   {editDueLoading ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </ModalFooter>
-            </div>
-          </div>
+          </Modal>
         )}
+        {editDueGuard.confirmModal}
 
         {/* Sync Bills Confirmation */}
         {showSyncConfirm && editDueForm && (

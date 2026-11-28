@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/api/models.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -176,35 +177,46 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
   Future<void> _sendManualPush() async {
     final titleC = TextEditingController();
     final bodyC = TextEditingController();
+    bool isDirty() => titleC.text.isNotEmpty || bodyC.text.isNotEmpty;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Kirim Notifikasi Manual'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: titleC, decoration: const InputDecoration(labelText: 'Judul')),
-            const SizedBox(height: 8),
-            TextField(controller: bodyC, decoration: const InputDecoration(labelText: 'Isi'), maxLines: 3),
-            const SizedBox(height: 8),
-            Text(
-              'Notifikasi akan dikirim ke pengurus RW dan RT di bawah RW ini.',
-              style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+      builder: (ctx) => GuardedFormModalScope(
+        isDirty: isDirty,
+        isSaving: () => false,
+        popResult: false,
+        child: AlertDialog(
+          title: const Text('Kirim Notifikasi Manual'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: titleC, decoration: const InputDecoration(labelText: 'Judul')),
+              const SizedBox(height: 8),
+              TextField(controller: bodyC, decoration: const InputDecoration(labelText: 'Isi'), maxLines: 3),
+              const SizedBox(height: 8),
+              Text(
+                'Notifikasi akan dikirim ke pengurus RW dan RT di bawah RW ini.',
+                style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => FormNavigationGuard.requestModalClose(
+                ctx,
+                isDirty: isDirty(),
+                isSaving: false,
+                result: false,
+              ),
+              child: const Text('Batal'),
             ),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim')),
           ],
         ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-              foregroundColor: Colors.white,
-              elevation: 0,
-            ),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kirim')),
-        ],
       ),
     );
     if (ok != true) return;
@@ -257,9 +269,26 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
       eventOptions.add({'value': eventType, 'label': eventType});
     }
 
+    final templateSnapshot = FormSnapshot({
+      'name': nameC.text,
+      'title': titleC.text,
+      'body': bodyC.text,
+      'eventType': eventType,
+      'imageUrl': currentImageUrl,
+      'pickedBytes': pickedBytes,
+    });
+    bool isTemplateDirty() => templateSnapshot.isDirty({
+      'name': nameC.text,
+      'title': titleC.text,
+      'body': bodyC.text,
+      'eventType': eventType,
+      'imageUrl': currentImageUrl,
+      'pickedBytes': pickedBytes,
+    });
+
     final savedMessage = await showDialog<String>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) {
           final theme = Theme.of(ctx);
@@ -377,8 +406,11 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
             }
           }
 
-          return AlertDialog(
-            title: Text(isEditing ? 'Ubah Template' : 'Tambah Template'),
+          return GuardedFormModalScope(
+            isDirty: isTemplateDirty,
+            isSaving: () => isSubmitting,
+            child: AlertDialog(
+              title: Text(isEditing ? 'Ubah Template' : 'Tambah Template'),
             content: SizedBox(
               width: 420,
               child: SingleChildScrollView(
@@ -593,7 +625,13 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
               AppButton.danger(
                 text: 'Batal',
                 size: AppButtonSize.medium,
-                onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                onPressed: isSubmitting
+                    ? null
+                    : () => FormNavigationGuard.requestModalClose(
+                        ctx,
+                        isDirty: isTemplateDirty(),
+                        isSaving: isSubmitting,
+                      ),
               ),
               AppButton.primary(
                 buttonKey: const Key('rwTemplateSaveBtn'),
@@ -603,6 +641,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                 onPressed: isSubmitting ? null : handleSave,
               ),
             ],
+            ),
           );
         },
       ),
@@ -831,6 +870,8 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
 
   Future<void> _sendTemplate(RwNotificationTemplate t) async {
     String target = 'all_pengurus';
+    const initialTarget = 'all_pengurus';
+    bool isDirty() => target != initialTarget;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -838,8 +879,12 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
           final theme = Theme.of(ctx);
           final colorScheme = theme.colorScheme;
           final isDark = theme.brightness == Brightness.dark;
-          return AlertDialog(
-            title: Text('Kirim: ${t.name}'),
+          return GuardedFormModalScope(
+            isDirty: isDirty,
+            isSaving: () => false,
+            popResult: false,
+            child: AlertDialog(
+              title: Text('Kirim: ${t.name}'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -887,7 +932,12 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                   foregroundColor: Colors.white,
                   elevation: 0,
                 ),
-                onPressed: () => Navigator.pop(ctx, false),
+                onPressed: () => FormNavigationGuard.requestModalClose(
+                  ctx,
+                  isDirty: isDirty(),
+                  isSaving: false,
+                  result: false,
+                ),
                 child: const Text('Batal'),
               ),
               FilledButton.icon(
@@ -896,6 +946,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                 label: const Text('Kirim Sekarang'),
               ),
             ],
+            ),
           );
         },
       ),

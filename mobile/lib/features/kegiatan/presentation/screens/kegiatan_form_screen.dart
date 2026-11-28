@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -40,42 +41,45 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
   String? _posterUrl;
   BannerStyleConfig? _styleConfig;
 
-  // Initial snapshot for dirty state checking
-  String _initTitle = '';
-  String _initDesc = '';
-  String _initLocation = '';
-  String _initPicName = '';
-  String _initBudget = '';
-  DateTime? _initStartDate;
-  DateTime? _initEndDate;
-  bool _initShowOnBanner = false;
-  String? _initPosterUrl;
-  String? _initStyleConfigJson;
-
   bool _isLoading = false;
   bool _isSaving = false;
   String? _error;
 
+  late final FormSnapshot _snapshot;
+  FormGuardRegistration? _guardReg;
+
   bool get _isEditing =>
       widget.activityId != null && widget.activityId!.isNotEmpty;
 
-  bool get _isDirty {
-    if (_titleCtrl.text != _initTitle) return true;
-    if (_descCtrl.text != _initDesc) return true;
-    if (_locationCtrl.text != _initLocation) return true;
-    if (_picNameCtrl.text != _initPicName) return true;
-    if (_budgetCtrl.text != _initBudget) return true;
-    if (_startDate != _initStartDate) return true;
-    if (_endDate != _initEndDate) return true;
-    if (_showOnBanner != _initShowOnBanner) return true;
-    if (_posterUrl != _initPosterUrl) return true;
-    if ((_styleConfig?.toJson().toString()) != _initStyleConfigJson) return true;
-    return false;
-  }
+  String get _routePath => _isEditing
+      ? '/home/kegiatan/${widget.activityId}/edit'
+      : '/home/kegiatan/create';
+
+  Map<String, Object?> _currentValues() => {
+    'title': _titleCtrl.text,
+    'desc': _descCtrl.text,
+    'location': _locationCtrl.text,
+    'picName': _picNameCtrl.text,
+    'budget': _budgetCtrl.text,
+    'startDate': _startDate,
+    'endDate': _endDate,
+    'showOnBanner': _showOnBanner,
+    'publishNow': _publishNow,
+    'posterUrl': _posterUrl,
+    'styleConfig': _styleConfig?.toJson(),
+  };
+
+  bool get _isDirty => !_isLoading && _snapshot.isDirty(_currentValues());
 
   @override
   void initState() {
     super.initState();
+    _snapshot = FormSnapshot(_currentValues());
+    _guardReg = FormNavigationGuard.register(
+      _routePath,
+      isDirty: () => _isDirty,
+      isSaving: () => _isSaving,
+    );
     if (widget.initialActivity != null) {
       final existing = widget.initialActivity!;
       _titleCtrl.text = existing.title;
@@ -86,6 +90,7 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
       _startDate = existing.startDate.toLocal();
       _endDate = existing.endDate?.toLocal();
       _showOnBanner = existing.showOnBanner;
+      _publishNow = existing.publicationStatus == 'published';
       _posterUrl = existing.posterUrl;
       _styleConfig = existing.styleConfig ??
           ((existing.posterUrl != null && existing.posterUrl!.isNotEmpty)
@@ -111,16 +116,7 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
   }
 
   void _initSnapshot() {
-    _initTitle = _titleCtrl.text;
-    _initDesc = _descCtrl.text;
-    _initLocation = _locationCtrl.text;
-    _initPicName = _picNameCtrl.text;
-    _initBudget = _budgetCtrl.text;
-    _initStartDate = _startDate;
-    _initEndDate = _endDate;
-    _initShowOnBanner = _showOnBanner;
-    _initPosterUrl = _posterUrl;
-    _initStyleConfigJson = _styleConfig?.toJson().toString();
+    _snapshot.reset(_currentValues());
   }
 
   Future<void> _bootstrap() async {
@@ -180,6 +176,7 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
 
   @override
   void dispose() {
+    FormNavigationGuard.unregister(_routePath, registration: _guardReg);
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _locationCtrl.dispose();
@@ -206,65 +203,15 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  Future<bool> _confirmCancel() async {
-    if (!_isDirty) return true;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B7280),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Tetap di Halaman'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.danger,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Ya, Batalkan'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-    return confirmed == true;
-  }
-
   Future<void> _handlePop() async {
-    if (_isSaving) return;
-    final canPop = await _confirmCancel();
-    if (canPop && mounted) {
-      Navigator.of(context).pop(false);
-    }
+    await FormNavigationGuard.requestFormCancel(
+      context,
+      routePath: _routePath,
+      isDirtyOverride: () => _isDirty,
+      isSavingOverride: () => _isSaving,
+      fallbackRoute: '/home/kegiatan',
+      result: false,
+    );
   }
 
   Future<void> _submit() async {
@@ -312,12 +259,22 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
       if (_isEditing) {
         await repo.updateActivity(widget.activityId!, payload);
         if (!mounted) return;
-        Navigator.of(context).pop(true);
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/kegiatan',
+          result: true,
+        );
       } else {
         payload['publication_status'] = _publishNow ? 'published' : 'draft';
         await repo.createActivity(payload);
         if (!mounted) return;
-        Navigator.of(context).pop(true);
+        FormNavigationGuard.exitAfterSave(
+          context,
+          routePath: _routePath,
+          fallbackRoute: '/home/kegiatan',
+          result: true,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -365,7 +322,7 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
         );
 
     return PopScope(
-      canPop: !_isDirty && !_isSaving,
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         await _handlePop();

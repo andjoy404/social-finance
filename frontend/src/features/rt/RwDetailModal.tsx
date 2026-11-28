@@ -16,6 +16,7 @@ import {
 import { Badge } from '@/components/Badge'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { positionVariant, rwPositionLabel } from './position-badge'
+import { isSnapshotDirty, useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
 
 const rwPositions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
@@ -67,6 +68,26 @@ export function RwDetailModal({
   const editLock = useRef(false)
   const editTabRef = useRef<HTMLButtonElement>(null)
   const jabatanTabRef = useRef<HTMLButtonElement>(null)
+  const initialRwFormRef = useRef({ rwNumber: '', rwName: '', rwHead: '', rwAddress: '' })
+
+  const rwFormDirty = open && Boolean(rw) && isSnapshotDirty(
+    { rwNumber, rwName, rwHead, rwAddress },
+    initialRwFormRef.current,
+  )
+  const jabatanFormDirty = open && Boolean(rw) && (
+    selectedJabatan !== '' || selectedRt !== null || selectedMember !== null
+  )
+  const isDirty = rwFormDirty || jabatanFormDirty
+  const isSaving = editSaving || modalSaving
+
+  const { guardedClose, confirmAction, confirmModal } = useUnsavedChangesGuard({
+    active: open && Boolean(rw),
+    isDirty,
+    isSaving,
+  })
+  const handleClose = useCallback(() => {
+    void guardedClose(onClose)
+  }, [guardedClose, onClose])
 
   const loadRts = useCallback(async (rwId: string) => {
     const session = getSessionPair()
@@ -120,10 +141,17 @@ export function RwDetailModal({
       setModalError(null)
       setConfirmRevoke(false)
       setActiveTab('jabatan')
-      setRwNumber(String(rw.rw_number))
-      setRwName(rw.name ?? '')
-      setRwHead(rw.head_name ?? '')
-      setRwAddress(rw.address ?? '')
+      const initRw = {
+        rwNumber: String(rw.rw_number),
+        rwName: rw.name ?? '',
+        rwHead: rw.head_name ?? '',
+        rwAddress: rw.address ?? '',
+      }
+      initialRwFormRef.current = initRw
+      setRwNumber(initRw.rwNumber)
+      setRwName(initRw.rwName)
+      setRwHead(initRw.rwHead)
+      setRwAddress(initRw.rwAddress)
       setEditError(null)
       setEditSuccess(null)
     } else {
@@ -168,10 +196,17 @@ export function RwDetailModal({
         head_name: rwHead.trim() || null,
         address: rwAddress.trim() || null,
       })
-      setRwNumber(String(updatedRw.rw_number))
-      setRwName(updatedRw.name)
-      setRwHead(updatedRw.head_name ?? '')
-      setRwAddress(updatedRw.address ?? '')
+      const nextRw = {
+        rwNumber: String(updatedRw.rw_number),
+        rwName: updatedRw.name,
+        rwHead: updatedRw.head_name ?? '',
+        rwAddress: updatedRw.address ?? '',
+      }
+      initialRwFormRef.current = nextRw
+      setRwNumber(nextRw.rwNumber)
+      setRwName(nextRw.rwName)
+      setRwHead(nextRw.rwHead)
+      setRwAddress(nextRw.rwAddress)
       setEditSuccess('Informasi RW berhasil diperbarui.')
       onUpdated?.(updatedRw)
     } catch (err) {
@@ -182,11 +217,33 @@ export function RwDetailModal({
     }
   }
 
+  const switchTab = (nextTab: 'ubah' | 'jabatan') => {
+    if (nextTab === activeTab) return
+    const currentDirty = activeTab === 'ubah' ? rwFormDirty : jabatanFormDirty
+    if (!currentDirty && !isSaving) {
+      setActiveTab(nextTab)
+      return
+    }
+    void confirmAction(() => {
+      if (activeTab === 'ubah') {
+        setRwNumber(initialRwFormRef.current.rwNumber)
+        setRwName(initialRwFormRef.current.rwName)
+        setRwHead(initialRwFormRef.current.rwHead)
+        setRwAddress(initialRwFormRef.current.rwAddress)
+      } else {
+        setSelectedJabatan('')
+        setSelectedRt(null)
+        setSelectedMember(null)
+      }
+      setActiveTab(nextTab)
+    })
+  }
+
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
     e.preventDefault()
     const nextTab = activeTab === 'ubah' ? 'jabatan' : 'ubah'
-    setActiveTab(nextTab)
+    switchTab(nextTab)
     if (nextTab === 'ubah') editTabRef.current?.focus()
     else jabatanTabRef.current?.focus()
   }
@@ -254,8 +311,8 @@ export function RwDetailModal({
 
   return (
     <>
-      <Modal open={open} onClose={onClose} width={720}>
-        <ModalHeader title={`Detail RW ${String(rw.rw_number).padStart(3, '0')}`} subtitle={rw.name} onClose={onClose} />
+      <Modal open={open} onClose={handleClose} width={720}>
+        <ModalHeader title={`Detail RW ${String(rw.rw_number).padStart(3, '0')}`} subtitle={rw.name} onClose={handleClose} />
         <div role="tablist" aria-label="Pengaturan RW" style={{ display: 'flex', justifyContent: 'center', gap: 6, margin: '0 20px', padding: '10px 0 12px', borderBottom: '1px solid var(--sf-border)' }}>
           <button
             ref={editTabRef}
@@ -266,7 +323,7 @@ export function RwDetailModal({
             tabIndex={activeTab === 'ubah' ? 0 : -1}
             className={`sf-btn ${activeTab === 'ubah' ? 'sf-btn-primary' : 'sf-btn-ghost'}`}
             style={{ minWidth: 88, padding: '4px 12px', fontSize: 11 }}
-            onClick={() => setActiveTab('ubah')}
+            onClick={() => switchTab('ubah')}
             onKeyDown={handleTabKeyDown}
           >
             UBAH
@@ -280,7 +337,7 @@ export function RwDetailModal({
             tabIndex={activeTab === 'jabatan' ? 0 : -1}
             className={`sf-btn ${activeTab === 'jabatan' ? 'sf-btn-primary' : 'sf-btn-ghost'}`}
             style={{ minWidth: 88, padding: '4px 12px', fontSize: 11 }}
-            onClick={() => setActiveTab('jabatan')}
+            onClick={() => switchTab('jabatan')}
             onKeyDown={handleTabKeyDown}
           >
             JABATAN
@@ -358,7 +415,7 @@ export function RwDetailModal({
               </div>
             </div>
             <ModalFooter>
-              <button type="button" className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
+              <button type="button" className="sf-btn sf-btn-ghost" onClick={handleClose} disabled={editSaving}>Tutup</button>
               <button type="submit" className="sf-btn sf-btn-primary" disabled={editSaving}>
                 {editSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
@@ -515,10 +572,11 @@ export function RwDetailModal({
         </div>
         </div>
         <ModalFooter>
-          <button className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
+          <button className="sf-btn sf-btn-ghost" onClick={handleClose} disabled={modalSaving}>Tutup</button>
         </ModalFooter>
           </>
         )}
+        {confirmModal}
       </Modal>
 
       {/* RT selector modal */}

@@ -1,5 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard'
+
+const ModalCloseContext = createContext<(() => void) | null>(null)
+
+/**
+ * Returns the nearest `<Modal>`'s guarded close handler (honoring `isDirty`
+ * and `isSaving`). Falls back to [fallback] if rendered outside `<Modal>`.
+ */
+export function useModalClose(fallback: () => void): () => void {
+  const ctxClose = useContext(ModalCloseContext)
+  return ctxClose ?? fallback
+}
 
 interface ModalProps {
   open: boolean
@@ -8,28 +20,54 @@ interface ModalProps {
   width?: number
   /** Custom class for the overlay element. */
   overlayClassName?: string
+  /** Whether the modal form currently has unsaved user changes. */
+  isDirty?: boolean
+  /** Whether the modal form is currently saving/uploading; blocks all close paths. */
+  isSaving?: boolean
   children: React.ReactNode
 }
 
-export function Modal({ open, onClose, width = 520, overlayClassName, children }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  width = 520,
+  overlayClassName,
+  isDirty = false,
+  isSaving = false,
+  children,
+}: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const { guardedClose, confirmModal } = useUnsavedChangesGuard({
+    active: open,
+    isDirty,
+    isSaving,
+  })
+
+  const handleRequestClose = useCallback(() => {
+    void guardedClose(onClose)
+  }, [guardedClose, onClose])
 
   /* Close on Escape */
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleRequestClose()
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [open, onClose])
+  }, [open, handleRequestClose])
 
   /* Prevent body scroll while open */
   useEffect(() => {
     if (open) {
       const prev = document.body.style.overflow
       document.body.style.overflow = 'hidden'
-      return () => { document.body.style.overflow = prev }
+      return () => {
+        document.body.style.overflow = prev
+      }
     }
   }, [open])
 
@@ -37,7 +75,7 @@ export function Modal({ open, onClose, width = 520, overlayClassName, children }
   useEffect(() => {
     if (open && dialogRef.current) {
       const first = dialogRef.current.querySelector<HTMLElement>(
-        'input, button, select, textarea, [tabindex]:not([tabindex="-1"])'
+        'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
       )
       first?.focus()
     }
@@ -46,20 +84,25 @@ export function Modal({ open, onClose, width = 520, overlayClassName, children }
   if (!open) return null
 
   return (
-    <div
-      className={`sf-modal-overlay ${overlayClassName || ''}`.trim()}
-      aria-modal="true"
-      role="dialog"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <ModalCloseContext.Provider value={handleRequestClose}>
       <div
-        ref={dialogRef}
-        className="sf-modal"
-        style={{ width, maxWidth: 'calc(100vw - 32px)' }}
+        className={`sf-modal-overlay ${overlayClassName || ''}`.trim()}
+        aria-modal="true"
+        role="dialog"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) handleRequestClose()
+        }}
       >
-        {children}
+        <div
+          ref={dialogRef}
+          className="sf-modal"
+          style={{ width, maxWidth: 'calc(100vw - 32px)' }}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+      {confirmModal}
+    </ModalCloseContext.Provider>
   )
 }
 
@@ -74,6 +117,8 @@ export function ModalHeader({
   onClose: () => void
   icon?: ReactNode
 }) {
+  const guardedModalClose = useContext(ModalCloseContext)
+
   return (
     <div className="sf-modal-header">
       {icon && <span className="sf-modal-header-icon">{icon}</span>}
@@ -86,7 +131,11 @@ export function ModalHeader({
         className="sf-modal-close"
         onClick={(e) => {
           e.preventDefault()
-          onClose()
+          if (guardedModalClose) {
+            guardedModalClose()
+          } else {
+            onClose()
+          }
         }}
         aria-label="Tutup"
         title="Tutup (Escape)"
@@ -104,4 +153,3 @@ export function ModalBody({ children }: { children: React.ReactNode }) {
 export function ModalFooter({ children }: { children: React.ReactNode }) {
   return <div className="sf-modal-footer">{children}</div>
 }
-

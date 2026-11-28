@@ -9,6 +9,7 @@ import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/storage/app_storage.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -1260,6 +1261,12 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
   bool _loading = false;
   String? _errorMessage;
 
+  bool get _isDirty =>
+      _identifierController.text != widget.initialIdentifier ||
+      _codeController.text.isNotEmpty ||
+      _newPasswordController.text.isNotEmpty ||
+      _confirmPasswordController.text.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -1336,8 +1343,11 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF1E192B),
+    return GuardedFormModalScope(
+      isDirty: () => _isDirty,
+      isSaving: () => _loading,
+      child: Dialog(
+        backgroundColor: const Color(0xFF1E192B),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -1360,7 +1370,13 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, size: 20, color: Color(0xFF9B93AD)),
-                  onPressed: _loading ? null : () => Navigator.of(context).pop(),
+                  onPressed: _loading
+                      ? null
+                      : () => FormNavigationGuard.requestModalClose(
+                          context,
+                          isDirty: _isDirty,
+                          isSaving: _loading,
+                        ),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
@@ -1458,7 +1474,13 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _loading ? null : () => Navigator.of(context).pop(),
+                    onPressed: _loading
+                        ? null
+                        : () => FormNavigationGuard.requestModalClose(
+                            context,
+                            isDirty: _isDirty,
+                            isSaving: _loading,
+                          ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.danger,
                       foregroundColor: Colors.white,
@@ -1491,6 +1513,7 @@ class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

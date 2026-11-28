@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/models/role.dart';
-import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/navigators/form_navigation_guard.dart';
 import 'package:social_finance/core/utils/permissions.dart';
 
 import 'theme/app_theme.dart';
@@ -1341,6 +1341,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         GoRoute(
           path: '/pos/activate',
           name: 'pos_activate',
+          onExit: FormNavigationGuard.onRouteExit,
           builder: (context, state) => const PosActivationScreen(),
         ),
         GoRoute(
@@ -1401,6 +1402,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'create',
                   name: 'kegiatan_create',
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) => const KegiatanFormScreen(),
                 ),
                 GoRoute(
@@ -1413,6 +1415,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                     GoRoute(
                       path: 'edit',
                       name: 'kegiatan_edit',
+                      onExit: FormNavigationGuard.onRouteExit,
                       builder: (context, state) => KegiatanFormScreen(
                         activityId: state.pathParameters['id'],
                       ),
@@ -1429,6 +1432,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'create',
                   name: 'pengumuman_create',
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) => const AnnouncementFormScreen(),
                 ),
                 GoRoute(
@@ -1441,6 +1445,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                     GoRoute(
                       path: 'edit',
                       name: 'pengumuman_edit',
+                      onExit: FormNavigationGuard.onRouteExit,
                       builder: (context, state) => AnnouncementFormScreen(
                         announcementId: state.pathParameters['id'],
                       ),
@@ -1491,6 +1496,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/notifikasi/waste-truck',
               name: 'notifikasi_waste_truck',
+              onExit: FormNavigationGuard.onRouteExit,
               builder: (context, state) => const SecurityWasteTruckScreen(),
             ),
             GoRoute(
@@ -1508,6 +1514,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/security-management',
               name: 'security_management',
+              onExit: FormNavigationGuard.onRouteExit,
               builder: (context, state) {
                 final tab = state.uri.queryParameters['tab'];
                 final subtab = state.uri.queryParameters['subtab'];
@@ -1529,6 +1536,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/patroli',
               name: 'security_patroli',
+              onExit: FormNavigationGuard.onRouteExit,
               builder: (context, state) {
                 final user = ref.read(authRepositoryProvider)?.valueOrNull;
                 final jabatan = (user?['jabatan'] ?? '')
@@ -1554,6 +1562,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/paket',
               name: 'security_paket',
+              onExit: FormNavigationGuard.onRouteExit,
               builder: (context, state) {
                 final user = ref.read(authRepositoryProvider)?.valueOrNull;
                 final subtab = state.uri.queryParameters['subtab'];
@@ -1622,7 +1631,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'pembayaran/:billId',
                   name: 'iuran_payment',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final billId = state.pathParameters['billId']!;
                     return IuranPaymentScreen(billId: billId);
@@ -1636,7 +1645,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'form',
                   name: 'iuran_form',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) => const IuranFormScreen(),
                 ),
               ],
@@ -1649,13 +1658,13 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'masuk',
                   name: 'kas_masuk',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) => const KasMasukScreen(),
                 ),
                 GoRoute(
                   path: 'keluar',
                   name: 'kas_keluar',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) => const KasKeluarScreen(),
                 ),
                 GoRoute(
@@ -1694,7 +1703,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'baru',
                   name: 'warga_baru',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final authState = ref.read(authRepositoryProvider);
                     final systemRole =
@@ -1707,7 +1716,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'edit/household/:householdId',
                   name: 'warga_edit',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final householdId = state.pathParameters['householdId']!;
                     return HouseholdEditScreen(householdId: householdId);
@@ -1716,7 +1725,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'baru/petugas',
                   name: 'warga_petugas_baru',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final authState = ref.read(authRepositoryProvider);
                     final systemRole =
@@ -1729,7 +1738,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'edit/petugas/:residentId',
                   name: 'warga_resident_edit',
-                  onExit: KasFormNavigationGuard.onRouteExit,
+                  onExit: FormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final residentId = state.pathParameters['residentId']!;
                     return SpecialResidentEditScreen(residentId: residentId);
@@ -1795,10 +1804,17 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         ),
       ],
     );
+    _router.routerDelegate.addListener(_onRouterLocationChanged);
+  }
+
+  void _onRouterLocationChanged() {
+    final currentPath = _router.routeInformationProvider.value.uri.path;
+    FormNavigationGuard.clearStaleApprovedExits(activePath: currentPath);
   }
 
   @override
   void dispose() {
+    _router.routerDelegate.removeListener(_onRouterLocationChanged);
     WidgetsBinding.instance.removeObserver(this);
     _foregroundSub?.cancel();
     _messageOpenedSub?.cancel();
