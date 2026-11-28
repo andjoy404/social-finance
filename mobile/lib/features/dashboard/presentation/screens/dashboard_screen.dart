@@ -17,8 +17,9 @@ import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/core/widgets/resident_avatar.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
-import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/features/dashboard/presentation/widgets/banner_crop_image.dart';
+import 'package:social_finance/features/dashboard/presentation/widgets/banner_style_editor.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
@@ -258,8 +259,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Column(
       children: [
-        SizedBox(
-          height: 160,
+        AspectRatio(
+          aspectRatio: 16 / 9,
           child: PageView.builder(
             controller: _bannerController,
             // Infinite virtual loop when more than one banner; a clamped
@@ -279,6 +280,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 'iuran_reminder' => 'Pengingat Iuran',
                 _ => 'Pengumuman RT',
               };
+
+              final styleCfg = banner.styleConfig;
+              final isColorBg =
+                  !isIuran && styleCfg?.backgroundType == 'color';
+              final isImageBg = !isIuran &&
+                  (styleCfg?.backgroundType == 'image' ||
+                      (styleCfg == null &&
+                          banner.imageUrl != null &&
+                          banner.imageUrl!.isNotEmpty));
+              final showDetail = styleCfg?.showDetail ?? true;
+              final customColorHex =
+                  styleCfg?.backgroundColor ?? '#A970FF';
+              final customColor = parseHexColor(customColorHex);
+              final imgUrl = styleCfg?.image?.url ?? banner.imageUrl;
+              final zoom = styleCfg?.image?.zoom ?? 1.0;
+              final crop = styleCfg?.image?.crop;
+              final overlayOpacity = styleCfg?.overlayOpacity ?? 0.35;
 
               return InkWell(
                 onTap: () {
@@ -310,155 +328,254 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.base),
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: isIuran
-                          ? [
-                              isDark
-                                  ? const Color(0xFF6A1B9A)
-                                  : const Color(0xFF8E24AA),
-                              isDark
-                                  ? const Color(0xFF4A148C)
-                                  : const Color(0xFF6A1B9A),
-                            ]
-                          : [
-                              isDark
-                                  ? const Color(0xFF1E3A8A)
-                                  : const Color(0xFF2563EB),
-                              isDark
-                                  ? const Color(0xFF1E1B4B)
-                                  : const Color(0xFF1D4ED8),
-                            ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(AppRadius.base),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.12),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                  child: Stack(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
+                    child: Stack(
+                      children: [
+                        // 1. Background Layers
+                        if (isIuran) ...[
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: isDark
+                                    ? [
+                                        const Color(0xFF6A1B9A),
+                                        const Color(0xFF4A148C),
+                                      ]
+                                    : [
+                                        const Color(0xFF8E24AA),
+                                        const Color(0xFF6A1B9A),
+                                      ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                          ),
+                        ] else if (isColorBg) ...[
+                          BannerNeonGlowBackground(color: customColor),
+                        ] else if (isImageBg &&
+                            imgUrl != null &&
+                            imgUrl.isNotEmpty) ...[
+                          // Base violet gradient for transparency support
+                          Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF2A124D), Color(0xFF130924)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                          ),
+                          Positioned.fill(
+                            child: BannerCropImage(
+                              imageUrl: imgUrl,
+                              crop: crop,
+                              zoom: zoom,
+                              alt: banner.sourceType == 'activity'
+                                  ? 'Banner kegiatan'
+                                  : 'Banner pengumuman',
+                            ),
+                          ),
+                          // Dark bottom gradient overlay
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.black.withValues(
+                                      alpha: overlayOpacity,
+                                    ),
+                                    Colors.black.withValues(
+                                      alpha: overlayOpacity * 0.4,
+                                    ),
+                                    Colors.transparent,
+                                  ],
+                                  stops: const [0.0, 0.5, 1.0],
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          // Legacy gradient fallback
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: isDark
+                                    ? [
+                                        const Color(0xFF1E3A8A),
+                                        const Color(0xFF1E1B4B),
+                                      ]
+                                    : [
+                                        const Color(0xFF2563EB),
+                                        const Color(0xFF1D4ED8),
+                                      ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        // 2. Foreground Overlaid Content
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Top Bar: Badges & deep link indicator
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(
+                                            AppRadius.xs,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white24,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          bannerLabel,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      if (banner.isPinned ||
+                                          banner.priority > 0) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.shade700,
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                              AppRadius.xs,
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Penting',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  if (banner.actionUrl != null || isIuran)
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.2,
+                                        color: Colors.black.withValues(
+                                          alpha: 0.3,
                                         ),
-                                        borderRadius: BorderRadius.circular(
-                                          AppRadius.sm,
+                                        borderRadius:
+                                            BorderRadius.circular(
+                                          AppRadius.xs,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white12,
                                         ),
                                       ),
-                                      child: Text(
-                                        bannerLabel,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            isIuran
+                                                ? 'Buka Keuangan'
+                                                : 'Lihat Detail',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(
+                                            Icons.arrow_forward_ios,
+                                            color: Colors.white,
+                                            size: 9,
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    if (banner.priority > 0) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.shade700,
-                                          borderRadius: BorderRadius.circular(
-                                            AppRadius.xs,
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          'Penting',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                Text(
-                                  banner.title,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  banner.description,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.85),
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 4,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (banner.imageUrl != null &&
-                              banner.imageUrl!.isNotEmpty) ...[
-                            const SizedBox(width: 12),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                              child: Container(
-                                width: 92,
-                                height: 92,
-                                color: isDark
-                                    ? AppColors.darkSurface
-                                    : AppColors.lightSurfaceSubtle,
-                                alignment: Alignment.center,
-                                child: CommunityImage(
-                                  imageRef: banner.imageUrl!,
-                                  width: 92,
-                                  height: 92,
-                                  fit: BoxFit.contain,
-                                  alt: banner.sourceType == 'activity'
-                                      ? 'Banner kegiatan'
-                                      : 'Banner pengumuman',
-                                ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (banner.actionUrl != null || isIuran)
-                        const Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Icon(
-                            Icons.arrow_forward_rounded,
-                            color: Colors.white,
-                            size: 20,
+
+                              // Bottom Content Area: Title & optional Detail
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    banner.title,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black87,
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (showDetail &&
+                                      banner.description.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      banner.description,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.9,
+                                        ),
+                                        fontSize: 11,
+                                        shadows: const [
+                                          Shadow(
+                                            color: Colors.black87,
+                                            blurRadius: 3,
+                                          ),
+                                        ],
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

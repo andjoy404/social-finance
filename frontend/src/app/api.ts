@@ -3473,6 +3473,42 @@ export interface ApiMonitoringNoteResponse {
 // COMMUNITY MODULE (Beranda, Kegiatan, Pengumuman, Banner)
 // =============================================================================
 
+export interface CropRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface FocalPoint {
+  x: number
+  y: number
+}
+
+export interface ImageConfig {
+  url?: string | null
+  crop?: CropRect | null
+  focal_point?: FocalPoint | null
+  zoom?: number
+}
+
+export interface GradientConfig {
+  from: string
+  to: string
+  angle?: number
+  glow?: boolean
+}
+
+export interface BannerStyleConfig {
+  version?: number
+  background_type: 'color' | 'image'
+  background_color?: string
+  gradient?: GradientConfig | null
+  image?: ImageConfig | null
+  overlay_opacity?: number
+  show_detail?: boolean
+}
+
 export interface CommunityActivity {
   id: string
   rt_id: string
@@ -3486,6 +3522,7 @@ export interface CommunityActivity {
   status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
   publication_status: 'draft' | 'published'
   show_on_banner: boolean
+  style_config?: BannerStyleConfig | null
   archived_at?: string | null
   created_by?: string | null
   updated_by?: string | null
@@ -3507,6 +3544,7 @@ export interface CommunityAnnouncement {
   display_order: number
   status: 'draft' | 'scheduled' | 'active' | 'expired' | 'archived'
   is_permanent?: boolean
+  style_config?: BannerStyleConfig | null
   published_at?: string | null
   created_by?: string | null
   updated_by?: string | null
@@ -3543,6 +3581,7 @@ export interface CommunityBanner {
   display_order: number
   is_pinned: boolean
   is_active: boolean
+  style_config?: BannerStyleConfig | null
   created_at: string
   updated_at: string
 }

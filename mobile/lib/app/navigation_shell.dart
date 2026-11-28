@@ -170,15 +170,18 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     if (jabatan == 'sekretaris') return false;
     if (jabatan == 'keamanan') return true;
-    if (isSuperAdminUser(user) || isKetuaRTUser(user)) return true;
+    if (isSuperAdminUser(user) || isKetuaRTUser(user) || isHumasUser(user)) {
+      return true;
+    }
     return userHasPermission(user, 'patrol.read') ||
-        userHasPermission(user, 'patrol.write');
+        userHasPermission(user, 'patrol.write') ||
+        userHasPermission(user, 'patrol.template.manage');
   }
 
   bool _canAccessPaket(Map<String, dynamic>? user) {
     if (user == null) return false;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
-    if (jabatan == 'sekretaris') return false;
+    if (jabatan == 'sekretaris' || isHumasUser(user)) return false;
     if (jabatan == 'keamanan') return true;
     if (isSuperAdminUser(user) || isKetuaRTUser(user)) return true;
     return userHasPermission(user, 'paket.read') ||
@@ -189,7 +192,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (user == null) return false;
     final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     if (jabatan == 'sekretaris' || jabatan == 'keamanan') return false;
-    if (isSuperAdminUser(user) || isKetuaRTUser(user) || jabatan == 'humas') return true;
+    if (isSuperAdminUser(user) || isKetuaRTUser(user) || isHumasUser(user)) {
+      return true;
+    }
     return userHasPermission(user, 'security.schedule.read') ||
         userHasPermission(user, 'security.schedule.write') ||
         userHasPermission(user, 'security.device.manage') ||
@@ -636,12 +641,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   }
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  String? _lastLocation;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
+        _lastLocation = _currentLocation(context);
         ref.read(notificationUnreadCountProvider.notifier).refresh();
       }
     });
@@ -654,6 +661,13 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final bottomTabs = _getBottomNavTabs(user);
     final collapsedTabs = _getCollapsedTabs(user);
     final location = _currentLocation(context);
+    final prevLocation = _lastLocation;
+    _lastLocation = location;
+    if (prevLocation != null &&
+        prevLocation != location &&
+        (prevLocation.startsWith('/rw/') || location.startsWith('/rw/'))) {
+      invalidateUserRwUnreadCounts(ref, user);
+    }
     final bestMatch = _resolveBottomNavMatch(
       bottomTabs,
       collapsedTabs,
@@ -737,17 +751,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final rwId = rwMemberships.isNotEmpty
         ? rwMemberships.first.rwId
         : (user?['rw_id'] ?? '').toString().trim();
-    final rwUnreadCount = rwId.isNotEmpty
-        ? (ref.watch(rwUnreadCountProvider(rwId)).valueOrNull ?? 0)
-        : 0;
-    final isActualRwExec =
-        rwMemberships.any(
-          (m) =>
-              m.source != 'rt_inferred' &&
-              (m.jabatan == 'ketua' || m.jabatan == 'bendahara'),
-        ) ||
-        userHasPermission(user, 'rw.notification.write');
-    final hasRwUnread = isActualRwExec && rwUnreadCount > 0;
+    final rwUnreadState = rwId.isNotEmpty
+        ? ref.watch(rwTabUnreadStateProvider(rwId))
+        : const RwTabUnreadState();
+    final isActualRwExec = isRwUnreadBadgeEligible(
+      user,
+      rwMemberships: rwMemberships,
+    );
+    final hasRwUnread = isActualRwExec && rwUnreadState.hasAnyUnread;
 
     bool tabHasBadge(String path) {
       if (jabatan == 'keamanan') return false;

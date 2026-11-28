@@ -106,4 +106,54 @@ describe('Dashboard — Banner thumbnail wiring (Web)', () => {
     await waitFor(() => expect(screen.getByText('Pengumuman Penting')).toBeInTheDocument())
     expect(screen.queryByTestId('community-image')).not.toBeInTheDocument()
   })
+
+  it('renders custom color neon background and respects show_detail', async () => {
+    const dash = makeDashboard(null)
+    dash.banners[0].style_config = {
+      version: 1,
+      background_type: 'color',
+      background_color: '#00F0FF',
+      gradient: { from: '#00F0FF', to: '#002B2E', angle: 135, glow: true },
+      show_detail: false,
+    }
+
+    vi.spyOn(ApiModule, 'apiGetHomeDashboard').mockResolvedValue(dash)
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Pengumuman Penting')).toBeInTheDocument())
+    // With show_detail false, body text is hidden
+    expect(screen.queryByText('Isi pengumuman penting')).not.toBeInTheDocument()
+  })
+
+  it('renders custom image background with crop and show_detail true', async () => {
+    const dash = makeDashboard('/api/v1/community/images/custom.png')
+    dash.banners[0].style_config = {
+      version: 1,
+      background_type: 'image',
+      image: {
+        url: '/api/v1/community/images/custom.png',
+        crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.45 },
+        zoom: 1.5,
+      },
+      show_detail: true,
+      overlay_opacity: 0.4,
+    }
+
+    vi.spyOn(ApiModule, 'apiGetHomeDashboard').mockResolvedValue(dash)
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Pengumuman Penting')).toBeInTheDocument())
+    expect(screen.getByText('Isi pengumuman penting')).toBeInTheDocument()
+    expect(screen.getByTestId('community-image')).toHaveAttribute('src', '/api/v1/community/images/custom.png')
+  })
 })

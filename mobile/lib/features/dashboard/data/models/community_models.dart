@@ -1,6 +1,167 @@
 import 'package:flutter/foundation.dart';
 
 @immutable
+class CropRect {
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  const CropRect({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+
+  factory CropRect.fromJson(Map<String, dynamic> json) {
+    return CropRect(
+      x: (json['x'] as num?)?.toDouble() ?? 0.0,
+      y: (json['y'] as num?)?.toDouble() ?? 0.0,
+      width: (json['width'] as num?)?.toDouble() ?? 1.0,
+      height: (json['height'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'x': x,
+    'y': y,
+    'width': width,
+    'height': height,
+  };
+}
+
+@immutable
+class FocalPoint {
+  final double x;
+  final double y;
+
+  const FocalPoint({required this.x, required this.y});
+
+  factory FocalPoint.fromJson(Map<String, dynamic> json) {
+    return FocalPoint(
+      x: (json['x'] as num?)?.toDouble() ?? 0.5,
+      y: (json['y'] as num?)?.toDouble() ?? 0.5,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'x': x, 'y': y};
+}
+
+@immutable
+class ImageConfig {
+  final String? url;
+  final CropRect? crop;
+  final FocalPoint? focalPoint;
+  final double zoom;
+
+  const ImageConfig({
+    this.url,
+    this.crop,
+    this.focalPoint,
+    this.zoom = 1.0,
+  });
+
+  factory ImageConfig.fromJson(Map<String, dynamic> json) {
+    return ImageConfig(
+      url: json['url']?.toString(),
+      crop: json['crop'] is Map<String, dynamic>
+          ? CropRect.fromJson(json['crop'] as Map<String, dynamic>)
+          : null,
+      focalPoint: json['focal_point'] is Map<String, dynamic>
+          ? FocalPoint.fromJson(json['focal_point'] as Map<String, dynamic>)
+          : null,
+      zoom: (json['zoom'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    if (url != null) 'url': url,
+    if (crop != null) 'crop': crop!.toJson(),
+    if (focalPoint != null) 'focal_point': focalPoint!.toJson(),
+    'zoom': zoom,
+  };
+}
+
+@immutable
+class GradientConfig {
+  final String from;
+  final String to;
+  final int angle;
+  final bool glow;
+
+  const GradientConfig({
+    required this.from,
+    required this.to,
+    this.angle = 135,
+    this.glow = true,
+  });
+
+  factory GradientConfig.fromJson(Map<String, dynamic> json) {
+    return GradientConfig(
+      from: json['from']?.toString() ?? '#A970FF',
+      to: json['to']?.toString() ?? '#1E0836',
+      angle: (json['angle'] as num?)?.toInt() ?? 135,
+      glow: json['glow'] != false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'from': from,
+    'to': to,
+    'angle': angle,
+    'glow': glow,
+  };
+}
+
+@immutable
+class BannerStyleConfig {
+  final int version;
+  final String backgroundType; // 'color' or 'image'
+  final String? backgroundColor;
+  final GradientConfig? gradient;
+  final ImageConfig? image;
+  final double overlayOpacity;
+  final bool showDetail;
+
+  const BannerStyleConfig({
+    this.version = 1,
+    required this.backgroundType,
+    this.backgroundColor,
+    this.gradient,
+    this.image,
+    this.overlayOpacity = 0.35,
+    this.showDetail = true,
+  });
+
+  factory BannerStyleConfig.fromJson(Map<String, dynamic> json) {
+    return BannerStyleConfig(
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      backgroundType: json['background_type']?.toString() ?? 'color',
+      backgroundColor: json['background_color']?.toString(),
+      gradient: json['gradient'] is Map<String, dynamic>
+          ? GradientConfig.fromJson(json['gradient'] as Map<String, dynamic>)
+          : null,
+      image: json['image'] is Map<String, dynamic>
+          ? ImageConfig.fromJson(json['image'] as Map<String, dynamic>)
+          : null,
+      overlayOpacity: (json['overlay_opacity'] as num?)?.toDouble() ?? 0.35,
+      showDetail: json['show_detail'] != false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'version': version,
+    'background_type': backgroundType,
+    if (backgroundColor != null) 'background_color': backgroundColor,
+    if (gradient != null) 'gradient': gradient!.toJson(),
+    if (image != null) 'image': image!.toJson(),
+    'overlay_opacity': overlayOpacity,
+    'show_detail': showDetail,
+  };
+}
+
+@immutable
 class CommunityBanner {
   final String id;
   final String rtId;
@@ -14,6 +175,7 @@ class CommunityBanner {
   final bool isPinned;
   final int priority;
   final int displayOrder;
+  final BannerStyleConfig? styleConfig;
   final DateTime? startDate;
   final DateTime? endDate;
   final DateTime createdAt;
@@ -31,6 +193,7 @@ class CommunityBanner {
     this.isPinned = false,
     this.priority = 0,
     this.displayOrder = 0,
+    this.styleConfig,
     this.startDate,
     this.endDate,
     required this.createdAt,
@@ -38,7 +201,7 @@ class CommunityBanner {
 
   factory CommunityBanner.fromJson(Map<String, dynamic> json) {
     // Backend sends: title, body, image_url, source_type, source_id,
-    // deep_link, start_at, end_at, is_pinned, display_order.
+    // deep_link, start_at, end_at, is_pinned, display_order, style_config.
     // Accept legacy aliases (action_url, start_date, end_date, description)
     // as a fallback for resilience.
     return CommunityBanner(
@@ -54,6 +217,11 @@ class CommunityBanner {
       isPinned: json['is_pinned'] == true,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
       displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
+      styleConfig: json['style_config'] is Map<String, dynamic>
+          ? BannerStyleConfig.fromJson(
+              json['style_config'] as Map<String, dynamic>,
+            )
+          : null,
       startDate: json['start_at'] != null
           ? DateTime.tryParse(json['start_at'].toString())
           : (json['start_date'] != null
@@ -90,6 +258,7 @@ class CommunityActivity {
   final String? picName;
   final String? picPhone;
   final bool showOnBanner;
+  final BannerStyleConfig? styleConfig;
   final String? organizer;
   final String? notes;
   final DateTime createdAt;
@@ -113,6 +282,7 @@ class CommunityActivity {
     this.picName,
     this.picPhone,
     this.showOnBanner = false,
+    this.styleConfig,
     this.organizer,
     this.notes,
     required this.createdAt,
@@ -144,6 +314,11 @@ class CommunityActivity {
       picName: json['pic_name'] as String?,
       picPhone: json['pic_phone'] as String?,
       showOnBanner: json['show_on_banner'] == true,
+      styleConfig: json['style_config'] is Map<String, dynamic>
+          ? BannerStyleConfig.fromJson(
+              json['style_config'] as Map<String, dynamic>,
+            )
+          : null,
       organizer: json['organizer'] as String?,
       notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
@@ -170,6 +345,7 @@ class CommunityAnnouncement {
   final int priority;
   final int displayOrder;
   final String status; // draft, scheduled, active, expired, archived
+  final BannerStyleConfig? styleConfig;
   final DateTime? publishedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -187,6 +363,7 @@ class CommunityAnnouncement {
     required this.priority,
     required this.displayOrder,
     required this.status,
+    this.styleConfig,
     this.publishedAt,
     required this.createdAt,
     required this.updatedAt,
@@ -210,6 +387,11 @@ class CommunityAnnouncement {
       priority: (json['priority'] as num?)?.toInt() ?? 1,
       displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
       status: json['status']?.toString() ?? 'draft',
+      styleConfig: json['style_config'] is Map<String, dynamic>
+          ? BannerStyleConfig.fromJson(
+              json['style_config'] as Map<String, dynamic>,
+            )
+          : null,
       publishedAt: json['published_at'] != null
           ? DateTime.tryParse(json['published_at'].toString())
           : null,

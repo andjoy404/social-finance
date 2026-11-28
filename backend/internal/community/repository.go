@@ -89,7 +89,7 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 	query := fmt.Sprintf(`
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       archived_at, created_by, updated_by, created_at, updated_at
+		       archived_at, style_config, created_by, updated_by, created_at, updated_at
 		FROM activities
 		%s
 		ORDER BY starts_at ASC, created_at DESC
@@ -109,10 +109,11 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		var desc, poster, loc, org, cBy, uBy sql.NullString
 		var endsAt sql.NullTime
 		var archivedAt sql.NullTime
+		var styleConfigBytes []byte
 		if err := rows.Scan(
 			&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 			&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-			&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+			&archivedAt, &styleConfigBytes, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan activity: %w", err)
 		}
@@ -134,6 +135,9 @@ func (r *Repository) ListActivities(ctx context.Context, tx *sql.Tx, rtID, pubSt
 		if archivedAt.Valid {
 			a.ArchivedAt = &archivedAt.Time
 		}
+		if len(styleConfigBytes) > 0 {
+			a.StyleConfig = styleConfigBytes
+		}
 		if cBy.Valid {
 			a.CreatedBy = &cBy.String
 		}
@@ -150,17 +154,18 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	query := `
 		SELECT id, rt_id, title, description, poster_url, starts_at, ends_at,
 		       location, organizer, status, publication_status, show_on_banner,
-		       archived_at, created_by, updated_by, created_at, updated_at
+		       archived_at, style_config, created_by, updated_by, created_at, updated_at
 		FROM activities
 		WHERE rt_id = $1 AND id = $2
 	`
 	var a Activity
 	var desc, poster, loc, org, cBy, uBy sql.NullString
 	var endsAt, archivedAt sql.NullTime
+	var styleConfigBytes []byte
 	err := r.db(tx).QueryRowContext(ctx, query, rtID, id).Scan(
 		&a.ID, &a.RTID, &a.Title, &desc, &poster, &a.StartsAt, &endsAt,
 		&loc, &org, &a.Status, &a.PublicationStatus, &a.ShowOnBanner,
-		&archivedAt, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
+		&archivedAt, &styleConfigBytes, &cBy, &uBy, &a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -186,6 +191,9 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 	if archivedAt.Valid {
 		a.ArchivedAt = &archivedAt.Time
 	}
+	if len(styleConfigBytes) > 0 {
+		a.StyleConfig = styleConfigBytes
+	}
 	if cBy.Valid {
 		a.CreatedBy = &cBy.String
 	}
@@ -196,34 +204,44 @@ func (r *Repository) GetActivityByID(ctx context.Context, tx *sql.Tx, rtID, id s
 }
 
 func (r *Repository) CreateActivity(ctx context.Context, tx *sql.Tx, a *Activity) error {
+	styleJSON := a.StyleConfig
+	if len(styleJSON) == 0 {
+		styleJSON = []byte("{}")
+	}
+
 	query := `
 		INSERT INTO activities (
 			rt_id, title, description, poster_url, starts_at, ends_at,
 			location, organizer, status, publication_status, show_on_banner,
-			archived_at, created_by, updated_by, created_at, updated_at
+			archived_at, style_config, created_by, updated_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		a.RTID, a.Title, a.Description, a.PosterURL, a.StartsAt, a.EndsAt,
 		a.Location, a.Organizer, a.Status, a.PublicationStatus, a.ShowOnBanner,
-		a.ArchivedAt, a.CreatedBy,
+		a.ArchivedAt, styleJSON, a.CreatedBy,
 	).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt)
 }
 
 func (r *Repository) UpdateActivity(ctx context.Context, tx *sql.Tx, a *Activity) error {
+	styleJSON := a.StyleConfig
+	if len(styleJSON) == 0 {
+		styleJSON = []byte("{}")
+	}
+
 	query := `
 		UPDATE activities
 		SET title = $3, description = $4, poster_url = $5, starts_at = $6, ends_at = $7,
-		    location = $8, organizer = $9, show_on_banner = $10, updated_by = $11, updated_at = NOW()
+		    location = $8, organizer = $9, show_on_banner = $10, style_config = $11, updated_by = $12, updated_at = NOW()
 		WHERE rt_id = $1 AND id = $2
 		RETURNING updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		a.RTID, a.ID, a.Title, a.Description, a.PosterURL, a.StartsAt, a.EndsAt,
-		a.Location, a.Organizer, a.ShowOnBanner, a.UpdatedBy,
+		a.Location, a.Organizer, a.ShowOnBanner, styleJSON, a.UpdatedBy,
 	).Scan(&a.UpdatedAt)
 }
 
@@ -354,7 +372,7 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 	query := fmt.Sprintf(`
 		SELECT id, rt_id, title, body, image_url, deep_link, template_id,
 		       scheduled_start, scheduled_end, priority, display_order, status,
-		       published_at, snapshot_content, is_permanent, created_by, updated_by, created_at, updated_at
+		       published_at, snapshot_content, is_permanent, style_config, created_by, updated_by, created_at, updated_at
 		FROM announcements
 		%s
 		ORDER BY priority DESC, created_at DESC
@@ -373,11 +391,11 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 		var an Announcement
 		var img, link, tmplID, cBy, uBy sql.NullString
 		var schedStart, schedEnd, pubAt sql.NullTime
-		var snapshotBytes []byte
+		var snapshotBytes, styleConfigBytes []byte
 		if err := rows.Scan(
 			&an.ID, &an.RTID, &an.Title, &an.Body, &img, &link, &tmplID,
 			&schedStart, &schedEnd, &an.Priority, &an.DisplayOrder, &an.Status,
-			&pubAt, &snapshotBytes, &an.IsPermanent, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
+			&pubAt, &snapshotBytes, &an.IsPermanent, &styleConfigBytes, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan announcement: %w", err)
 		}
@@ -407,6 +425,9 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 		}
 		if len(snapshotBytes) > 0 {
 			an.SnapshotContent = snapshotBytes
+		}
+		if len(styleConfigBytes) > 0 {
+			an.StyleConfig = styleConfigBytes
 		}
 		list = append(list, an)
 	}
@@ -444,18 +465,18 @@ func (r *Repository) GetAnnouncementByID(ctx context.Context, tx *sql.Tx, rtID, 
 	query := `
 		SELECT id, rt_id, title, body, image_url, deep_link, template_id,
 		       scheduled_start, scheduled_end, priority, display_order, status,
-		       published_at, snapshot_content, is_permanent, created_by, updated_by, created_at, updated_at
+		       published_at, snapshot_content, is_permanent, style_config, created_by, updated_by, created_at, updated_at
 		FROM announcements
 		WHERE rt_id = $1 AND id = $2
 	`
 	var an Announcement
 	var img, link, tmplID, cBy, uBy sql.NullString
 	var schedStart, schedEnd, pubAt sql.NullTime
-	var snapshotBytes []byte
+	var snapshotBytes, styleConfigBytes []byte
 	err := r.db(tx).QueryRowContext(ctx, query, rtID, id).Scan(
 		&an.ID, &an.RTID, &an.Title, &an.Body, &img, &link, &tmplID,
 		&schedStart, &schedEnd, &an.Priority, &an.DisplayOrder, &an.Status,
-		&pubAt, &snapshotBytes, &an.IsPermanent, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
+		&pubAt, &snapshotBytes, &an.IsPermanent, &styleConfigBytes, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -490,6 +511,9 @@ func (r *Repository) GetAnnouncementByID(ctx context.Context, tx *sql.Tx, rtID, 
 	if len(snapshotBytes) > 0 {
 		an.SnapshotContent = snapshotBytes
 	}
+	if len(styleConfigBytes) > 0 {
+		an.StyleConfig = styleConfigBytes
+	}
 	return &an, nil
 }
 
@@ -498,36 +522,46 @@ func (r *Repository) CreateAnnouncement(ctx context.Context, tx *sql.Tx, an *Ann
 	if len(snapshotJSON) == 0 {
 		snapshotJSON = []byte("{}")
 	}
+	styleJSON := an.StyleConfig
+	if len(styleJSON) == 0 {
+		styleJSON = []byte("{}")
+	}
 
 	query := `
 		INSERT INTO announcements (
 			rt_id, title, body, image_url, deep_link, template_id,
 			scheduled_start, scheduled_end, priority, display_order, status,
-			published_at, snapshot_content, created_by, updated_by, created_at, updated_at
+			published_at, snapshot_content, is_permanent, style_config, created_by, updated_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		an.RTID, an.Title, an.Body, an.ImageURL, an.DeepLink, an.TemplateID,
 		an.ScheduledStart, an.ScheduledEnd, an.Priority, an.DisplayOrder, an.Status,
-		an.PublishedAt, snapshotJSON, an.CreatedBy,
+		an.PublishedAt, snapshotJSON, an.IsPermanent, styleJSON, an.CreatedBy,
 	).Scan(&an.ID, &an.CreatedAt, &an.UpdatedAt)
 }
 
 func (r *Repository) UpdateAnnouncement(ctx context.Context, tx *sql.Tx, an *Announcement) error {
+	styleJSON := an.StyleConfig
+	if len(styleJSON) == 0 {
+		styleJSON = []byte("{}")
+	}
+
 	query := `
 		UPDATE announcements
 		SET title = $3, body = $4, image_url = $5, deep_link = $6, template_id = $7,
 		    scheduled_start = $8, scheduled_end = $9, priority = $10, display_order = $11,
-		    updated_by = $12, updated_at = NOW()
+		    style_config = $12, updated_by = $13, updated_at = NOW()
 		WHERE rt_id = $1 AND id = $2
 		RETURNING updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		an.RTID, an.ID, an.Title, an.Body, an.ImageURL, an.DeepLink, an.TemplateID,
-		an.ScheduledStart, an.ScheduledEnd, an.Priority, an.DisplayOrder, an.UpdatedBy,
+		an.ScheduledStart, an.ScheduledEnd, an.Priority, an.DisplayOrder,
+		styleJSON, an.UpdatedBy,
 	).Scan(&an.UpdatedAt)
 }
 
@@ -659,7 +693,7 @@ func (r *Repository) ListActiveBanners(ctx context.Context, tx *sql.Tx, rtID str
 		SELECT b.id, b.rt_id, b.source_type, b.source_id, b.template_id, b.title, b.body,
 		       COALESCE(b.image_url, bt.image_url) AS image_url,
 		       b.deep_link, b.start_at, b.end_at, b.priority, b.display_order, b.is_pinned,
-		       b.is_active, b.snapshot_content, b.created_by, b.created_at, b.updated_at
+		       b.is_active, b.snapshot_content, b.style_config, b.created_by, b.created_at, b.updated_at
 		FROM banners b
 		LEFT JOIN banner_templates bt ON bt.id = b.template_id
 		WHERE b.rt_id = $1 AND b.is_active = true
@@ -678,11 +712,11 @@ func (r *Repository) ListActiveBanners(ctx context.Context, tx *sql.Tx, rtID str
 		var b Banner
 		var srcID, tmplID, body, img, link, cBy sql.NullString
 		var startAt, endAt sql.NullTime
-		var snapshotBytes []byte
+		var snapshotBytes, styleConfigBytes []byte
 		if err := rows.Scan(
 			&b.ID, &b.RTID, &b.SourceType, &srcID, &tmplID, &b.Title, &body, &img, &link,
 			&startAt, &endAt, &b.Priority, &b.DisplayOrder, &b.IsPinned, &b.IsActive, &snapshotBytes,
-			&cBy, &b.CreatedAt, &b.UpdatedAt,
+			&styleConfigBytes, &cBy, &b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan banner: %w", err)
 		}
@@ -713,6 +747,9 @@ func (r *Repository) ListActiveBanners(ctx context.Context, tx *sql.Tx, rtID str
 		if len(snapshotBytes) > 0 {
 			b.SnapshotContent = snapshotBytes
 		}
+		if len(styleConfigBytes) > 0 {
+			b.StyleConfig = styleConfigBytes
+		}
 		list = append(list, b)
 	}
 	return list, nil
@@ -723,6 +760,10 @@ func (r *Repository) UpsertBanner(ctx context.Context, tx *sql.Tx, b *Banner) er
 	if len(snapshotJSON) == 0 {
 		snapshotJSON = []byte("{}")
 	}
+	styleJSON := b.StyleConfig
+	if len(styleJSON) == 0 {
+		styleJSON = []byte("{}")
+	}
 
 	// Atomic upsert backed by the partial unique index
 	// banners_one_per_source_idx (migration 069). Re-publishing updates the
@@ -731,9 +772,9 @@ func (r *Repository) UpsertBanner(ctx context.Context, tx *sql.Tx, b *Banner) er
 		INSERT INTO banners (
 			rt_id, source_type, source_id, template_id, title, body, image_url,
 			deep_link, start_at, end_at, priority, display_order, is_pinned, is_active,
-			snapshot_content, created_by, created_at, updated_at
+			snapshot_content, style_config, created_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()
 		)
 		ON CONFLICT (rt_id, source_type, source_id) WHERE source_id IS NOT NULL AND is_active = true DO UPDATE
 		SET template_id = EXCLUDED.template_id, title = EXCLUDED.title, body = EXCLUDED.body,
@@ -742,13 +783,14 @@ func (r *Repository) UpsertBanner(ctx context.Context, tx *sql.Tx, b *Banner) er
 		    priority = EXCLUDED.priority, display_order = EXCLUDED.display_order,
 		    is_pinned = EXCLUDED.is_pinned, is_active = true,
 		    snapshot_content = EXCLUDED.snapshot_content,
+		    style_config = EXCLUDED.style_config,
 		    updated_at = NOW()
 		RETURNING id, created_at, updated_at
 	`
 	return r.db(tx).QueryRowContext(ctx, query,
 		b.RTID, b.SourceType, b.SourceID, b.TemplateID, b.Title, b.Body, b.ImageURL,
 		b.DeepLink, b.StartAt, b.EndAt, b.Priority, b.DisplayOrder, b.IsPinned, b.IsActive,
-		snapshotJSON, b.CreatedBy,
+		snapshotJSON, styleJSON, b.CreatedBy,
 	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
 }
 

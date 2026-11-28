@@ -275,6 +275,19 @@ func (s *Service) CreateActivity(ctx context.Context, rtID, userID string, req C
 		pubStatus = "published"
 	}
 
+	var styleJSON json.RawMessage
+	if req.StyleConfig != nil {
+		normStyle, err := ValidateAndNormalizeStyleConfig(req.StyleConfig)
+		if err != nil {
+			return nil, err
+		}
+		b, err := json.Marshal(normStyle)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal style config: %v", ErrValidation, err)
+		}
+		styleJSON = b
+	}
+
 	a := Activity{
 		RTID:              rtID,
 		Title:             strings.TrimSpace(req.Title),
@@ -287,6 +300,7 @@ func (s *Service) CreateActivity(ctx context.Context, rtID, userID string, req C
 		Status:            "upcoming",
 		PublicationStatus: pubStatus,
 		ShowOnBanner:      req.ShowOnBanner,
+		StyleConfig:       styleJSON,
 		CreatedBy:         &userID,
 	}
 
@@ -364,6 +378,18 @@ func (s *Service) UpdateActivity(ctx context.Context, rtID, id, userID string, r
 	existing.Organizer = req.Organizer
 	existing.ShowOnBanner = req.ShowOnBanner
 	existing.UpdatedBy = &userID
+
+	if req.StyleConfig != nil {
+		normStyle, err := ValidateAndNormalizeStyleConfig(req.StyleConfig)
+		if err != nil {
+			return nil, err
+		}
+		b, err := json.Marshal(normStyle)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal style config: %v", ErrValidation, err)
+		}
+		existing.StyleConfig = b
+	}
 
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
@@ -559,14 +585,15 @@ func (s *Service) UnarchiveActivity(ctx context.Context, rtID, id, userID string
 
 func (s *Service) syncActivityBanner(ctx context.Context, tx *sql.Tx, a *Activity) error {
 	snapshot, _ := json.Marshal(map[string]any{
-		"activity_id": a.ID,
-		"title":       a.Title,
-		"description": a.Description,
-		"starts_at":   a.StartsAt,
-		"ends_at":     a.EndsAt,
-		"location":    a.Location,
-		"organizer":   a.Organizer,
-		"poster_url":  a.PosterURL,
+		"activity_id":  a.ID,
+		"title":        a.Title,
+		"description":  a.Description,
+		"starts_at":    a.StartsAt,
+		"ends_at":      a.EndsAt,
+		"location":     a.Location,
+		"organizer":    a.Organizer,
+		"poster_url":   a.PosterURL,
+		"style_config": a.StyleConfig,
 	})
 
 	link := fmt.Sprintf("/kegiatan/%s", a.ID)
@@ -585,6 +612,7 @@ func (s *Service) syncActivityBanner(ctx context.Context, tx *sql.Tx, a *Activit
 		IsPinned:        false,
 		IsActive:        true,
 		SnapshotContent: snapshot,
+		StyleConfig:     a.StyleConfig,
 		CreatedBy:       a.CreatedBy,
 	}
 	return s.repo.UpsertBanner(ctx, tx, &b)
@@ -704,6 +732,19 @@ func (s *Service) CreateAnnouncement(ctx context.Context, rtID, userID string, r
 		return nil, fmt.Errorf("%w: scheduled_end must be after scheduled_start", ErrValidation)
 	}
 
+	var styleJSON json.RawMessage
+	if req.StyleConfig != nil {
+		normStyle, err := ValidateAndNormalizeStyleConfig(req.StyleConfig)
+		if err != nil {
+			return nil, err
+		}
+		b, err := json.Marshal(normStyle)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal style config: %v", ErrValidation, err)
+		}
+		styleJSON = b
+	}
+
 	priority := req.Priority
 	if priority <= 0 {
 		priority = 1
@@ -723,10 +764,11 @@ func (s *Service) CreateAnnouncement(ctx context.Context, rtID, userID string, r
 			status = "scheduled"
 		}
 		snapshotBytes, _ = json.Marshal(map[string]any{
-			"title":     req.Title,
-			"body":      req.Body,
-			"image_url": req.ImageURL,
-			"deep_link": deepLink,
+			"title":        req.Title,
+			"body":         req.Body,
+			"image_url":    req.ImageURL,
+			"deep_link":    deepLink,
+			"style_config": styleJSON,
 		})
 	}
 
@@ -744,6 +786,7 @@ func (s *Service) CreateAnnouncement(ctx context.Context, rtID, userID string, r
 		Status:          status,
 		PublishedAt:     pubAt,
 		SnapshotContent: snapshotBytes,
+		StyleConfig:     styleJSON,
 		CreatedBy:       &userID,
 	}
 
@@ -833,6 +876,18 @@ func (s *Service) UpdateAnnouncement(ctx context.Context, rtID, id, userID strin
 	existing.DisplayOrder = req.DisplayOrder
 	existing.UpdatedBy = &userID
 
+	if req.StyleConfig != nil {
+		normStyle, err := ValidateAndNormalizeStyleConfig(req.StyleConfig)
+		if err != nil {
+			return nil, err
+		}
+		b, err := json.Marshal(normStyle)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to marshal style config: %v", ErrValidation, err)
+		}
+		existing.StyleConfig = b
+	}
+
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return nil, err
@@ -879,6 +934,7 @@ func (s *Service) PublishAnnouncement(ctx context.Context, rtID, id, userID stri
 		"body":            an.Body,
 		"image_url":       an.ImageURL,
 		"deep_link":       an.DeepLink,
+		"style_config":    an.StyleConfig,
 		"published_at":    time.Now().Format(time.RFC3339),
 	})
 
@@ -1004,6 +1060,7 @@ func (s *Service) syncAnnouncementBanner(ctx context.Context, tx *sql.Tx, an *An
 		IsPinned:        an.Priority >= 10,
 		IsActive:        true,
 		SnapshotContent: an.SnapshotContent,
+		StyleConfig:     an.StyleConfig,
 		CreatedBy:       an.CreatedBy,
 	}
 	return s.repo.UpsertBanner(ctx, tx, &b)

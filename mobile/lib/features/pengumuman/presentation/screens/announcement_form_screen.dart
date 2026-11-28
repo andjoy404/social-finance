@@ -9,10 +9,10 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
-import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/features/dashboard/presentation/widgets/banner_style_editor.dart';
 
 const _allowedDeepLinkPrefixes = [
   '/keuangan',
@@ -46,6 +46,7 @@ class _AnnouncementFormScreenState
   List<BannerTemplate> _templates = [];
   String? _selectedTemplateId;
   String? _imageUrl;
+  BannerStyleConfig? _styleConfig;
   DateTime? _scheduledStart;
   DateTime? _scheduledEnd;
   bool _publishNow = true;
@@ -55,13 +56,53 @@ class _AnnouncementFormScreenState
   bool _isUploadingImage = false;
   String? _error;
 
+  // Initial snapshot for dirty state checking
+  String _initTitle = '';
+  String _initBody = '';
+  String _initDeepLink = '';
+  String _initPriority = '10';
+  String _initDisplayOrder = '0';
+  DateTime? _initScheduledStart;
+  DateTime? _initScheduledEnd;
+  String? _initImageUrl;
+  String? _initTemplateId;
+  String? _initStyleConfigJson;
+
   bool get _isEditing =>
       widget.announcementId != null && widget.announcementId!.isNotEmpty;
+
+  bool get _isDirty {
+    if (_titleCtrl.text != _initTitle) return true;
+    if (_bodyCtrl.text != _initBody) return true;
+    if (_deepLinkCtrl.text != _initDeepLink) return true;
+    if (_priorityCtrl.text != _initPriority) return true;
+    if (_displayOrderCtrl.text != _initDisplayOrder) return true;
+    if (_scheduledStart != _initScheduledStart) return true;
+    if (_scheduledEnd != _initScheduledEnd) return true;
+    if (_imageUrl != _initImageUrl) return true;
+    if (_selectedTemplateId != _initTemplateId) return true;
+    if ((_styleConfig?.toJson().toString()) != _initStyleConfigJson) return true;
+    return false;
+  }
+
+  void _initSnapshot() {
+    _initTitle = _titleCtrl.text;
+    _initBody = _bodyCtrl.text;
+    _initDeepLink = _deepLinkCtrl.text;
+    _initPriority = _priorityCtrl.text;
+    _initDisplayOrder = _displayOrderCtrl.text;
+    _initScheduledStart = _scheduledStart;
+    _initScheduledEnd = _scheduledEnd;
+    _initImageUrl = _imageUrl;
+    _initTemplateId = _selectedTemplateId;
+    _initStyleConfigJson = _styleConfig?.toJson().toString();
+  }
 
   @override
   void initState() {
     super.initState();
     if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      _initSnapshot();
       return;
     }
     _bootstrap();
@@ -92,8 +133,29 @@ class _AnnouncementFormScreenState
           _scheduledEnd = existing.scheduledEnd?.toLocal();
           _imageUrl = existing.imageUrl;
           _selectedTemplateId = existing.templateId;
+          _styleConfig = existing.styleConfig ??
+              (existing.imageUrl != null && existing.imageUrl!.isNotEmpty
+                  ? BannerStyleConfig(
+                      backgroundType: 'image',
+                      image: ImageConfig(url: existing.imageUrl, zoom: 1.0),
+                      showDetail: true,
+                    )
+                  : BannerStyleConfig(
+                      backgroundType: 'color',
+                      backgroundColor: '#A970FF',
+                      gradient: computeNeonGradientConfig('#A970FF'),
+                      showDetail: true,
+                    ));
           _publishNow = false;
+        } else {
+          _styleConfig = BannerStyleConfig(
+            backgroundType: 'color',
+            backgroundColor: '#A970FF',
+            gradient: computeNeonGradientConfig('#A970FF'),
+            showDetail: true,
+          );
         }
+        _initSnapshot();
         _isLoading = false;
       });
     } catch (e) {
@@ -102,6 +164,67 @@ class _AnnouncementFormScreenState
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  Future<bool> _confirmCancel() async {
+    if (!_isDirty) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apakah Anda yakin ingin membatalkan?'),
+        content: const Text('Perubahan yang belum disimpan akan hilang.'),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B7280),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Tetap di Halaman'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Ya, Batalkan'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _handlePop() async {
+    if (_isSaving) return;
+    final canPop = await _confirmCancel();
+    if (canPop && mounted) {
+      Navigator.of(context).pop(false);
     }
   }
 
@@ -233,16 +356,21 @@ class _AnnouncementFormScreenState
       _error = null;
     });
 
+    final effectiveImageUrl = _styleConfig?.backgroundType == 'image'
+        ? _styleConfig?.image?.url ?? _imageUrl
+        : null;
+
     final payload = <String, dynamic>{
       'title': title,
       'body': body,
-      'image_url': _imageUrl,
+      'image_url': effectiveImageUrl,
       'deep_link': deepLink.isEmpty ? null : deepLink,
       'template_id': _selectedTemplateId,
       'scheduled_start': _scheduledStart?.toUtc().toIso8601String(),
       'scheduled_end': _scheduledEnd?.toUtc().toIso8601String(),
       'priority': priority,
       'display_order': displayOrder,
+      'style_config': _styleConfig?.toJson(),
     };
 
     try {
@@ -302,13 +430,23 @@ class _AnnouncementFormScreenState
       ),
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        title: MenuAppBarTitle(
-          title: _isEditing ? 'Ubah Pengumuman' : 'Tambah Pengumuman',
+    return PopScope(
+      canPop: !_isDirty && !_isSaving,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handlePop();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _handlePop,
+          ),
+          title: MenuAppBarTitle(
+            title: _isEditing ? 'Ubah Pengumuman' : 'Tambah Pengumuman',
+          ),
         ),
-      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator.adaptive())
           : ListView(
@@ -442,58 +580,28 @@ class _AnnouncementFormScreenState
                 const SizedBox(height: AppSpacing.base),
 
                 Text(
-                  'Gambar Banner (opsional)',
+                  'Desain & Background Banner',
                   style: theme.textTheme.titleSmall,
                 ),
-                const SizedBox(height: 6),
-                if (_imageUrl != null && _imageUrl!.isNotEmpty) ...[
-                  Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        child: CommunityImage(
-                          imageRef: _imageUrl!,
-                          height: 140,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Material(
-                          color: Colors.white,
-                          shape: const CircleBorder(),
-                          elevation: 1,
-                          child: IconButton(
-                            onPressed: () => setState(() => _imageUrl = null),
-                            icon: const Icon(Icons.delete_outline,
-                                color: Colors.red),
-                            tooltip: 'Hapus gambar',
-                            visualDensity: VisualDensity.compact,
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                OutlinedButton.icon(
-                  onPressed: _isUploadingImage ? null : _pickImage,
-                  icon: _isUploadingImage
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.image_outlined),
-                  label: Text(
-                    _isUploadingImage ? 'Mengunggah...' : 'Pilih Gambar',
-                  ),
+                const SizedBox(height: 8),
+                BannerStyleEditor(
+                  value: _styleConfig,
+                  titlePreview: _titleCtrl.text.isEmpty
+                      ? 'Judul Pengumuman'
+                      : _titleCtrl.text,
+                  bodyPreview: _bodyCtrl.text.isEmpty
+                      ? 'Isi pengumuman...'
+                      : _bodyCtrl.text,
+                  category: 'announcement',
+                  onChanged: (newConfig) {
+                    setState(() {
+                      _styleConfig = newConfig;
+                      if (newConfig.backgroundType == 'image' &&
+                          newConfig.image?.url != null) {
+                        _imageUrl = newConfig.image!.url;
+                      }
+                    });
+                  },
                 ),
                 const SizedBox(height: AppSpacing.base),
 
@@ -513,7 +621,7 @@ class _AnnouncementFormScreenState
                       child: SizedBox(
                         height: 48,
                         child: ElevatedButton(
-                          onPressed: _isSaving ? null : () => context.pop(false),
+                          onPressed: _isSaving ? null : _handlePop,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.danger,
                             foregroundColor: Colors.white,
@@ -550,6 +658,7 @@ class _AnnouncementFormScreenState
                 ),
               ],
             ),
+      ),
     );
   }
 

@@ -1,7 +1,13 @@
-import { useState } from 'react'
-import { CommunityActivity, apiCreateActivity, apiUpdateActivity, apiUploadCommunityImage, getSessionPair } from '@/app/api'
-import { LoadingOutlined, DeleteOutlined } from '@ant-design/icons'
-import { CommunityImage } from '@/components/CommunityImage'
+import { useState, useRef } from 'react'
+import {
+  CommunityActivity,
+  BannerStyleConfig,
+  apiCreateActivity,
+  apiUpdateActivity,
+  getSessionPair,
+} from '@/app/api'
+import { BannerStyleEditor, computeNeonGradient } from '@/components/BannerStyleEditor'
+import { CancelConfirmModal } from '@/components/CancelConfirmModal'
 
 interface ActivityModalProps {
   activity?: CommunityActivity | null
@@ -21,32 +27,52 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
   )
   const [location, setLocation] = useState(activity?.location || '')
   const [organizer, setOrganizer] = useState(activity?.organizer || '')
-  const [posterUrl, setPosterUrl] = useState(activity?.poster_url || '')
+  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(
+    activity?.style_config || {
+      version: 1,
+      background_type: activity?.poster_url ? 'image' : 'color',
+      background_color: '#00F0FF',
+      gradient: computeNeonGradient('#00F0FF'),
+      image: activity?.poster_url
+        ? { url: activity.poster_url, crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1 }
+        : null,
+      show_detail: true,
+    }
+  )
   const [showOnBanner, setShowOnBanner] = useState(activity?.show_on_banner ?? true)
   const [publishNow, setPublishNow] = useState(activity?.publication_status === 'published')
-  const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Ukuran file maksimal 5 MB')
-      return
-    }
-    const session = getSessionPair()
-    if (!session?.accessToken) return
+  const initialSnapshot = useRef({
+    title: activity?.title || '',
+    description: activity?.description || '',
+    startsAt: activity?.starts_at ? new Date(activity.starts_at).toISOString().slice(0, 16) : '',
+    endsAt: activity?.ends_at ? new Date(activity.ends_at).toISOString().slice(0, 16) : '',
+    location: activity?.location || '',
+    organizer: activity?.organizer || '',
+    showOnBanner: activity?.show_on_banner ?? true,
+    publishNow: activity?.publication_status === 'published',
+    styleConfigStr: JSON.stringify(activity?.style_config || null),
+  }).current
 
-    setUploading(true)
-    setError(null)
-    try {
-      const res = await apiUploadCommunityImage(session.accessToken, file, 'activity')
-      setPosterUrl(res.image_url)
-    } catch (err: any) {
-      setError(err?.message || 'Gagal mengunggah poster')
-    } finally {
-      setUploading(false)
+  const isDirty =
+    title !== initialSnapshot.title ||
+    description !== initialSnapshot.description ||
+    startsAt !== initialSnapshot.startsAt ||
+    endsAt !== initialSnapshot.endsAt ||
+    location !== initialSnapshot.location ||
+    organizer !== initialSnapshot.organizer ||
+    showOnBanner !== initialSnapshot.showOnBanner ||
+    publishNow !== initialSnapshot.publishNow ||
+    JSON.stringify(styleConfig || null) !== initialSnapshot.styleConfigStr
+
+  const handleRequestClose = () => {
+    if (isDirty) {
+      setShowCancelConfirm(true)
+    } else {
+      onClose()
     }
   }
 
@@ -64,15 +90,21 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
     setError(null)
 
     try {
+      const finalPoster =
+        styleConfig?.background_type === 'image' && styleConfig.image?.url
+          ? styleConfig.image.url
+          : null
+
       const payload: any = {
         title: title.trim(),
         description: description.trim() || null,
-        poster_url: posterUrl || null,
+        poster_url: finalPoster,
         starts_at: new Date(startsAt).toISOString(),
         ends_at: endsAt ? new Date(endsAt).toISOString() : null,
         location: location.trim() || null,
         organizer: organizer.trim() || null,
         show_on_banner: showOnBanner,
+        style_config: styleConfig,
       }
 
       if (isEditing) {
@@ -92,6 +124,9 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
 
   return (
     <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleRequestClose()
+      }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -125,7 +160,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleRequestClose}
             style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
           >
             ×
@@ -282,56 +317,16 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
             </div>
           </div>
 
-          {/* Poster Image Upload */}
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-              Poster Kegiatan (Gambar)
-            </label>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input
-                type="file"
-                className="sf-form-file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleImageUpload}
-                disabled={uploading}
-                style={{ fontSize: 13 }}
-              />
-              {uploading && <LoadingOutlined style={{ color: 'var(--sf-accent)' }} />}
-            </div>
-            {posterUrl && (
-              <div style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}>
-                <CommunityImage
-                  src={posterUrl}
-                  alt="Poster preview"
-                  style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover', display: 'block' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setPosterUrl('')}
-                  aria-label="Hapus gambar"
-                  title="Hapus gambar"
-                  style={{
-                    position: 'absolute',
-                    top: 6,
-                    right: 6,
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    border: '1px solid var(--sf-border)',
-                    background: 'var(--sf-surface)',
-                    color: 'var(--sf-danger)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <DeleteOutlined />
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Banner & Poster Style Editor */}
+          <BannerStyleEditor
+            value={styleConfig}
+            onChange={(cfg) => {
+              setStyleConfig(cfg)
+            }}
+            titlePreview={title}
+            bodyPreview={description}
+            category="activity"
+          />
 
           {/* Options: show on banner & publish now */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
@@ -361,7 +356,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
             <button
               type="button"
               className="sf-btn sf-btn-outline"
-              onClick={onClose}
+              onClick={handleRequestClose}
               disabled={saving}
             >
               Batal
@@ -369,13 +364,22 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
             <button
               type="submit"
               className="sf-btn sf-btn-primary"
-              disabled={saving || uploading}
+              disabled={saving}
             >
               {saving ? 'Menyimpan...' : isEditing ? 'Simpan Perubahan' : 'Tambah Kegiatan'}
             </button>
           </div>
         </form>
       </div>
+
+      <CancelConfirmModal
+        open={showCancelConfirm}
+        onStay={() => setShowCancelConfirm(false)}
+        onConfirmCancel={() => {
+          setShowCancelConfirm(false)
+          onClose()
+        }}
+      />
     </div>
   )
 }

@@ -1,14 +1,14 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   CommunityAnnouncement,
   BannerTemplate,
+  BannerStyleConfig,
   apiCreateAnnouncement,
   apiUpdateAnnouncement,
-  apiUploadCommunityImage,
   getSessionPair,
 } from '@/app/api'
-import { LoadingOutlined, DeleteOutlined } from '@ant-design/icons'
-import { CommunityImage } from '@/components/CommunityImage'
+import { BannerStyleEditor, computeNeonGradient } from '@/components/BannerStyleEditor'
+import { CancelConfirmModal } from '@/components/CancelConfirmModal'
 
 interface AnnouncementModalProps {
   announcement?: CommunityAnnouncement | null
@@ -35,7 +35,18 @@ export function AnnouncementModal({
   const [body, setBody] = useState(
     announcement?.body || initialTemplate?.body_template || ''
   )
-  const [imageUrl, setImageUrl] = useState(announcement?.image_url || initialTemplate?.image_url || '')
+  const [styleConfig, setStyleConfig] = useState<BannerStyleConfig | null>(
+    announcement?.style_config || {
+      version: 1,
+      background_type: announcement?.image_url ? 'image' : 'color',
+      background_color: '#A970FF',
+      gradient: computeNeonGradient('#A970FF'),
+      image: announcement?.image_url
+        ? { url: announcement.image_url, crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1 }
+        : null,
+      show_detail: true,
+    }
+  )
   const [deepLink, setDeepLink] = useState(announcement?.deep_link || '')
   const [priority, setPriority] = useState(announcement?.priority ?? initialTemplate?.default_priority ?? 10)
   const [displayOrder, setDisplayOrder] = useState(announcement?.display_order ?? 0)
@@ -46,9 +57,42 @@ export function AnnouncementModal({
     announcement?.scheduled_end ? new Date(announcement.scheduled_end).toISOString().slice(0, 16) : ''
   )
   const [publishNow, setPublishNow] = useState(announcement?.status === 'active')
-  const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+
+  const initialSnapshot = useRef({
+    selectedTemplateId: announcement?.template_id || initialTemplate?.id || '',
+    title: announcement?.title || initialTemplate?.title_template || '',
+    body: announcement?.body || initialTemplate?.body_template || '',
+    deepLink: announcement?.deep_link || '',
+    priority: announcement?.priority ?? initialTemplate?.default_priority ?? 10,
+    displayOrder: announcement?.display_order ?? 0,
+    scheduledStart: announcement?.scheduled_start ? new Date(announcement.scheduled_start).toISOString().slice(0, 16) : '',
+    scheduledEnd: announcement?.scheduled_end ? new Date(announcement.scheduled_end).toISOString().slice(0, 16) : '',
+    publishNow: announcement?.status === 'active',
+    styleConfigStr: JSON.stringify(announcement?.style_config || null),
+  }).current
+
+  const isDirty =
+    selectedTemplateId !== initialSnapshot.selectedTemplateId ||
+    title !== initialSnapshot.title ||
+    body !== initialSnapshot.body ||
+    deepLink !== initialSnapshot.deepLink ||
+    priority !== initialSnapshot.priority ||
+    displayOrder !== initialSnapshot.displayOrder ||
+    scheduledStart !== initialSnapshot.scheduledStart ||
+    scheduledEnd !== initialSnapshot.scheduledEnd ||
+    publishNow !== initialSnapshot.publishNow ||
+    JSON.stringify(styleConfig || null) !== initialSnapshot.styleConfigStr
+
+  const handleRequestClose = () => {
+    if (isDirty) {
+      setShowCancelConfirm(true)
+    } else {
+      onClose()
+    }
+  }
 
   const handleTemplateChange = (tmplId: string) => {
     setSelectedTemplateId(tmplId)
@@ -56,30 +100,15 @@ export function AnnouncementModal({
     if (tmpl) {
       if (!title || title === initialTemplate?.title_template) setTitle(tmpl.title_template)
       if (!body || body === initialTemplate?.body_template) setBody(tmpl.body_template)
-      if (tmpl.image_url && !imageUrl) setImageUrl(tmpl.image_url)
+      if (tmpl.image_url) {
+        setStyleConfig({
+          version: 1,
+          background_type: 'image',
+          image: { url: tmpl.image_url, crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1 },
+          show_detail: styleConfig?.show_detail !== false,
+        })
+      }
       setPriority(tmpl.default_priority)
-    }
-  }
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Ukuran file maksimal 5 MB')
-      return
-    }
-    const session = getSessionPair()
-    if (!session?.accessToken) return
-
-    setUploading(true)
-    setError(null)
-    try {
-      const res = await apiUploadCommunityImage(session.accessToken, file, 'announcement')
-      setImageUrl(res.image_url)
-    } catch (err: any) {
-      setError(err?.message || 'Gagal mengunggah gambar')
-    } finally {
-      setUploading(false)
     }
   }
 
@@ -116,16 +145,22 @@ export function AnnouncementModal({
     setError(null)
 
     try {
+      const finalImage =
+        styleConfig?.background_type === 'image' && styleConfig.image?.url
+          ? styleConfig.image.url
+          : null
+
       const payload: any = {
         title: title.trim(),
         body: body.trim(),
-        image_url: imageUrl || null,
+        image_url: finalImage,
         deep_link: deepLink.trim() || null,
         template_id: selectedTemplateId || null,
         scheduled_start: scheduledStart ? new Date(scheduledStart).toISOString() : null,
         scheduled_end: scheduledEnd ? new Date(scheduledEnd).toISOString() : null,
         priority: Number(priority),
         display_order: Number(displayOrder),
+        style_config: styleConfig,
       }
 
       if (isEditing) {
@@ -145,6 +180,9 @@ export function AnnouncementModal({
 
   return (
     <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleRequestClose()
+      }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -178,7 +216,7 @@ export function AnnouncementModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleRequestClose}
             style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
           >
             ×
@@ -408,56 +446,16 @@ export function AnnouncementModal({
             </div>
           </div>
 
-          {/* Banner Image Upload */}
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-              Gambar Banner (Opsional)
-            </label>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input
-                type="file"
-                className="sf-form-file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleImageUpload}
-                disabled={uploading}
-                style={{ fontSize: 13 }}
-              />
-              {uploading && <LoadingOutlined style={{ color: 'var(--sf-accent)' }} />}
-            </div>
-            {imageUrl && (
-              <div style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}>
-                <CommunityImage
-                  src={imageUrl}
-                  alt="Banner preview"
-                  style={{ maxHeight: 100, borderRadius: 6, objectFit: 'cover', display: 'block' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setImageUrl('')}
-                  aria-label="Hapus gambar"
-                  title="Hapus gambar"
-                  style={{
-                    position: 'absolute',
-                    top: 6,
-                    right: 6,
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    border: '1px solid var(--sf-border)',
-                    background: 'var(--sf-surface)',
-                    color: 'var(--sf-danger)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <DeleteOutlined />
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Banner Style Editor (Color Neon Glow or 16:9 Image Crop) */}
+          <BannerStyleEditor
+            value={styleConfig}
+            onChange={(cfg) => {
+              setStyleConfig(cfg)
+            }}
+            titlePreview={title}
+            bodyPreview={body}
+            category="announcement"
+          />
 
           {isEditing && announcement?.status === 'active' && (
             <div
@@ -491,7 +489,7 @@ export function AnnouncementModal({
             <button
               type="button"
               className="sf-btn sf-btn-outline"
-              onClick={onClose}
+              onClick={handleRequestClose}
               disabled={saving}
             >
               Batal
@@ -499,13 +497,22 @@ export function AnnouncementModal({
             <button
               type="submit"
               className="sf-btn sf-btn-primary"
-              disabled={saving || uploading}
+              disabled={saving}
             >
               {saving ? 'Menyimpan...' : isEditing ? 'Simpan Perubahan' : 'Tambah Pengumuman'}
             </button>
           </div>
         </form>
       </div>
+
+      <CancelConfirmModal
+        open={showCancelConfirm}
+        onStay={() => setShowCancelConfirm(false)}
+        onConfirmCancel={() => {
+          setShowCancelConfirm(false)
+          onClose()
+        }}
+      />
     </div>
   )
 }

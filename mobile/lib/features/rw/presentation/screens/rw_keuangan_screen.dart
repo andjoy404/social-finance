@@ -6,6 +6,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/rw/data/rw_providers.dart';
 
 import 'rw_dashboard_screen.dart';
 import 'rw_fund_location_screen.dart';
@@ -39,17 +40,59 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
       vsync: this,
       initialIndex: 0,
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.rwId.isNotEmpty) {
+        ref.invalidate(rwUnreadCountProvider(widget.rwId));
+      }
+    });
   }
 
   @override
   void didUpdateWidget(covariant RwKeuanganScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.rwId != widget.rwId && widget.rwId.isNotEmpty) {
+      ref.invalidate(rwUnreadCountProvider(widget.rwId));
+    }
     if (oldWidget.initialTab != widget.initialTab) {
       final validIndex = widget.initialTab.clamp(0, _tabController!.length - 1);
       if (_tabController!.index != validIndex) {
         _tabController!.index = validIndex;
       }
     }
+  }
+
+  Widget _buildTabIcon(
+    IconData icon, {
+    required bool showBadge,
+    required Key badgeKey,
+    required Color borderColor,
+  }) {
+    if (!showBadge) {
+      return Icon(icon, size: 20);
+    }
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon, size: 20),
+        Positioned(
+          top: -2,
+          right: -4,
+          child: Container(
+            key: badgeKey,
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.danger,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: borderColor,
+                width: 1.5,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -126,6 +169,16 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
       );
     }
 
+    final isRwBadgeEligible = isRwUnreadBadgeEligible(
+      user,
+      rwMemberships: rwMemberships,
+      rwId: widget.rwId,
+    );
+    final rwUnreadState = (isRwBadgeEligible && widget.rwId.isNotEmpty)
+        ? ref.watch(rwTabUnreadStateProvider(widget.rwId))
+        : const RwTabUnreadState();
+    final dotBorderColor = Theme.of(context).scaffoldBackgroundColor;
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: true,
@@ -137,23 +190,45 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
           indicatorColor: AppColors.accent,
           indicatorWeight: 3,
           tabs: [
-            const Tab(
-              icon: Icon(Icons.dashboard_outlined, size: 20),
+            Tab(
+              icon: _buildTabIcon(
+                Icons.dashboard_outlined,
+                showBadge: isRwBadgeEligible && rwUnreadState.hasBerandaUnread,
+                badgeKey: const Key('rw-tab-beranda-unread-dot'),
+                borderColor: dotBorderColor,
+              ),
               text: 'BERANDA',
             ),
             if (showKas)
-              const Tab(
-                icon: Icon(Icons.account_balance_wallet_outlined, size: 20),
+              Tab(
+                icon: _buildTabIcon(
+                  Icons.account_balance_wallet_outlined,
+                  showBadge: isRwBadgeEligible && rwUnreadState.hasKasUnread,
+                  badgeKey: const Key('rw-tab-kas-unread-dot'),
+                  borderColor: dotBorderColor,
+                ),
                 text: 'KAS',
               ),
             if (showLokasiDana)
-              const Tab(
-                icon: Icon(Icons.account_balance_outlined, size: 20),
+              Tab(
+                icon: _buildTabIcon(
+                  Icons.account_balance_outlined,
+                  showBadge:
+                      isRwBadgeEligible && rwUnreadState.hasLokasiDanaUnread,
+                  badgeKey: const Key('rw-tab-lokasi-dana-unread-dot'),
+                  borderColor: dotBorderColor,
+                ),
                 text: 'LOKASI DANA',
               ),
             if (showNotifikasi)
-              const Tab(
-                icon: Icon(Icons.notifications_outlined, size: 20),
+              Tab(
+                icon: _buildTabIcon(
+                  Icons.notifications_outlined,
+                  showBadge:
+                      isRwBadgeEligible && rwUnreadState.hasNotifikasiUnread,
+                  badgeKey: const Key('rw-tab-notifikasi-unread-dot'),
+                  borderColor: dotBorderColor,
+                ),
                 text: 'NOTIFIKASI',
               ),
           ],

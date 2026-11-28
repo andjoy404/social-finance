@@ -22,6 +22,7 @@ import 'package:social_finance/core/widgets/error_state.dart';
 import 'package:social_finance/core/widgets/loading_indicator.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/rw/data/rw_providers.dart';
 import '../../data/models/notification_models.dart';
 import '../../data/notification_repository.dart';
 import '../../data/notification_severity.dart';
@@ -275,6 +276,10 @@ class _NotificationManagementScreenState
       final repo = ref.read(notificationRepositoryProvider);
       await repo.markAllAsRead();
       ref.read(notificationUnreadCountProvider.notifier).clear();
+      invalidateUserRwUnreadCounts(
+        ref,
+        ref.read(authRepositoryProvider)?.valueOrNull,
+      );
       if (mounted) {
         setState(() {
           _logs = _logs
@@ -329,6 +334,12 @@ class _NotificationManagementScreenState
           });
           await _loadLogs(category: _historyCategory);
           await ref.read(notificationUnreadCountProvider.notifier).refresh();
+          if (mounted) {
+            invalidateUserRwUnreadCounts(
+              ref,
+              ref.read(authRepositoryProvider)?.valueOrNull,
+            );
+          }
         } catch (_) {
           // Jika request markAsRead gagal, jangan menampilkan status read permanen secara palsu
         }
@@ -1733,30 +1744,62 @@ class _NotificationManagementScreenState
           Column(
             children: [
               TabBar(
+                key: const Key('notifHistorySubTabBar'),
                 controller: _historyTabController,
                 onTap: _loadHistoryForTab,
                 tabAlignment: TabAlignment.fill,
                 labelPadding: EdgeInsets.zero,
-                labelStyle: const TextStyle(fontSize: 11),
+                labelStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
                 labelColor: AppColors.accent,
                 unselectedLabelColor: isDark
                     ? AppColors.darkTextMuted
                     : AppColors.lightTextMuted,
                 indicatorColor: AppColors.accent,
+                indicatorWeight: 3,
                 tabs: systemTypesAsync.when(
                   data: (types) => [
-                    Tab(text: 'SISTEM (${types.length})'),
-                    Tab(text: 'RIWAYAT SAYA'),
+                    Tab(
+                      icon: const Icon(Icons.apps_rounded, size: 18),
+                      text: 'SISTEM (${types.length})',
+                    ),
+                    const Tab(
+                      icon: Icon(Icons.history_outlined, size: 18),
+                      text: 'RIWAYAT SAYA',
+                    ),
                   ],
                   loading: () => const [
-                    Tab(text: 'SISTEM'),
-                    Tab(text: 'RIWAYAT SAYA'),
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 18),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.history_outlined, size: 18),
+                      text: 'RIWAYAT SAYA',
+                    ),
                   ],
                   error: (_, _) => const [
-                    Tab(text: 'SISTEM'),
-                    Tab(text: 'RIWAYAT SAYA'),
+                    Tab(
+                      icon: Icon(Icons.apps_rounded, size: 18),
+                      text: 'SISTEM',
+                    ),
+                    Tab(
+                      icon: Icon(Icons.history_outlined, size: 18),
+                      text: 'RIWAYAT SAYA',
+                    ),
                   ],
                 ),
+              ),
+              Divider(
+                height: 1,
+                thickness: 1,
+                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
               ),
               Expanded(
                 child: TabBarView(

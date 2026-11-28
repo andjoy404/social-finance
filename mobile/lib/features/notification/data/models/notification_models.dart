@@ -710,6 +710,15 @@ bool isKetuaRTUser(Map<String, dynamic>? user) {
   return jabatan == 'ketua' || jabatan == 'ketua_rt' || jabatan == 'ketua rt';
 }
 
+bool isHumasUser(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+  return jabatan == 'humas' ||
+      jabatan == 'humas_rt' ||
+      jabatan == 'seksi_humas' ||
+      jabatan == 'seksi_humas_rt';
+}
+
 bool isPengurusUser(Map<String, dynamic>? user) {
   if (user == null) return false;
   final role = user['role'];

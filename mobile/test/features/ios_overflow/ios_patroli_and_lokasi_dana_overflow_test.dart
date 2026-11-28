@@ -209,7 +209,9 @@ void main() {
                     ),
                     child: child!,
                   ),
-                  home: const SecurityManagementScreen(initialTopTabIndex: 3),
+                  home: const SecurityManagementScreen(
+                    mode: SecurityManagementMode.managePatrol,
+                  ),
                 ),
               ),
             );

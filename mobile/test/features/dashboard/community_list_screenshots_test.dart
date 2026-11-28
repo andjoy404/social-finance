@@ -505,8 +505,10 @@ void main() {
       await tester.tap(find.byTooltip('Ubah').first);
       await tester.pumpAndSettle();
       expect(find.text('Ubah Kegiatan'), findsOneWidget);
-      expect(find.byType(CommunityImage), findsOneWidget);
-      await tester.tap(find.text('Batal'));
+      expect(find.byType(CommunityImage), findsWidgets);
+      final batalBtn = find.widgetWithText(ElevatedButton, 'Batal');
+      await tester.ensureVisible(batalBtn);
+      await tester.tap(batalBtn);
       await tester.pumpAndSettle();
 
       // Tapping Hapus on draft item opens delete confirmation dialog
@@ -553,11 +555,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Penting'), findsOneWidget);
-      expect(find.text('/kegiatan'), findsOneWidget);
-      expect(find.text('/iuran'), findsOneWidget);
-      expect(find.text('Prioritas: 10'), findsOneWidget);
-      expect(find.text('Prioritas: 5'), findsOneWidget);
-      expect(find.text('Prioritas: 8'), findsOneWidget);
+      expect(find.text('Kegiatan'), findsOneWidget);
+      expect(find.text('Iuran'), findsOneWidget);
     },
   );
 }

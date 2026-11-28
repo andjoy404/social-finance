@@ -7,7 +7,6 @@ import { Badge } from '@/components/Badge'
 import {
   HomeOutlined,
   CalendarOutlined,
-  NotificationOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
   IdcardOutlined,
@@ -186,13 +185,13 @@ export function Dashboard() {
         }
       />
 
-      {/* Active Banners Carousel / Grid */}
+      {/* Active Banners Carousel / Grid (Responsive 16:9 Aspect Ratio) */}
       {banners.length > 0 && (
         <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 12 }}>
           {banners.map((banner, idx) => {
             if (idx !== activeBannerIdx && banners.length > 1) return null
             const isIuranReminder = banner.source_type === 'iuran_reminder'
-            const bannerLabel = banner.source_type === 'iuran_reminder'
+            const bannerLabel = isIuranReminder
               ? 'Pengingat Iuran'
               : banner.source_type === 'activity'
                 ? 'Kegiatan'
@@ -200,102 +199,243 @@ export function Dashboard() {
                   ? 'Pengumuman'
                   : 'Pengumuman RT'
             const bannerAlt = banner.source_type === 'activity' ? 'Banner kegiatan' : 'Banner pengumuman'
+
+            const styleCfg = banner.style_config
+            const isColorBg = !isIuranReminder && styleCfg?.background_type === 'color'
+            const isImageBg = !isIuranReminder && (styleCfg?.background_type === 'image' || (!styleCfg && !!banner.image_url))
+            const customColor = styleCfg?.background_color || '#A970FF'
+            const showDetail = styleCfg?.show_detail !== false
+
+            // Mathematical 16:9 crop calculations
+            const crop = styleCfg?.image?.crop
+            const imgUrl = styleCfg?.image?.url || banner.image_url
+            const overlayOpacity = styleCfg?.overlay_opacity ?? 0.35
+
             return (
               <div
                 key={banner.id}
                 onClick={() => handleBannerClick(banner)}
                 role={banner.deep_link ? 'link' : undefined}
                 style={{
-                  background: isIuranReminder
-                    ? 'linear-gradient(135deg, rgba(235, 94, 40, 0.15) 0%, rgba(200, 70, 30, 0.25) 100%)'
-                    : 'linear-gradient(135deg, rgba(169, 112, 255, 0.12) 0%, rgba(87, 148, 242, 0.2) 100%)',
+                  position: 'relative',
+                  width: '100%',
+                  aspectRatio: '16 / 9',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  cursor: banner.deep_link ? 'pointer' : 'default',
+                  boxSizing: 'border-box',
                   border: isIuranReminder
                     ? '1px solid rgba(235, 94, 40, 0.4)'
-                    : '1px solid rgba(169, 112, 255, 0.35)',
-                  borderRadius: 12,
-                  padding: '24px 28px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 16,
-                  cursor: banner.deep_link ? 'pointer' : 'default',
+                    : isColorBg
+                      ? `1px solid ${customColor}60`
+                      : '1px solid rgba(255, 255, 255, 0.15)',
+                  boxShadow: isColorBg
+                    ? `0 6px 24px -2px ${customColor}35, 0 0 16px ${customColor}20`
+                    : isIuranReminder
+                      ? '0 6px 20px -2px rgba(235, 94, 40, 0.25)'
+                      : '0 6px 24px rgba(0, 0, 0, 0.4)',
                   transition: 'all 0.3s ease',
-                  minHeight: 110,
-                  boxSizing: 'border-box',
-                  overflow: 'hidden',
                 }}
               >
-                {banner.image_url && (
-                  <div style={{ flex: '0 0 auto', width: 120, height: 80, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.18)', background: 'var(--sf-surface-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <CommunityImage
-                      src={banner.image_url}
-                      alt={bannerAlt}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                  </div>
-                )}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, flex: 1, minWidth: 0, justifyContent: 'flex-start' }}>
+                {/* 1. Background Layers */}
+                {isIuranReminder ? (
                   <div
                     style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 10,
-                      background: isIuranReminder ? 'var(--sf-danger)' : 'var(--sf-accent)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      fontSize: 22,
-                      flexShrink: 0,
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'linear-gradient(135deg, rgba(235, 94, 40, 0.25) 0%, rgba(200, 70, 30, 0.4) 100%)',
+                    }}
+                  />
+                ) : isColorBg ? (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      backgroundColor: '#0C0916',
+                      overflow: 'hidden',
                     }}
                   >
-                    {isIuranReminder ? <AlertOutlined /> : <NotificationOutlined />}
+                    {/* Layer 1: Soft diagonal ambient color wash */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: `linear-gradient(${styleCfg?.gradient?.angle || 135}deg, ${customColor}28 0%, rgba(12, 9, 22, 0.95) 75%)`,
+                      }}
+                    />
+                    {/* Layer 2: Primary broad diffused neon bloom at top-right */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: `radial-gradient(circle at 75% 25%, ${customColor}99 0%, ${customColor}33 35%, transparent 70%)`,
+                      }}
+                    />
+                    {/* Layer 3: Secondary subtle accent/reflection at bottom-left */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: `radial-gradient(circle at 15% 85%, ${customColor}38 0%, transparent 55%)`,
+                      }}
+                    />
+                    {/* Layer 4: Content contrast scrim */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.2) 40%, transparent 100%)',
+                      }}
+                    />
                   </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                ) : isImageBg && imgUrl ? (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'linear-gradient(135deg, #2A124D 0%, #130924 100%)',
+                    }}
+                  >
+                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                      {crop ? (
+                        <CommunityImage
+                          src={imgUrl}
+                          alt={bannerAlt}
+                          style={{
+                            position: 'absolute',
+                            width: `${(1 / (crop.width || 1)) * 100}%`,
+                            height: `${(1 / (crop.height || 1)) * 100}%`,
+                            left: `${-((crop.x || 0) / (crop.width || 1)) * 100}%`,
+                            top: `${-((crop.y || 0) / (crop.height || 1)) * 100}%`,
+                            maxWidth: 'none',
+                            maxHeight: 'none',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : (
+                        <CommunityImage
+                          src={imgUrl}
+                          alt={bannerAlt}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      )}
+                    </div>
+                    {/* Soft dark gradient overlay for text readability */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: `linear-gradient(to top, rgba(0, 0, 0, ${overlayOpacity}) 0%, rgba(0, 0, 0, ${overlayOpacity * 0.4}) 50%, rgba(0, 0, 0, 0) 100%)`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  /* Legacy Fallback without image */
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'linear-gradient(135deg, rgba(169, 112, 255, 0.25) 0%, rgba(87, 148, 242, 0.35) 100%)',
+                    }}
+                  />
+                )}
+
+                {/* 2. Banner Foreground Content */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    padding: '18px 24px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    zIndex: 2,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  {/* Top Bar: Badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
                           textTransform: 'uppercase',
                           letterSpacing: 0.5,
-                          padding: '2px 8px',
+                          padding: '3px 8px',
                           borderRadius: 4,
-                          background: isIuranReminder ? 'rgba(235, 94, 40, 0.2)' : 'rgba(169, 112, 255, 0.2)',
-                          color: isIuranReminder ? 'var(--sf-danger)' : 'var(--sf-accent)',
+                          background: isIuranReminder ? 'rgba(235, 94, 40, 0.3)' : 'rgba(0, 0, 0, 0.4)',
+                          color: '#fff',
+                          backdropFilter: 'blur(4px)',
+                          border: isIuranReminder ? '1px solid rgba(235, 94, 40, 0.5)' : '1px solid rgba(255, 255, 255, 0.2)',
                         }}
                       >
                         {bannerLabel}
                       </span>
                       {banner.is_pinned && <Badge variant="amber">PENTING</Badge>}
                     </div>
-                    <h3 style={{ margin: '0 0 6px 0', fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
+
+                    {banner.deep_link && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          background: 'rgba(0, 0, 0, 0.35)',
+                          color: '#fff',
+                          backdropFilter: 'blur(4px)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                        }}
+                      >
+                        <span>{isIuranReminder ? 'Buka Keuangan' : 'Lihat Detail'}</span>
+                        <RightOutlined style={{ fontSize: 10 }} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Content Area: Title & optional Detail */}
+                  <div style={{ marginTop: 'auto' }}>
+                    <h3
+                      style={{
+                        margin: '0 0 4px 0',
+                        fontSize: 20,
+                        fontWeight: 700,
+                        color: '#fff',
+                        textShadow: '0 2px 4px rgba(0,0,0,0.85)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
                       {banner.title}
                     </h3>
-                    {banner.body && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--sf-text-muted)', lineHeight: 1.5 }}>
+                    {showDetail && banner.body && (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 13,
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          lineHeight: 1.45,
+                          textShadow: '0 1px 3px rgba(0,0,0,0.85)',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
                         {banner.body}
                       </p>
                     )}
                   </div>
                 </div>
-
-                {banner.deep_link && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: isIuranReminder ? 'var(--sf-danger)' : 'var(--sf-accent)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <span>{isIuranReminder ? 'Buka Keuangan' : 'Lihat Detail'}</span>
-                    <RightOutlined style={{ fontSize: 11 }} />
-                  </div>
-                )}
               </div>
             )
           })}

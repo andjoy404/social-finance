@@ -104,7 +104,9 @@ void main() {
                 securityApiClientProvider.overrideWithValue(mockApi),
               ],
               child: const MaterialApp(
-                home: SecurityManagementScreen(initialTopTabIndex: 3),
+                home: SecurityManagementScreen(
+                  mode: SecurityManagementMode.managePatrol,
+                ),
               ),
             ),
           );

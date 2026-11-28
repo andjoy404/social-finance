@@ -16,6 +16,7 @@ import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 
 import 'correction_detail_screen.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/notification/data/models/notification_models.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
 import 'package:social_finance/core/widgets/accent_action_fab.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -28,7 +29,15 @@ import '../widgets/guest_visit_status_badge.dart';
 import '../widgets/security_photo_viewer.dart';
 import '../widgets/paket_detail_content.dart';
 
-enum SecurityManagementMode { full, officerPatrol, officerPaket }
+enum SecurityManagementMode {
+  full,
+  officerPatrol,
+  officerPaket,
+  managePatrol,
+  managePaket,
+}
+
+enum _SecurityTopTab { kelola, absensi, perangkat, patroli, paket }
 
 class SecurityManagementScreen extends ConsumerStatefulWidget {
   final int? initialTopTabIndex;
@@ -65,7 +74,8 @@ class _PaketItemDraft {
 class _SecurityManagementScreenState
     extends ConsumerState<SecurityManagementScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  late final TabController _topTabs;
+  late TabController _topTabs;
+  late List<_SecurityTopTab> _visibleTopTabs;
   late final TabController _kelolaTabs;
   late final TabController _absensiTabs;
   late final TabController _patroliTabs;
@@ -108,6 +118,86 @@ class _SecurityManagementScreenState
 
   Map<String, dynamic>? get _user =>
       ref.read(authRepositoryProvider)?.valueOrNull;
+  bool get _isHumas => isHumasUser(_user);
+  bool get _isKetuaRt => isKetuaRTUser(_user);
+  bool get _useSimplifiedPaketList =>
+      widget.mode == SecurityManagementMode.managePaket || _isKetuaRt;
+
+  List<_SecurityTopTab> _computeVisibleTopTabs(Map<String, dynamic>? user) {
+    if (isHumasUser(user)) {
+      // Humas: Patroli is in Main Menu PATROLI; Paket is strictly hidden.
+      return const [
+        _SecurityTopTab.kelola,
+        _SecurityTopTab.absensi,
+        _SecurityTopTab.perangkat,
+      ];
+    }
+    if (isKetuaRTUser(user)) {
+      // Ketua RT: Patroli moved to Main Menu PATROLI.
+      return const [
+        _SecurityTopTab.kelola,
+        _SecurityTopTab.absensi,
+        _SecurityTopTab.perangkat,
+        _SecurityTopTab.paket,
+      ];
+    }
+    return const [
+      _SecurityTopTab.kelola,
+      _SecurityTopTab.absensi,
+      _SecurityTopTab.perangkat,
+      _SecurityTopTab.patroli,
+      _SecurityTopTab.paket,
+    ];
+  }
+
+  _SecurityTopTab get _activeTopTab =>
+      _visibleTopTabs[_topTabs.index.clamp(0, _visibleTopTabs.length - 1)];
+
+  int _resolveInitialTopTabIndex(List<_SecurityTopTab> visibleTabs) {
+    final desired = switch (widget.mode) {
+      SecurityManagementMode.officerPatrol ||
+      SecurityManagementMode.managePatrol =>
+        _SecurityTopTab.patroli,
+      SecurityManagementMode.officerPaket ||
+      SecurityManagementMode.managePaket =>
+        _SecurityTopTab.paket,
+      SecurityManagementMode.full => switch (widget.initialTopTabIndex ?? 0) {
+        1 => _SecurityTopTab.absensi,
+        2 => _SecurityTopTab.perangkat,
+        3 => _SecurityTopTab.patroli,
+        4 => _SecurityTopTab.paket,
+        _ => _SecurityTopTab.kelola,
+      },
+    };
+    final idx = visibleTabs.indexOf(desired);
+    return idx >= 0 ? idx : 0;
+  }
+
+  void _onTopTabsChanged() {
+    if (mounted) setState(() {});
+    if (!_topTabs.indexIsChanging && mounted) {
+      final tab = _activeTopTab;
+      if (tab == _SecurityTopTab.patroli) {
+        ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
+        ref.invalidate(securityAlertsDataProvider);
+        _reloadPatrolTemplates();
+        _reloadPatrolBundles();
+      } else if (tab == _SecurityTopTab.paket) {
+        ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
+        ref.invalidate(securityAlertsDataProvider);
+        _reloadPaketReports();
+      } else if (tab == _SecurityTopTab.absensi && _absensiTabs.index == 1) {
+        ref
+            .read(securityApiClientProvider)
+            .markReadReceipt(domain: 'correction');
+        ref.invalidate(securityAlertsDataProvider);
+        _loadData();
+      } else {
+        _loadData();
+      }
+    }
+  }
+
   bool get _canWrite => userHasPermission(_user, 'security.schedule.write');
   bool get _canManageDevices =>
       userHasPermission(_user, 'security.device.manage');
@@ -132,16 +222,17 @@ class _SecurityManagementScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final initialIndex = widget.mode == SecurityManagementMode.officerPatrol
-        ? 3
-        : (widget.mode == SecurityManagementMode.officerPaket
-              ? 4
-              : (widget.initialTopTabIndex ?? 0));
+    _visibleTopTabs = _computeVisibleTopTabs(_user);
+    if (_useSimplifiedPaketList) {
+      _paketFilterStatus = 'dititipkan';
+    }
+    final initialIndex = _resolveInitialTopTabIndex(_visibleTopTabs);
     _topTabs = TabController(
-      length: 5,
+      length: _visibleTopTabs.length,
       vsync: this,
       initialIndex: initialIndex,
     );
+    _topTabs.addListener(_onTopTabsChanged);
     _kelolaTabs = TabController(length: 3, vsync: this);
     int absensiSubIndex = 0;
     if (widget.initialSubTab == 'corrections' || widget.initialSubTab == 'koreksi') {
@@ -168,7 +259,6 @@ class _SecurityManagementScreenState
       initialIndex: paketSubIndex,
     );
     for (final ctrl in [
-      _topTabs,
       _kelolaTabs,
       _absensiTabs,
       _patroliTabs,
@@ -177,30 +267,7 @@ class _SecurityManagementScreenState
       ctrl.addListener(() {
         if (mounted) setState(() {});
         if (!ctrl.indexIsChanging && mounted) {
-          if (ctrl == _topTabs) {
-            if (_topTabs.index == 3) {
-              ref
-                  .read(securityApiClientProvider)
-                  .markReadReceipt(domain: 'patrol');
-              ref.invalidate(securityAlertsDataProvider);
-              _reloadPatrolTemplates();
-              _reloadPatrolBundles();
-            } else if (_topTabs.index == 4) {
-              ref
-                  .read(securityApiClientProvider)
-                  .markReadReceipt(domain: 'paket');
-              ref.invalidate(securityAlertsDataProvider);
-              _reloadPaketReports();
-            } else if (_topTabs.index == 1 && _absensiTabs.index == 1) {
-              ref
-                  .read(securityApiClientProvider)
-                  .markReadReceipt(domain: 'correction');
-              ref.invalidate(securityAlertsDataProvider);
-              _loadData();
-            } else {
-              _loadData();
-            }
-          } else if (ctrl == _paketTabs) {
+          if (ctrl == _paketTabs) {
             if (_paketTabs.index == 1) {
               ref
                   .read(securityApiClientProvider)
@@ -209,7 +276,8 @@ class _SecurityManagementScreenState
               _reloadPaketReports();
             }
           } else {
-            if (_topTabs.index == 1 && _absensiTabs.index == 1) {
+            if (_activeTopTab == _SecurityTopTab.absensi &&
+                _absensiTabs.index == 1) {
               ref
                   .read(securityApiClientProvider)
                   .markReadReceipt(domain: 'correction');
@@ -221,12 +289,22 @@ class _SecurityManagementScreenState
       });
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (initialIndex == 3) {
+      final isPatrolStart =
+          widget.mode == SecurityManagementMode.officerPatrol ||
+          widget.mode == SecurityManagementMode.managePatrol ||
+          (widget.mode == SecurityManagementMode.full &&
+              _activeTopTab == _SecurityTopTab.patroli);
+      final isPaketStart =
+          widget.mode == SecurityManagementMode.officerPaket ||
+          widget.mode == SecurityManagementMode.managePaket ||
+          (widget.mode == SecurityManagementMode.full &&
+              _activeTopTab == _SecurityTopTab.paket);
+      if (isPatrolStart) {
         ref.read(securityApiClientProvider).markReadReceipt(domain: 'patrol');
         ref.invalidate(securityAlertsDataProvider);
         _reloadPatrolTemplates();
         _reloadPatrolBundles();
-      } else if (initialIndex == 4) {
+      } else if (isPaketStart) {
         ref.read(securityApiClientProvider).markReadReceipt(domain: 'paket');
         ref.invalidate(securityAlertsDataProvider);
         _reloadPaketReports();
@@ -251,6 +329,7 @@ class _SecurityManagementScreenState
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _topTabs.removeListener(_onTopTabsChanged);
     _topTabs.dispose();
     _kelolaTabs.dispose();
     _absensiTabs.dispose();
@@ -1580,8 +1659,9 @@ class _SecurityManagementScreenState
     if (widget.mode != SecurityManagementMode.full) {
       return null;
     }
+    final activeTab = _activeTopTab;
     // Kelola group → Shift / Jadwal only (Petugas has none)
-    if (_topTabs.index == 0) {
+    if (activeTab == _SecurityTopTab.kelola) {
       if (_kelolaTabs.index == 1 && _canWrite) {
         return AccentActionFab(
           tooltip: 'Tambah Shift',
@@ -1599,7 +1679,7 @@ class _SecurityManagementScreenState
       return null;
     }
     // Perangkat group
-    if (_topTabs.index == 2 && _canManageDevices) {
+    if (activeTab == _SecurityTopTab.perangkat && _canManageDevices) {
       return AccentActionFab(
         tooltip: 'Tambah Perangkat',
         icon: Icons.tablet_android,
@@ -1607,15 +1687,20 @@ class _SecurityManagementScreenState
       );
     }
     // Patroli group
-    if (_topTabs.index == 3 && _patroliTabs.index == 0 && _canPatrolWrite) {
+    if (activeTab == _SecurityTopTab.patroli &&
+        _patroliTabs.index == 0 &&
+        _canPatrolWrite) {
       return AccentActionFab(
         tooltip: 'Kirim Patroli',
         icon: Icons.send,
         onPressed: _submitPatrol,
       );
     }
-    // Paket group
-    if (_topTabs.index == 4 && _paketTabs.index == 1 && _canPaketWrite) {
+    // Paket group (only for roles with Penerimaan tab, never Ketua RT simplified list)
+    if (activeTab == _SecurityTopTab.paket &&
+        !_useSimplifiedPaketList &&
+        _paketTabs.index == 1 &&
+        _canPaketWrite) {
       return AccentActionFab(
         tooltip: 'Titip Paket',
         icon: Icons.add_box,
@@ -2089,37 +2174,42 @@ class _SecurityManagementScreenState
               fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
-            tabs: [
-              const Tab(
-                icon: Icon(Icons.groups_outlined, size: 20),
-                text: 'Kelola',
-              ),
-              Tab(
-                icon: Badge(
-                  isLabelVisible: alertsData.pendingCorrectionsUnread > 0,
-                  label: Text('${alertsData.pendingCorrectionsUnread}'),
-                  child: const Icon(Icons.qr_code_scanner, size: 20),
+            tabs: _visibleTopTabs.map((tab) {
+              return switch (tab) {
+                _SecurityTopTab.kelola => const Tab(
+                  icon: Icon(Icons.groups_outlined, size: 20),
+                  text: 'Kelola',
                 ),
-                text: 'Absensi',
-              ),
-              const Tab(icon: Icon(Icons.tablet, size: 20), text: 'Perangkat'),
-              Tab(
-                icon: Badge(
-                  isLabelVisible: alertsData.patrolUnread > 0,
-                  label: Text('${alertsData.patrolUnread}'),
-                  child: const Icon(Icons.local_police_outlined, size: 20),
+                _SecurityTopTab.absensi => Tab(
+                  icon: Badge(
+                    isLabelVisible: alertsData.pendingCorrectionsUnread > 0,
+                    label: Text('${alertsData.pendingCorrectionsUnread}'),
+                    child: const Icon(Icons.qr_code_scanner, size: 20),
+                  ),
+                  text: 'Absensi',
                 ),
-                text: 'Patroli',
-              ),
-              Tab(
-                icon: Badge(
-                  isLabelVisible: alertsData.paketUnread > 0,
-                  label: Text('${alertsData.paketUnread}'),
-                  child: const Icon(Icons.inventory_2_outlined, size: 20),
+                _SecurityTopTab.perangkat => const Tab(
+                  icon: Icon(Icons.tablet, size: 20),
+                  text: 'Perangkat',
                 ),
-                text: 'Paket',
-              ),
-            ],
+                _SecurityTopTab.patroli => Tab(
+                  icon: Badge(
+                    isLabelVisible: alertsData.patrolUnread > 0,
+                    label: Text('${alertsData.patrolUnread}'),
+                    child: const Icon(Icons.local_police_outlined, size: 20),
+                  ),
+                  text: 'Patroli',
+                ),
+                _SecurityTopTab.paket => Tab(
+                  icon: Badge(
+                    isLabelVisible: alertsData.paketUnread > 0,
+                    label: Text('${alertsData.paketUnread}'),
+                    child: const Icon(Icons.inventory_2_outlined, size: 20),
+                  ),
+                  text: 'Paket',
+                ),
+              };
+            }).toList(),
           ),
           const Divider(height: 1),
           // Level 2 — contextual sub tabs
@@ -2131,8 +2221,8 @@ class _SecurityManagementScreenState
 
   Widget _subTabsBar(ThemeData theme, SecurityAlertsData alertsData) {
     const unselected = Color(0xff8a9ab0);
-    switch (_topTabs.index) {
-      case 1:
+    switch (_activeTopTab) {
+      case _SecurityTopTab.absensi:
         return TabBar(
           controller: _absensiTabs,
           isScrollable: false,
@@ -2162,9 +2252,9 @@ class _SecurityManagementScreenState
             ),
           ],
         );
-      case 2:
+      case _SecurityTopTab.perangkat:
         return const SizedBox.shrink();
-      case 3:
+      case _SecurityTopTab.patroli:
         final manageOnly = _canManageTemplates && !_canPatrolWrite;
         return TabBar(
           controller: _patroliTabs,
@@ -2201,7 +2291,10 @@ class _SecurityManagementScreenState
             ),
           ],
         );
-      case 4:
+      case _SecurityTopTab.paket:
+        if (_useSimplifiedPaketList) {
+          return const SizedBox.shrink();
+        }
         return TabBar(
           controller: _paketTabs,
           isScrollable: false,
@@ -2234,7 +2327,7 @@ class _SecurityManagementScreenState
             ),
           ],
         );
-      default:
+      case _SecurityTopTab.kelola:
         return TabBar(
           controller: _kelolaTabs,
           isScrollable: false,
@@ -2264,16 +2357,40 @@ class _SecurityManagementScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final permissions = _user?['effective_permissions'] is List
-        ? (_user!['effective_permissions'] as List).whereType<String>().toSet()
+    final currentUser = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final desiredTopTabs = _computeVisibleTopTabs(currentUser);
+    if (!listEquals(desiredTopTabs, _visibleTopTabs)) {
+      final prevTab = _activeTopTab;
+      _visibleTopTabs = desiredTopTabs;
+      final nextIdx = _visibleTopTabs.indexOf(prevTab);
+      _topTabs.removeListener(_onTopTabsChanged);
+      _topTabs.dispose();
+      _topTabs = TabController(
+        length: _visibleTopTabs.length,
+        vsync: this,
+        initialIndex: nextIdx >= 0 ? nextIdx : 0,
+      );
+      _topTabs.addListener(_onTopTabsChanged);
+    }
+
+    final permissions = currentUser?['effective_permissions'] is List
+        ? (currentUser!['effective_permissions'] as List)
+              .whereType<String>()
+              .toSet()
         : <String>{};
     final canRead =
+        isSuperAdminUser(currentUser) ||
+        isKetuaRTUser(currentUser) ||
+        isHumasUser(currentUser) ||
         permissions.contains('security.schedule.read') ||
         permissions.contains('security.schedule.write') ||
         permissions.contains('security.device.manage') ||
         permissions.contains('security.correction') ||
         permissions.contains('patrol.read') ||
+        permissions.contains('patrol.create') ||
+        permissions.contains('patrol.template.manage') ||
         permissions.contains('paket.read') ||
+        permissions.contains('paket.create') ||
         permissions.contains('security.attendance') ||
         _canGuestRead;
     if (!canRead) {
@@ -2286,6 +2403,87 @@ class _SecurityManagementScreenState
         body: const Center(
           child: Text('Anda tidak memiliki akses ke modul keamanan.'),
         ),
+      );
+    }
+
+    if (widget.mode == SecurityManagementMode.managePatrol) {
+      final alertsData =
+          ref.watch(securityAlertsDataProvider).valueOrNull ??
+          const SecurityAlertsData();
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Patroli'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                _reloadPatrolTemplates();
+                _reloadPatrolBundles();
+              },
+            ),
+          ],
+          bottom: TabBar(
+            controller: _patroliTabs,
+            labelColor: theme.colorScheme.onSurface,
+            unselectedLabelColor: const Color(0xff8a9ab0),
+            indicatorColor: AppColors.accent,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorWeight: 2,
+            tabs: [
+              const Tab(
+                icon: Icon(Icons.list_alt, size: 16),
+                text: 'Template Gang',
+              ),
+              Tab(
+                icon: Badge(
+                  isLabelVisible: alertsData.patrolUnread > 0,
+                  label: Text('${alertsData.patrolUnread}'),
+                  child: const Icon(Icons.history, size: 16),
+                ),
+                text: 'Riwayat',
+              ),
+            ],
+          ),
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                controller: _patroliTabs,
+                children: [_patrolTemplatesTab(theme), _patrolHistoryTab()],
+              ),
+      );
+    }
+
+    if (widget.mode == SecurityManagementMode.managePaket) {
+      if (isHumasUser(currentUser)) {
+        return Scaffold(
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            centerTitle: false,
+            title: const MenuAppBarTitle(title: 'PAKET'),
+          ),
+          body: const Center(
+            child: Text('Anda tidak memiliki akses ke menu Paket.'),
+          ),
+        );
+      }
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'PAKET'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _reloadPaketReports,
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _paketListTab(),
       );
     }
 
@@ -2330,6 +2528,18 @@ class _SecurityManagementScreenState
     }
 
     if (widget.mode == SecurityManagementMode.officerPaket) {
+      if (isHumasUser(currentUser)) {
+        return Scaffold(
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            centerTitle: false,
+            title: const MenuAppBarTitle(title: 'PAKET'),
+          ),
+          body: const Center(
+            child: Text('Anda tidak memiliki akses ke menu Paket.'),
+          ),
+        );
+      }
       return Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
@@ -2399,41 +2609,45 @@ class _SecurityManagementScreenState
                   )
                 : TabBarView(
                     controller: _topTabs,
-                    children: [
-                      TabBarView(
-                        controller: _kelolaTabs,
-                        children: [
-                          _officerTab(),
-                          if (userHasPermission(
-                                _user,
-                                'security.schedule.read',
-                              ) ||
-                              _canWrite)
-                            _shiftTab()
-                          else
-                            _scheduleReadOnlyTab(),
-                          _scheduleTab(),
-                        ],
-                      ),
-                      TabBarView(
-                        controller: _absensiTabs,
-                        children: [_attendanceTab(), _correctionTab()],
-                      ),
-                      _deviceTab(),
-                      TabBarView(
-                        controller: _patroliTabs,
-                        children: [
-                          _canManageTemplates && !_canPatrolWrite
-                              ? _patrolTemplatesTab(theme)
-                              : _patrolFormTab(),
-                          _patrolHistoryTab(),
-                        ],
-                      ),
-                      TabBarView(
-                        controller: _paketTabs,
-                        children: [_paketFormTab(), _paketListTab()],
-                      ),
-                    ],
+                    children: _visibleTopTabs.map((tab) {
+                      return switch (tab) {
+                        _SecurityTopTab.kelola => TabBarView(
+                          controller: _kelolaTabs,
+                          children: [
+                            _officerTab(),
+                            if (userHasPermission(
+                                  currentUser,
+                                  'security.schedule.read',
+                                ) ||
+                                _canWrite)
+                              _shiftTab()
+                            else
+                              _scheduleReadOnlyTab(),
+                            _scheduleTab(),
+                          ],
+                        ),
+                        _SecurityTopTab.absensi => TabBarView(
+                          controller: _absensiTabs,
+                          children: [_attendanceTab(), _correctionTab()],
+                        ),
+                        _SecurityTopTab.perangkat => _deviceTab(),
+                        _SecurityTopTab.patroli => TabBarView(
+                          controller: _patroliTabs,
+                          children: [
+                            _canManageTemplates && !_canPatrolWrite
+                                ? _patrolTemplatesTab(theme)
+                                : _patrolFormTab(),
+                            _patrolHistoryTab(),
+                          ],
+                        ),
+                        _SecurityTopTab.paket => _useSimplifiedPaketList
+                            ? _paketListTab()
+                            : TabBarView(
+                                controller: _paketTabs,
+                                children: [_paketFormTab(), _paketListTab()],
+                              ),
+                      };
+                    }).toList(),
                   ),
           ),
         ],
@@ -3787,9 +4001,15 @@ class _SecurityManagementScreenState
             onRefresh: _reloadPaketReports,
             child: filtered.isEmpty
                 ? ListView(
-                    children: const [
-                      SizedBox(height: 180),
-                      Center(child: Text('Tidak ada paket.')),
+                    children: [
+                      const SizedBox(height: 180),
+                      Center(
+                        child: Text(
+                          _paketFilterStatus == 'dititipkan'
+                              ? 'Tidak ada paket yang dititipkan di Pos Security.'
+                              : 'Tidak ada paket.',
+                        ),
+                      ),
                     ],
                   )
                 : ListView.builder(

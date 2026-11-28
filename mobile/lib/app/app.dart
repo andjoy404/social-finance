@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
+import 'package:social_finance/core/utils/permissions.dart';
 
 import 'theme/app_theme.dart';
 import 'navigation_shell.dart';
@@ -23,6 +24,7 @@ import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/keuangan/presentation/screens/keuangan_screen.dart';
 import '../features/kegiatan/presentation/screens/kegiatan_screen.dart';
 import '../features/kegiatan/presentation/screens/kegiatan_detail_screen.dart';
+import '../features/kegiatan/presentation/screens/kegiatan_form_screen.dart';
 import '../features/pengumuman/presentation/screens/pengumuman_screen.dart';
 import '../features/pengumuman/presentation/screens/announcement_detail_screen.dart';
 import '../features/pengumuman/presentation/screens/announcement_form_screen.dart';
@@ -483,7 +485,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     }
 
     final jab = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
-    if (jab == 'humas') {
+    if (isHumasUser(user)) {
       if (loc == '/home/keuangan') {
         final rwId = _getEffectiveRwIdFromUser(user);
         return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
@@ -494,6 +496,57 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       }
       if (loc.startsWith('/home/lokasi-dana')) {
         return '/home';
+      }
+      if (loc == '/home/paket') {
+        return '/home';
+      }
+      if (loc == '/home/security-management') {
+        final tab = uri?.queryParameters['tab'];
+        if (tab == 'paket') {
+          return '/home/security-management';
+        }
+        if (tab == 'patrol') {
+          final params = <String, String>{};
+          final subtab = uri?.queryParameters['subtab'];
+          final bundleId = uri?.queryParameters['bundle_id'];
+          if (subtab != null && subtab.isNotEmpty) params['subtab'] = subtab;
+          if (bundleId != null && bundleId.isNotEmpty) {
+            params['bundle_id'] = bundleId;
+          }
+          return Uri(
+            path: '/home/patroli',
+            queryParameters: params.isEmpty ? null : params,
+          ).toString();
+        }
+      }
+    }
+    if (isKetuaRTUser(user) && loc == '/home/security-management') {
+      final tab = uri?.queryParameters['tab'];
+      if (tab == 'patrol') {
+        final params = <String, String>{};
+        final subtab = uri?.queryParameters['subtab'];
+        final bundleId = uri?.queryParameters['bundle_id'];
+        if (subtab != null && subtab.isNotEmpty) params['subtab'] = subtab;
+        if (bundleId != null && bundleId.isNotEmpty) {
+          params['bundle_id'] = bundleId;
+        }
+        return Uri(
+          path: '/home/patroli',
+          queryParameters: params.isEmpty ? null : params,
+        ).toString();
+      }
+      if (tab == 'paket') {
+        final params = <String, String>{};
+        final subtab = uri?.queryParameters['subtab'];
+        final reportId = uri?.queryParameters['report_id'];
+        if (subtab != null && subtab.isNotEmpty) params['subtab'] = subtab;
+        if (reportId != null && reportId.isNotEmpty) {
+          params['report_id'] = reportId;
+        }
+        return Uri(
+          path: '/home/paket',
+          queryParameters: params.isEmpty ? null : params,
+        ).toString();
       }
     }
     if ((jab == 'operasional' || jab == 'sosial') &&
@@ -1127,7 +1180,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
-          if (jabatan == 'humas') {
+          if (isHumasUser(user)) {
             if (loc == '/home/keuangan') {
               final rwId = _getEffectiveRwIdFromUser(user);
               return rwId.isNotEmpty ? '/rw/$rwId/keuangan?tab=beranda' : '/home';
@@ -1138,6 +1191,63 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             }
             if (loc.startsWith('/home/lokasi-dana')) {
               return '/home';
+            }
+            if (loc == '/home/paket') {
+              return '/home';
+            }
+            if (loc == '/home/security-management') {
+              final tab = state.uri.queryParameters['tab'];
+              if (tab == 'paket') {
+                return '/home/security-management';
+              }
+              if (tab == 'patrol') {
+                final params = <String, String>{};
+                final subtab = state.uri.queryParameters['subtab'];
+                final bundleId = state.uri.queryParameters['bundle_id'];
+                if (subtab != null && subtab.isNotEmpty) {
+                  params['subtab'] = subtab;
+                }
+                if (bundleId != null && bundleId.isNotEmpty) {
+                  params['bundle_id'] = bundleId;
+                }
+                return Uri(
+                  path: '/home/patroli',
+                  queryParameters: params.isEmpty ? null : params,
+                ).toString();
+              }
+            }
+          }
+          if (isKetuaRTUser(user) && loc == '/home/security-management') {
+            final tab = state.uri.queryParameters['tab'];
+            if (tab == 'patrol') {
+              final params = <String, String>{};
+              final subtab = state.uri.queryParameters['subtab'];
+              final bundleId = state.uri.queryParameters['bundle_id'];
+              if (subtab != null && subtab.isNotEmpty) {
+                params['subtab'] = subtab;
+              }
+              if (bundleId != null && bundleId.isNotEmpty) {
+                params['bundle_id'] = bundleId;
+              }
+              return Uri(
+                path: '/home/patroli',
+                queryParameters: params.isEmpty ? null : params,
+              ).toString();
+            }
+            if (tab == 'paket') {
+              final params = <String, String>{};
+              final subtab = state.uri.queryParameters['subtab'];
+              final reportId = state.uri.queryParameters['report_id'];
+              if (subtab != null && subtab.isNotEmpty) {
+                params['subtab'] = subtab;
+              }
+              if (reportId != null && reportId.isNotEmpty) {
+                params['report_id'] = reportId;
+              }
+              return Uri(
+                path: '/home/paket',
+                queryParameters: params.isEmpty ? null : params,
+              ).toString();
             }
           }
           if ((jabatan == 'operasional' || jabatan == 'sosial') &&
@@ -1289,11 +1399,25 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               builder: (context, state) => const KegiatanScreen(),
               routes: [
                 GoRoute(
+                  path: 'create',
+                  name: 'kegiatan_create',
+                  builder: (context, state) => const KegiatanFormScreen(),
+                ),
+                GoRoute(
                   path: ':id',
                   name: 'kegiatan_detail',
                   builder: (context, state) => KegiatanDetailScreen(
                     activityId: state.pathParameters['id']!,
                   ),
+                  routes: [
+                    GoRoute(
+                      path: 'edit',
+                      name: 'kegiatan_edit',
+                      builder: (context, state) => KegiatanFormScreen(
+                        activityId: state.pathParameters['id'],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1405,16 +1529,44 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/patroli',
               name: 'security_patroli',
-              builder: (context, state) => const SecurityManagementScreen(
-                mode: SecurityManagementMode.officerPatrol,
-              ),
+              builder: (context, state) {
+                final user = ref.read(authRepositoryProvider)?.valueOrNull;
+                final jabatan = (user?['jabatan'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                final subtab = state.uri.queryParameters['subtab'];
+                final bundleId = state.uri.queryParameters['bundle_id'];
+                final useManagePatrol = jabatan != 'keamanan' &&
+                    (isKetuaRTUser(user) ||
+                        isHumasUser(user) ||
+                        (userHasPermission(user, 'patrol.template.manage') &&
+                            !userHasPermission(user, 'patrol.create')));
+                return SecurityManagementScreen(
+                  mode: useManagePatrol
+                      ? SecurityManagementMode.managePatrol
+                      : SecurityManagementMode.officerPatrol,
+                  initialSubTab: subtab,
+                  targetId: bundleId,
+                );
+              },
             ),
             GoRoute(
               path: '/home/paket',
               name: 'security_paket',
-              builder: (context, state) => const SecurityManagementScreen(
-                mode: SecurityManagementMode.officerPaket,
-              ),
+              builder: (context, state) {
+                final user = ref.read(authRepositoryProvider)?.valueOrNull;
+                final subtab = state.uri.queryParameters['subtab'];
+                final reportId = state.uri.queryParameters['report_id'];
+                final useManagePaket = isKetuaRTUser(user);
+                return SecurityManagementScreen(
+                  mode: useManagePaket
+                      ? SecurityManagementMode.managePaket
+                      : SecurityManagementMode.officerPaket,
+                  initialSubTab: subtab,
+                  targetId: reportId,
+                );
+              },
               routes: [
                 GoRoute(
                   path: 'detail/:id',

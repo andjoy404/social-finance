@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -16,6 +17,7 @@ import 'package:social_finance/core/widgets/app_button.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/authenticated_network_image.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/notification/data/notification_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
 
@@ -155,6 +157,20 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
     ref.invalidate(rwNotificationLogsProvider((rwId: widget.rwId, page: _page, eventType: null)));
     ref.invalidate(rwNotificationLogsMineProvider((rwId: widget.rwId, page: _minePage, eventType: null)));
     ref.invalidate(rwNotificationTemplatesProvider(widget.rwId));
+    ref.invalidate(rwUnreadCountProvider(widget.rwId));
+  }
+
+  Future<void> _markRwLogReadAndSync(RwNotificationLog n) async {
+    final id = n.id.trim();
+    if (id.isEmpty || n.isRead) return;
+    try {
+      await ref.read(notificationRepositoryProvider).markAsRead(id);
+      if (!mounted) return;
+      ref.invalidate(rwUnreadCountProvider(widget.rwId));
+      ref.read(notificationUnreadCountProvider.notifier).refresh();
+    } catch (_) {
+      // Follow existing rule: if markAsRead fails, do not falsely clear badge.
+    }
   }
 
   Future<void> _sendManualPush() async {
@@ -907,6 +923,19 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
     final logsAsync = ref.watch(rwNotificationLogsProvider((rwId: widget.rwId, page: _page, eventType: null)));
     final templatesAsync = ref.watch(rwNotificationTemplatesProvider(widget.rwId));
     final templateCount = templatesAsync.valueOrNull?.length;
+    final rwMemberships = (user?['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
+            .toList() ??
+        const <RWMembership>[];
+    final isRwBadgeEligible = isRwUnreadBadgeEligible(
+      user,
+      rwMemberships: rwMemberships,
+      rwId: widget.rwId,
+    );
+    final hasRiwayatUnread = isRwBadgeEligible &&
+        widget.rwId.isNotEmpty &&
+        ref.watch(rwTabUnreadStateProvider(widget.rwId)).hasNotifikasiUnread;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -960,8 +989,32 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
                   ],
                 ),
               ),
-              const Tab(
-                icon: Icon(Icons.history_outlined, size: 18),
+              Tab(
+                icon: hasRiwayatUnread
+                    ? Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          const Icon(Icons.history_outlined, size: 18),
+                          Positioned(
+                            top: -2,
+                            right: -4,
+                            child: Container(
+                              key: const Key('rw-subtab-riwayat-unread-dot'),
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: AppColors.danger,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: theme.scaffoldBackgroundColor,
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : const Icon(Icons.history_outlined, size: 18),
                 text: 'Riwayat Notifikasi Sistem',
               ),
             ],
@@ -1250,6 +1303,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen>
   }
 
   void _showNotificationPreview(RwNotificationLog n) {
+    _markRwLogReadAndSync(n);
     final title = n.title?.isNotEmpty == true ? n.title! : n.eventType;
     final body = n.body ?? '';
     final dateStr = n.createdAt != null ? formatJakartaDetailDateTime(n.createdAt) : '-';

@@ -966,6 +966,63 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
 
   // --- Dialogs & Operations ---
 
+  Future<bool> _confirmCancel(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apakah Anda yakin ingin membatalkan?'),
+        content: const Text(
+          'Perubahan yang belum disimpan akan hilang.',
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    key: const Key('fund-cancel-stay'),
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B7280),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Tetap di Halaman'),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    key: const Key('fund-cancel-confirm'),
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Ya, Batalkan'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   void _showAddLocationDialog(BuildContext context) {
     final nameCtrl = TextEditingController();
     final bankNameCtrl = TextEditingController();
@@ -975,12 +1032,39 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     bool saving = false;
     String? error;
 
+    bool isDirty() {
+      return category != 'rekening' ||
+          nameCtrl.text.trim().isNotEmpty ||
+          bankNameCtrl.text.trim().isNotEmpty ||
+          accNoCtrl.text.trim().isNotEmpty ||
+          accHolderCtrl.text.trim().isNotEmpty;
+    }
+
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
+            Future<void> handleCancel() async {
+              if (saving) return;
+              if (!isDirty()) {
+                Navigator.of(dialogCtx).pop();
+                return;
+              }
+              final confirmed = await _confirmCancel(dialogCtx);
+              if (confirmed && dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+            }
+
+            return PopScope(
+              canPop: !isDirty() && !saving,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                await handleCancel();
+              },
+              child: AlertDialog(
               title: const Text('Tambah Lokasi Dana'),
               content: SingleChildScrollView(
                 child: Column(
@@ -1020,6 +1104,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     const SizedBox(height: 12),
                     TextField(
                       controller: nameCtrl,
+                      onChanged: (_) => setDialogState(() {}),
                       decoration: const InputDecoration(
                         labelText: 'Nama Lokasi (Wajib)',
                       ),
@@ -1028,6 +1113,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: bankNameCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Nama Bank (misal BCA, BRI)',
                         ),
@@ -1035,6 +1121,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: accNoCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Nomor Rekening',
                         ),
@@ -1043,6 +1130,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: accHolderCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Atas Nama Rekening',
                         ),
@@ -1122,6 +1210,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.success,
                                 foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1142,12 +1236,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       ),
                                     )
                                   : const Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.save_outlined, size: 18),
-                                        SizedBox(width: 6),
-                                        Text('Simpan'),
+                                        SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            'Simpan',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),
@@ -1158,13 +1258,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                           child: SizedBox(
                             height: 48,
                             child: ElevatedButton(
-                              onPressed: saving
-                                  ? null
-                                  : () => Navigator.pop(dialogCtx),
+                              key: const Key('fund-add-cancel-btn'),
+                              onPressed: saving ? null : handleCancel,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
                                 elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1172,11 +1276,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                 ),
                               ),
                               child: const Row(
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.close, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Batal'),
+                                  SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      'Batal',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -1187,28 +1297,62 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   void _showEditLocationDialog(BuildContext context, FundLocation loc) {
     final nameCtrl = TextEditingController(text: loc.name);
     final bankNameCtrl = TextEditingController(text: loc.bankName ?? '');
     final accNoCtrl = TextEditingController(text: loc.accountNumber ?? '');
     final accHolderCtrl = TextEditingController(text: loc.accountHolder ?? '');
+    final initialName = loc.name;
+    final initialBankName = loc.bankName ?? '';
+    final initialAccNo = loc.accountNumber ?? '';
+    final initialAccHolder = loc.accountHolder ?? '';
     bool saving = false;
     String? error;
 
+    bool isDirty() {
+      if (nameCtrl.text.trim() != initialName) return true;
+      if (loc.category == FundLocationCategory.rekening) {
+        if (bankNameCtrl.text.trim() != initialBankName) return true;
+        if (accNoCtrl.text.trim() != initialAccNo) return true;
+        if (accHolderCtrl.text.trim() != initialAccHolder) return true;
+      }
+      return false;
+    }
+
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Ubah Lokasi Dana'),
+            Future<void> handleCancel() async {
+              if (saving) return;
+              if (!isDirty()) {
+                Navigator.of(dialogCtx).pop();
+                return;
+              }
+              final confirmed = await _confirmCancel(dialogCtx);
+              if (confirmed && dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+            }
+
+            return PopScope(
+              canPop: !isDirty() && !saving,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                await handleCancel();
+              },
+              child: AlertDialog(
+                title: const Text('Ubah Lokasi Dana'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1223,6 +1367,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     ],
                     TextField(
                       controller: nameCtrl,
+                      onChanged: (_) => setDialogState(() {}),
                       decoration: const InputDecoration(
                         labelText: 'Nama Lokasi',
                       ),
@@ -1231,6 +1376,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: bankNameCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Nama Bank',
                         ),
@@ -1238,6 +1384,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: accNoCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Nomor Rekening',
                         ),
@@ -1246,6 +1393,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       const SizedBox(height: 12),
                       TextField(
                         controller: accHolderCtrl,
+                        onChanged: (_) => setDialogState(() {}),
                         decoration: const InputDecoration(
                           labelText: 'Atas Nama',
                         ),
@@ -1328,7 +1476,12 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.success,
                                 foregroundColor: Colors.white,
-                                // side removed for solid style
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1349,12 +1502,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       ),
                                     )
                                   : const Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.save_outlined, size: 18),
-                                        SizedBox(width: 6),
-                                        Text('Simpan'),
+                                        SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            'Simpan',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),
@@ -1365,13 +1524,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                           child: SizedBox(
                             height: 48,
                             child: ElevatedButton(
-                              onPressed: saving
-                                  ? null
-                                  : () => Navigator.pop(dialogCtx),
+                              key: const Key('fund-edit-cancel-btn'),
+                              onPressed: saving ? null : handleCancel,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
                                 elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 10,
+                                ),
+                                visualDensity: VisualDensity.compact,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.base,
@@ -1379,11 +1542,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                 ),
                               ),
                               child: const Row(
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.close, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Batal'),
+                                  SizedBox(width: 4),
+                                  Flexible(
+                                    child: Text(
+                                      'Batal',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -1394,12 +1563,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   void _confirmDeactivate(BuildContext context, FundLocation loc) {
     showDialog(
@@ -1475,23 +1645,52 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     // Default to location with highest balance as "Dari Lokasi"
     String? fromId = activeLocs.first.id;
     String? toId = activeLocs.length > 1 ? activeLocs[1].id : null;
+    final initialFromId = fromId;
+    final initialToId = toId;
     final amountCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     bool saving = false;
     String? error;
 
+    bool isDirty() {
+      if (fromId != initialFromId) return true;
+      if (toId != initialToId) return true;
+      if (amountCtrl.text.trim().isNotEmpty) return true;
+      if (notesCtrl.text.trim().isNotEmpty) return true;
+      return false;
+    }
+
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (statefulCtx, setDialogState) {
+            Future<void> handleCancel() async {
+              if (saving) return;
+              if (!isDirty()) {
+                Navigator.of(dialogCtx).pop();
+                return;
+              }
+              final confirmed = await _confirmCancel(dialogCtx);
+              if (confirmed && dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+            }
+
             final fromLoc = activeLocs.firstWhere(
               (l) => l.id == fromId,
               orElse: () => activeLocs.first,
             );
 
-            return AlertDialog(
-              title: const Text('Transfer Antar Lokasi'),
+            return PopScope(
+              canPop: !isDirty() && !saving,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                await handleCancel();
+              },
+              child: AlertDialog(
+                title: const Text('Transfer Antar Lokasi'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1722,9 +1921,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                           child: SizedBox(
                             height: 48,
                             child: ElevatedButton(
-                              onPressed: saving
-                                  ? null
-                                  : () => Navigator.pop(dialogCtx),
+                              key: const Key('fund-transfer-cancel-btn'),
+                              onPressed: saving ? null : handleCancel,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.danger,
                                 foregroundColor: Colors.white,
@@ -1762,12 +1960,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   void _showOpeningBalanceDialog(
     BuildContext context,
@@ -1778,18 +1977,47 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     if (activeLocs.isEmpty) return;
 
     String? selectedId = activeLocs.first.id;
+    final initialSelectedId = selectedId;
     final amountCtrl = TextEditingController(text: maxAmount.toString());
     final notesCtrl = TextEditingController(text: 'Alokasi Saldo Awal');
+    final initialAmount = maxAmount.toString();
+    final initialNotes = 'Alokasi Saldo Awal';
     bool saving = false;
     String? error;
 
+    bool isDirty() {
+      if (selectedId != initialSelectedId) return true;
+      if (amountCtrl.text.trim() != initialAmount) return true;
+      if (notesCtrl.text.trim() != initialNotes) return true;
+      return false;
+    }
+
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Alokasi Saldo Awal'),
+            Future<void> handleCancel() async {
+              if (saving) return;
+              if (!isDirty()) {
+                Navigator.of(dialogCtx).pop();
+                return;
+              }
+              final confirmed = await _confirmCancel(dialogCtx);
+              if (confirmed && dialogCtx.mounted) {
+                Navigator.of(dialogCtx).pop();
+              }
+            }
+
+            return PopScope(
+              canPop: !isDirty() && !saving,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                await handleCancel();
+              },
+              child: AlertDialog(
+                title: const Text('Alokasi Saldo Awal'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1840,12 +2068,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
               ),
               actions: [
                 ElevatedButton(
+                  key: const Key('fund-opening-cancel-btn'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: () => Navigator.pop(dialogCtx),
+                  onPressed: saving ? null : handleCancel,
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -1909,12 +2138,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       : const Text('Alokasikan'),
                 ),
               ],
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   void _confirmReverseTransfer(BuildContext context, FundTransfer transfer) {
     final reasonCtrl = TextEditingController();
@@ -1962,7 +2192,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  onPressed: () => Navigator.pop(dialogCtx),
+                  onPressed: submitting ? null : () => Navigator.pop(dialogCtx),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
