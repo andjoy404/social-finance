@@ -382,6 +382,154 @@ void main() {
       expect(popped, isTrue);
     });
 
+    testWidgets('Tambah Kegiatan: default Tampilkan di Banner Beranda aktif, dapat dinonaktifkan, payload mengikuti pilihan', (tester) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            communityRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.darkTheme,
+            home: const KegiatanFormScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Default ON
+      final bannerSwitch = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda'),
+      );
+      expect(bannerSwitch.value, isTrue);
+
+      // User can turn it off
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda'));
+      await tester.pumpAndSettle();
+      final bannerSwitchOff = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda'),
+      );
+      expect(bannerSwitchOff.value, isFalse);
+
+      // Save with toggle off -> payload false
+      await tester.enterText(find.widgetWithText(TextField, 'Judul Kegiatan *'), 'Kegiatan Tanpa Banner');
+      await tester.enterText(find.widgetWithText(TextField, 'Lokasi Kegiatan *'), 'Balai RW');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Simpan'));
+      await tester.pumpAndSettle();
+      expect(mockRepo.lastCreatedPayload, isNotNull);
+      expect(mockRepo.lastCreatedPayload!['show_on_banner'], isFalse);
+    });
+
+    testWidgets('Tambah Kegiatan: simpan tanpa ubah toggle mengirim show_on_banner true', (tester) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            communityRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.darkTheme,
+            home: const KegiatanFormScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextField, 'Judul Kegiatan *'), 'Kegiatan Banner Default');
+      await tester.enterText(find.widgetWithText(TextField, 'Lokasi Kegiatan *'), 'Lapangan');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Simpan'));
+      await tester.pumpAndSettle();
+      expect(mockRepo.lastCreatedPayload, isNotNull);
+      expect(mockRepo.lastCreatedPayload!['show_on_banner'], isTrue);
+    });
+
+    testWidgets('Tambah Kegiatan: form baru kembali default true', (tester) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      Widget buildForm(Key key) => ProviderScope(
+            overrides: [
+              communityRepositoryProvider.overrideWithValue(mockRepo),
+            ],
+            child: MaterialApp(
+              theme: AppTheme.darkTheme,
+              home: KegiatanFormScreen(key: key),
+            ),
+          );
+
+      await tester.pumpWidget(buildForm(const ValueKey('form-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda')).value,
+        isFalse,
+      );
+
+      // Open a fresh new form instance
+      await tester.pumpWidget(buildForm(const ValueKey('form-2')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda')).value,
+        isTrue,
+      );
+    });
+
+    testWidgets('Ubah Kegiatan: nilai showOnBanner mengikuti data tersimpan, tidak dipaksa true', (tester) async {
+      tester.view.physicalSize = const Size(800, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final initial = CommunityActivity(
+        id: 'act-edit-banner',
+        rtId: 'rt-1',
+        title: 'Kegiatan Tanpa Banner',
+        description: 'desc',
+        startDate: DateTime(2026, 12, 10, 8, 0),
+        endDate: null,
+        location: 'Balai',
+        status: 'upcoming',
+        publicationStatus: 'published',
+        showOnBanner: false,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            communityRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.darkTheme,
+            home: KegiatanFormScreen(
+              activityId: 'act-edit-banner',
+              initialActivity: initial,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Edit form must keep stored value (false), not forced to true
+      expect(
+        tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Tampilkan di Banner Beranda')).value,
+        isFalse,
+      );
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Simpan'));
+      await tester.pumpAndSettle();
+      expect(mockRepo.lastUpdatedPayload, isNotNull);
+      expect(mockRepo.lastUpdatedPayload!['show_on_banner'], isFalse);
+    });
+
     testWidgets('No regression on AnnouncementFormScreen dirty confirmation dialog', (tester) async {
       tester.view.physicalSize = const Size(800, 3000);
       tester.view.devicePixelRatio = 1.0;

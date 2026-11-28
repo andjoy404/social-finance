@@ -36,7 +36,7 @@ class _KegiatanFormScreenState extends ConsumerState<KegiatanFormScreen> {
 
   DateTime _startDate = DateTime.now().add(const Duration(days: 3));
   DateTime? _endDate;
-  bool _showOnBanner = false;
+  bool _showOnBanner = true;
   bool _publishNow = false;
   String? _posterUrl;
   BannerStyleConfig? _styleConfig;

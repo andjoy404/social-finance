@@ -134,12 +134,11 @@ class _SecurityManagementScreenState
       ];
     }
     if (isKetuaRTUser(user)) {
-      // Ketua RT: Patroli moved to Main Menu PATROLI.
+      // Ketua RT: Patroli and Paket are in Main Menu; KEAMANAN shows Kelola/Absensi/Perangkat only.
       return const [
         _SecurityTopTab.kelola,
         _SecurityTopTab.absensi,
         _SecurityTopTab.perangkat,
-        _SecurityTopTab.paket,
       ];
     }
     return const [

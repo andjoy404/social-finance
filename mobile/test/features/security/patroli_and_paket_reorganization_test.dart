@@ -428,7 +428,7 @@ void main() {
         expect(find.text('Pak Sutrisno'), findsOneWidget);
         expect(find.textContaining('Situasi kondusif'), findsOneWidget);
 
-        // Now open KEAMANAN -> tab PATROLI MUST NOT appear
+        // Now open KEAMANAN -> tab PATROLI & PAKET MUST NOT appear (Paket is in Main Menu)
         await tester.tap(find.byKey(const Key('nav-item-menu')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('nav-item-keamanan')));
@@ -449,6 +449,10 @@ void main() {
         );
         expect(
           find.descendant(of: keamananTopTabBar, matching: find.text('Patroli')),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: keamananTopTabBar, matching: find.text('Paket')),
           findsNothing,
         );
       },
